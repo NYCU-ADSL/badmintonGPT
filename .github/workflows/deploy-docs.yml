@@ -29,9 +29,17 @@ jobs:
           uvx --from mkdocs-material --with pymdown-extensions \
             mkdocs build -f docs-site/mkdocs.yml
 
+      - name: Ensure Pages project exists (idempotent)
+        continue-on-error: true       # already-exists -> non-zero -> ignore
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project create badmintongpt-docs --production-branch=main
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs-site/site --project-name=badmintongpt-docs --branch=main
+          command: pages deploy docs-site/site --project-name=badmintongpt-docs --branch=main --commit-dirty=true
