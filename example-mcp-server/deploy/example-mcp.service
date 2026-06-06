@@ -1,0 +1,15 @@
+# ~/.config/systemd/user/example-mcp.service
+# systemctl --user daemon-reload && systemctl --user enable --now example-mcp
+[Unit]
+Description=example-mcp MCP server
+After=network-online.target
+
+[Service]
+WorkingDirectory=/path/to/example-mcp-server
+EnvironmentFile=/path/to/example-mcp-server/.env
+ExecStart=/path/to/example-mcp-server/.venv/bin/python server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

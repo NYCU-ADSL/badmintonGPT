@@ -1,0 +1,11 @@
+[project]
+name = "example-mcp-server"
+version = "0.1.0"
+description = "Reference remote MCP server (Streamable HTTP) — see the docs site."
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0",   # official MCP SDK (FastMCP + client); pulls in starlette/httpx
+]
+
+[tool.uv]
+package = false

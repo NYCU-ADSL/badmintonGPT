@@ -1,0 +1,42 @@
+site_name: Remote MCP Server Guide
+site_url: https://badmintongpt.docs.nycu-adsl.cc
+site_description: Build, deploy, and consume a remote MCP server (Streamable HTTP).
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.top
+    - navigation.expand
+    - content.code.copy
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - tables
+  - attr_list
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path:
+        - "."          # repo root (run `mkdocs build` from the repo root); portable for CI
+      check_paths: true
+
+nav:
+  - Guide: index.md
+  - Example server: example.md

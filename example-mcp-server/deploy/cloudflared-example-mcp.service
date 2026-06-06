@@ -1,0 +1,14 @@
+# ~/.config/systemd/user/cloudflared-example-mcp.service
+# systemctl --user daemon-reload && systemctl --user enable --now cloudflared-example-mcp
+# loginctl enable-linger "$USER"   # survive logout / reboot
+[Unit]
+Description=cloudflared tunnel for example-mcp
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/cloudflared tunnel run example-mcp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

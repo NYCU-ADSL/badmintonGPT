@@ -1,0 +1,37 @@
+name: Deploy docs to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "REMOTE_MCP_SERVER_GUIDE.md"
+      - "docs-site/**"
+      - "example-mcp-server/**"
+      - ".github/workflows/deploy-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build static site (MkDocs Material)
+        run: |
+          # bundle the example for the download button, then build
+          (cd example-mcp-server && zip -rq ../docs-site/docs/example-mcp-server.zip . \
+             -x '*/.venv/*' '*/__pycache__/*' '*/.env')
+          uvx --from mkdocs-material --with pymdown-extensions \
+            mkdocs build -f docs-site/mkdocs.yml
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs-site/site --project-name=badmintongpt-docs --branch=main

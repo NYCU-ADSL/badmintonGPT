@@ -1,0 +1,9 @@
+# ~/.cloudflared/config.yml  (one tunnel can host many hostnames)
+# Create the tunnel first:  cloudflared tunnel create example-mcp
+# Route DNS:                cloudflared tunnel route dns example-mcp example-mcp.<your-zone>
+tunnel: <TUNNEL_ID>
+credentials-file: /home/<user>/.cloudflared/<TUNNEL_ID>.json
+ingress:
+  - hostname: example-mcp.<your-zone>
+    service: http://127.0.0.1:8900     # the MCP server; /mcp, /healthz, /files all go here
+  - service: http_status:404           # catch-all (must be last)

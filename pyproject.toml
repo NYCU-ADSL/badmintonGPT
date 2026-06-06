@@ -1,0 +1,18 @@
+[project]
+name = "badmintongpt"
+version = "0.1.0"
+description = "BadmintonGPT — nanobot agent over a badminton SQLite DB + reels MCP + web search"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.0",
+    "huggingface_hub>=0.20",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0",
+    "websockets>=12.0",
+    "jsonschema>=4.0",   # mcp-test: validate tool inputSchema
+    "httpx>=0.27",       # mcp-test: raw healthz / auth-gating probes
+]
+
+# Not a Python package — just a venv holding scripts (ingest.py, db_mcp/, eval/).
+[tool.uv]
+package = false
