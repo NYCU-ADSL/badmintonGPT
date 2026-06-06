@@ -1,5 +1,5 @@
 site_name: Remote MCP Server Guide
-site_url: https://badmintongpt.docs.nycu-adsl.cc
+site_url: https://badmintongpt-docs.nycu-adsl.cc
 site_description: Build, deploy, and consume a remote MCP server (Streamable HTTP).
 docs_dir: docs
 
