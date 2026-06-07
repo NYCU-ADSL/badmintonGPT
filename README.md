@@ -54,6 +54,7 @@ cp .env.example .env          # 填入 OPENAI_API_KEY 與 CF_ACCESS_CLIENT_ID/SE
 ```bash
 ln -sfn "$PWD/skills/badminton-db"    ~/.nanobot/workspace/skills/badminton-db
 ln -sfn "$PWD/skills/badminton-reels" ~/.nanobot/workspace/skills/badminton-reels
+ln -sfn "$PWD/skills/long-mcp-job"    ~/.nanobot/workspace/skills/long-mcp-job
 ```
 
 ## 執行
