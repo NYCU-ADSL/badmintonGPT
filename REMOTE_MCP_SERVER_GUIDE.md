@@ -96,9 +96,12 @@ Expected success output:
 ```
 tools: ['add', 'echo', 'start_render', 'get_render_status', 'get_render_result']
 add(2,3) -> {'sum': 5.0}
-start_render -> {'job_id': '3226bea9...', 'state': 'queued'}
-status -> {'job_id': '3226bea9...', 'state': 'succeeded', 'error': None}
-result -> {'ready': True, 'url': 'http://127.0.0.1:8900/files/3226bea9...'}
+start_render -> {'job_id': '2669ffa4...', 'state': 'queued'}
+status -> running 1/3 [1/3] preparing assets
+status -> running 2/3 [2/3] rendering frames
+status -> running 3/3 [3/3] encoding output
+status -> succeeded 3/3 done
+result -> {'ready': True, 'url': 'http://127.0.0.1:8900/files/2669ffa4...'}
 OK ✅
 ```
 
@@ -159,13 +162,35 @@ Never block a tool for minutes. Split long work into three tools:
 | Tool | Input | Output |
 |---|---|---|
 | `start_<x>` | job spec | `{job_id, state}` |
-| `get_<x>_status` | `job_id` | `{state, error?}` |
+| `get_<x>_status` | `job_id` | `{job_id, state, stage, total_stages, message, error?}` |
 | `get_<x>_result` | `job_id` | `{ready, url, …}` |
 
-`state ∈ {queued, running, succeeded, failed}`. The client calls `start_*`, polls `get_*_status` until
-terminal, then `get_*_result`. See `start_render` / `get_render_status` / `get_render_result` in
-`example-mcp-server/server.py` (a background thread does the work; the demo job store is in-memory — use a
-DB/redis/file in production so it survives restarts).
+`state ∈ {queued, running, succeeded, failed}` — **exactly** these four; clients treat
+`succeeded` / `failed` as terminal. The client calls `start_*`, polls `get_*_status` (typically every
+10–60 s) until terminal, then calls `get_*_result`. See `start_render` / `get_render_status` /
+`get_render_result` in `example-mcp-server/server.py` (a background thread does the work; the demo job
+store is in-memory — use a DB/redis/file in production so it survives restarts).
+
+#### Progress reporting (required for long jobs)
+
+Status responses drive the caller's UI — consuming agents render a **live progress bar** automatically
+from these fields, so report them on every poll:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `stage` | int | current step, `0..total_stages` |
+| `total_stages` | int | total number of steps |
+| `message` | str | one-line human-readable current step, e.g. `"[2/3] rendering frames"` |
+| `job_id` | str | echo it in every payload so clients can correlate polls |
+
+Rules:
+
+- `get_<x>_status` must return **immediately** — clients poll it; never block inside it.
+- **Derive `total_stages` from the real pipeline** (e.g. `len(STEPS)`, or thread the total through your
+  progress callback). A hardcoded total silently desyncs when you add a step — the caller's progress
+  bar then shows `6/5`.
+- On success, set `stage = total_stages` so the bar completes at 100%.
+- `get_<x>_result` returns `ready: true` **only** after `state == "succeeded"`.
 
 ### File delivery
 
@@ -302,7 +327,7 @@ problem is in the tunnel/Access layer, not your server.
 - [ ] First-level subdomain (free SSL coverage).
 - [ ] Secrets in env / `.env`, never committed.
 - [ ] Inputs validated; tools return JSON, `{"error": ...}` on failure.
-- [ ] Long tasks use the async job contract; tools never block.
+- [ ] Long tasks use the async job contract and report `stage`/`total_stages`/`message` in status; tools never block.
 - [ ] Artifacts returned as URLs, not local paths.
 - [ ] `GET /healthz` present.
 - [ ] Server + tunnel run under systemd (`Restart=always`, linger enabled).

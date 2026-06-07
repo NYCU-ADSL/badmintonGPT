@@ -50,13 +50,27 @@ def echo(text: str) -> dict:
 
 
 # ---- async job (start -> status -> result), with file output ------------------
+# Progress reporting: the worker updates stage/total_stages/message as it goes, and
+# get_render_status echoes them. Consuming agents/UIs use these fields to render a
+# live progress bar. Derive the total from the actual step list — never hardcode it
+# somewhere else, or the bar will desync when you add a step.
+RENDER_STEPS = ["preparing assets", "rendering frames", "encoding output"]
+
+
 def _run_render(job_id: str, spec: dict) -> None:
     try:
-        JOBS[job_id] |= {"state": "running"}
-        time.sleep(2)  # pretend this is heavy work (video/render/GPU/etc.)
+        total = len(RENDER_STEPS)
+        for i, step in enumerate(RENDER_STEPS, start=1):
+            JOBS[job_id] |= {
+                "state": "running",
+                "stage": i,
+                "total_stages": total,
+                "message": f"[{i}/{total}] {step}",
+            }
+            time.sleep(1)  # pretend each step is heavy work (video/render/GPU/etc.)
         out = OUTPUT_DIR / f"{job_id}.txt"
         out.write_text(f"rendered with spec={spec}\n", encoding="utf-8")
-        JOBS[job_id] |= {"state": "succeeded", "path": str(out)}
+        JOBS[job_id] |= {"state": "succeeded", "stage": total, "message": "done", "path": str(out)}
     except Exception as e:  # noqa: BLE001
         JOBS[job_id] |= {"state": "failed", "error": str(e)}
 
@@ -65,18 +79,29 @@ def _run_render(job_id: str, spec: dict) -> None:
 def start_render(spec: dict | None = None) -> dict:
     """Start a long render job. Returns {job_id, state} immediately (async)."""
     job_id = uuid.uuid4().hex
-    JOBS[job_id] = {"state": "queued"}
+    JOBS[job_id] = {"state": "queued", "stage": 0, "total_stages": len(RENDER_STEPS), "message": "queued"}
     threading.Thread(target=_run_render, args=(job_id, spec or {}), daemon=True).start()
     return {"job_id": job_id, "state": "queued"}
 
 
 @mcp.tool()
 def get_render_status(job_id: str) -> dict:
-    """Return {state, error?} for a render job. state in queued|running|succeeded|failed."""
+    """Return job progress: {job_id, state, stage, total_stages, message, error?}.
+
+    state in queued|running|succeeded|failed. stage/total_stages/message let the
+    calling agent/UI show a live progress bar. Must return immediately (clients poll).
+    """
     j = JOBS.get(job_id)
     if not j:
         return {"error": f"no such job: {job_id}"}
-    return {"job_id": job_id, "state": j["state"], "error": j.get("error")}
+    return {
+        "job_id": job_id,
+        "state": j["state"],
+        "stage": j.get("stage", 0),
+        "total_stages": j.get("total_stages", 0),
+        "message": j.get("message", ""),
+        "error": j.get("error"),
+    }
 
 
 @mcp.tool()

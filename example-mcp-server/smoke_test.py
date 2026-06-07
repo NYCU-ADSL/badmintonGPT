@@ -55,10 +55,11 @@ async def run(url: str, headers: dict[str, str]) -> None:
             print("start_render ->", start)
             for _ in range(20):
                 st = _payload(await s.call_tool("get_render_status", {"job_id": job_id}))
+                # stage/total_stages/message are what an agent UI turns into a progress bar
+                print(f"status -> {st.get('state')} {st.get('stage')}/{st.get('total_stages')} {st.get('message', '')}")
                 if st.get("state") in ("succeeded", "failed"):
                     break
                 await asyncio.sleep(1)
-            print("status ->", st)
             res = _payload(await s.call_tool("get_render_result", {"job_id": job_id}))
             print("result ->", res)
             assert res.get("ready") and res.get("url"), "render did not produce a URL"
