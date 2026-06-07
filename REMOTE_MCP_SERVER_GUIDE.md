@@ -300,6 +300,37 @@ asyncio.run(main())
 Agent frameworks register it the same way: a streamable-HTTP MCP server at the `/mcp` URL with those two
 headers.
 
+### Hand-off: the registration JSON
+
+When your server is deployed, the deliverable to the consuming agent team is **one JSON block** —
+most agent frameworks (nanobot, Claude Desktop, …) register MCP servers in exactly this shape —
+plus the service-token values sent over a secure channel:
+
+```json
+{
+  "mcpServers": {
+    "example-mcp": {
+      "type": "streamableHttp",
+      "url": "https://example-mcp.<your-zone>/mcp",
+      "headers": {
+        "CF-Access-Client-Id": "${EXAMPLE_CF_CLIENT_ID}",
+        "CF-Access-Client-Secret": "${EXAMPLE_CF_CLIENT_SECRET}"
+      },
+      "enabledTools": ["add", "echo", "start_render", "get_render_status", "get_render_result"]
+    }
+  }
+}
+```
+
+- Keep `${VAR}` placeholders in the JSON — the consumer stores the real token values in their own
+  `.env` and the framework substitutes them at startup. Never put the secret itself in the JSON.
+- **Name the env vars after your server** (`EXAMPLE_CF_*`) so a consumer can hold tokens for several
+  MCP servers side by side without collisions.
+- `enabledTools` is the consumer-side whitelist — list exactly the tools you intend them to call.
+- Alongside the JSON, hand over: the tool list with one-line descriptions, the async-job contract
+  fields if you have long tasks (see *Server reference*), and the Client ID/Secret (the secret is
+  shown only once at creation — transmit it securely).
+
 ---
 
 ## Troubleshooting
@@ -328,6 +359,7 @@ problem is in the tunnel/Access layer, not your server.
 - [ ] Secrets in env / `.env`, never committed.
 - [ ] Inputs validated; tools return JSON, `{"error": ...}` on failure.
 - [ ] Long tasks use the async job contract and report `stage`/`total_stages`/`message` in status; tools never block.
+- [ ] Hand-off JSON delivered (`mcpServers` entry with `${VAR}` placeholders + per-server env-var names); token secret sent securely, never committed.
 - [ ] Artifacts returned as URLs, not local paths.
 - [ ] `GET /healthz` present.
 - [ ] Server + tunnel run under systemd (`Restart=always`, linger enabled).
