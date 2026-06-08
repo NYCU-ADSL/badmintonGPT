@@ -1,0 +1,32 @@
+# Standalone teaching demo for example-mcp — kept SEPARATE from the main repo's
+# docker-compose.yml on purpose (this one is just for trying the reference server
+# locally / behind a tunnel, not part of the BadmintonGPT deploy).
+#
+#   docker compose up --build      # build + run; MCP at http://localhost:8900/mcp
+#   curl localhost:8900/healthz    # {"ok": true}
+#
+# The port is host-published (8900:8900) for the demo. There is NO app-level auth —
+# Cloudflare Access is the boundary when deployed; a local run is unauthenticated and
+# fine for a demo. When behind a tunnel, set PUBLIC_BASE_URL to the public hostname so
+# the file URLs returned by get_render_result point at the tunnel, not 127.0.0.1.
+services:
+  example-mcp:
+    build: .
+    image: example-mcp
+    ports:
+      - "8900:8900"
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8900
+      OUTPUT_DIR: /tmp/example-mcp-files
+      # Uncomment + set to your public hostname when serving behind a Cloudflare Tunnel:
+      # PUBLIC_BASE_URL: https://example-mcp.<your-zone>
+    volumes:
+      - ./demo-files:/tmp/example-mcp-files
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8900/healthz', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

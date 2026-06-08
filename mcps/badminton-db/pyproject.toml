@@ -1,0 +1,15 @@
+[project]
+name = "badminton-db-mcp"
+version = "0.1.0"
+description = "Self-contained badminton-db MCP server + DB build (no badminton-reels dependency)."
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.0",            # FastMCP + streamable-http server (the MCP itself only needs this)
+    "huggingface_hub>=0.20",  # ingest.py: dataset listing + CSV download
+    "pydantic>=2.0",          # ingest_lib models
+    "python-dotenv>=1.0",
+]
+
+# Scripts only — not an installable package (run server.py / ingest.py directly).
+[tool.uv]
+package = false

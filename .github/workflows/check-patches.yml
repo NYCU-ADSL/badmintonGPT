@@ -1,0 +1,31 @@
+name: Check vendored nanobot patches apply
+
+# Guards the patch-rebase recipe in vendor/README.md: confirms patches/*.patch still
+# apply cleanly onto the pinned upstream nanobot tag. Runs only when the patches, the
+# vendored tree, or this guard change — see scripts/check_patches.sh.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "patches/**"
+      - "vendor/**"
+      - "scripts/check_patches.sh"
+      - ".github/workflows/check-patches.yml"
+  pull_request:
+    paths:
+      - "patches/**"
+      - "vendor/**"
+      - "scripts/check_patches.sh"
+      - ".github/workflows/check-patches.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-patches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patches apply onto pinned nanobot tag
+        run: bash scripts/check_patches.sh

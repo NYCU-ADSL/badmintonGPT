@@ -1,0 +1,26 @@
+# Keep the build context small + deterministic. The image builds nanobot from
+# vendor/nanobot/ and copies only the code/config it needs.
+.git/
+.venv/
+data/                      # DB is mounted at runtime / built by the ingest profile, never baked in
+.env
+**/.env
+__pycache__/
+*.pyc
+*.pyo
+
+# Docs site + its build output (separate Cloudflare Pages deliverable)
+docs-site/
+example-mcp-server/
+
+# Host-only WebUI dev tooling (the image builds the dist from vendor/nanobot instead).
+patches/
+scripts/
+
+# badminton-db is its own image (build context mcps/badminton-db/); the gateway only
+# needs mcps/util/, so keep the db package out of the gateway build context.
+mcps/badminton-db/
+
+# Never pull a stray vendored node_modules / build artifact into the context
+vendor/**/node_modules/
+vendor/**/dist/
