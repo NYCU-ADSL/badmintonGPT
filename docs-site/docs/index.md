@@ -1,1 +1,1 @@
-../../REMOTE_MCP_SERVER_GUIDE.md
+../../docs/REMOTE_MCP_SERVER_GUIDE.md

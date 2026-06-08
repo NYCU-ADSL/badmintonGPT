@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "REMOTE_MCP_SERVER_GUIDE.md"
+      - "docs/REMOTE_MCP_SERVER_GUIDE.md"
       - "docs-site/**"
       - "example-mcp-server/**"
       - ".github/workflows/deploy-docs.yml"

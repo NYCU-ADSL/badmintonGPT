@@ -15,3 +15,9 @@ data/
 docs-site/site/
 docs-site/site-upload.zip
 docs-site/docs/example-mcp-server.zip
+
+# vendored nanobot: keep the source, never commit regenerable build artifacts
+vendor/nanobot/**/node_modules/
+vendor/nanobot/nanobot/web/dist/
+vendor/**/__pycache__/
+vendor/**/*.egg-info/

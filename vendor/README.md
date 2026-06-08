@@ -1,0 +1,47 @@
+# vendor/nanobot — third-party, vendored
+
+`vendor/nanobot/` is a vendored copy of **[HKUDS/nanobot](https://github.com/HKUDS/nanobot)
+@ tag `v0.2.1`** (commit `f309982`), **with this repo's patches applied**:
+
+- `patches/webui-progress.patch` — adds `webui/src/components/ToolProgress.tsx` and a hook in
+  `webui/src/components/thread/AgentActivityCluster.tsx` (the tool-progress bar).
+- `patches/mcp-probe-origin-aware.patch` — makes `nanobot/agent/tools/mcp.py`'s `_probe_http_url`
+  an origin-aware HTTP check instead of a bare TCP connect. A TCP probe can't tell a healthy
+  remote MCP from a dead origin behind a reachable reverse proxy/tunnel: Cloudflare answers the
+  TCP handshake and returns `502/503/504`, so nanobot would enter `streamable_http_client`, the
+  MCP handshake would fail mid-stream, and the anyio task-group teardown crashed the whole gateway
+  at startup. The patched probe issues a header-authenticated streaming GET and treats `>= 502`
+  (incl. Cloudflare's 520-527), `401`/`403` (auth failure — e.g. a wrong/expired Cloudflare Access
+  service token, which would otherwise fail the handshake and crash the same way), or any
+  connection/timeout error as "skip", so a down **or mis-credentialed** remote MCP no longer takes
+  the gateway down — it is skipped and reconnected on a later turn once it recovers / is fixed.
+- `patches/webui-trust-proxy-auth.patch` — adds an opt-in (`NANOBOT_WEBUI_TRUST_PROXY=1`) to
+  `nanobot/channels/websocket.py` that delegates WebUI auth to an external authenticating proxy.
+  This nanobot version refuses to bind `0.0.0.0` without a `token`/`tokenIssueSecret`
+  (`WebSocketConfig.wildcard_host_requires_auth`) **and** gates `/webui/bootstrap` to localhost when
+  no secret is set — so a remote client (everything via cloudflared is non-localhost) is forced
+  through a nanobot secret prompt. In the Docker deploy 8765 is `expose`-only (only cloudflared →
+  Cloudflare Access can reach it), so the env var lets the validator pass and lets bootstrap serve
+  remote clients without a nanobot secret; auth is the edge's Access policy. Fails closed (unset → stock
+  behavior). The `_is_localhost`-gated WebUI admin controls are intentionally left as-is.
+
+It is committed so the gateway image (`../Dockerfile`) builds the **patched** nanobot
+hermetically — no clone of an upstream tag, no `nanobot-ai` PyPI pin, no post-install dist
+overlay (the failure modes the host scripts `../scripts/build_webui.sh` /
+`../scripts/deploy_webui.sh` work around). `pip install vendor/nanobot` with
+`NANOBOT_FORCE_WEBUI_BUILD=1` rebuilds `nanobot/web/dist` from this source via the hatch hook.
+
+License: nanobot is **MIT** — its `LICENSE` and `THIRD_PARTY_NOTICES.md` are retained in this
+directory. This is third-party code; do not hand-edit it as if it were ours.
+
+## What was excluded (regenerable / not needed to build)
+
+`.git/`, all `node_modules/`, the prebuilt `nanobot/web/dist/` (rebuilt at image build),
+and `tests/`, `images/`, `case/`, `docs/`, `.github/`, `.agent/`.
+
+## Updating to a new upstream nanobot
+
+1. `git clone --branch <new-tag> https://github.com/HKUDS/nanobot /tmp/nanobot`
+2. Rebase all three patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch`), resolving any conflicts; re-export each patch.
+3. Re-vendor with the same exclusions (see `git log` for the `rsync` invocation), bump the tag/commit above, and bump the image tag in `../docker-compose.yml` + `../Dockerfile` comments.
+4. Rebuild and run the verification in `../DEPLOY.md`.

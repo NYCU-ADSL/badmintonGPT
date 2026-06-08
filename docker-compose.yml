@@ -1,0 +1,96 @@
+# BadmintonGPT — reproducible hosting. Each MCP is its own container; reels stays remote.
+#
+#   gateway       nanobot agent + patched WebUI (+ embedded `util` stdio MCP)
+#   badminton-db  the badminton-db MCP, served over HTTP at badminton-db:8801/mcp (compose net)
+#   cloudflared   tunnels ${BADMINTONGPT_HOSTNAME} -> gateway:8765
+#   ingest        one-shot DB build (profile), shares the badminton-db image
+#
+# Required in .env:  OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET, TUNNEL_TOKEN
+# Build the DB once: docker compose --profile ingest run --rm ingest   (needs HF_TOKEN)
+# Bring it up:       docker compose up -d --build
+
+services:
+  # The nanobot agent + patched WebUI. Reachable only via cloudflared (no host port).
+  # badminton-db is now a separate HTTP MCP (below); reels is remote — so the gateway no
+  # longer opens the SQLite file and only embeds the tiny `util` stdio MCP.
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: badmintongpt-gateway:0.2.1
+    container_name: badmintongpt-gateway
+    restart: unless-stopped
+    depends_on:
+      badminton-db:
+        condition: service_healthy
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}
+      REELS_CF_CLIENT_ID: ${REELS_CF_CLIENT_ID:?set REELS_CF_CLIENT_ID in .env}
+      REELS_CF_CLIENT_SECRET: ${REELS_CF_CLIENT_SECRET:?set REELS_CF_CLIENT_SECRET in .env}
+      # WebUI auth is delegated to Cloudflare Access (8765 is expose-only, never host-published),
+      # so nanobot serves the WebUI without its own token/secret prompt. See the vendored patch
+      # patches/webui-trust-proxy-auth.patch. Unset this to fall back to nanobot's own gate.
+      NANOBOT_WEBUI_TRUST_PROXY: "1"
+    volumes:
+      - nanobot_state:/home/nanobot/.nanobot  # persist sessions/ + memory/ across restarts
+    expose:
+      - "8765"                                # WebUI + WS — only cloudflared reaches it (compose net)
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18790/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # badminton-db MCP — its own container, served over HTTP on the compose network only
+  # (no host port, no tunnel, no auth). nanobot reaches it at http://badminton-db:8801/mcp.
+  badminton-db:
+    build:
+      context: ./mcps/badminton-db
+      dockerfile: Dockerfile
+    image: badmintongpt-db:0.1.0
+    container_name: badmintongpt-db
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data:ro                   # the SQLite DB, read-only (built by the ingest profile)
+    expose:
+      - "8801"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8801/healthz', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Cloudflare tunnel for ${BADMINTONGPT_HOSTNAME} -> http://gateway:8765.
+  # Remote-managed tunnel: ingress + public hostname are configured in the Cloudflare
+  # dashboard; only the connector token is needed here. Pin the image for reproducibility.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: badmintongpt-cloudflared
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}"]
+
+  # One-shot DB build. Shares the badminton-db image (which carries ingest.py + the vendored
+  # ingest_lib) and writes ./data/badminton.db. Self-contained: needs only HF_TOKEN — no
+  # badminton-reels source, no OPENAI/FISH. Run: docker compose --profile ingest run --rm ingest
+  ingest:
+    image: badmintongpt-db:0.1.0
+    build:
+      context: ./mcps/badminton-db
+      dockerfile: Dockerfile
+    profiles: ["ingest"]
+    environment:
+      BADMINTON_DB: /app/data/badminton.db
+      BADMINTON_HF_DIR: /app/data/hf_cache
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ./data:/app/data                      # rw: ingest writes the DB here
+    entrypoint: ["python3", "/app/ingest.py"]
+
+volumes:
+  nanobot_state:
