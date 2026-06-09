@@ -118,12 +118,18 @@ make it precise. Return JSON-serializable data; on failure return `{"error": "..
 Validate inputs.
 
 ```python
+from typing import Annotated
+
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 mcp = FastMCP("example-mcp", host="127.0.0.1", port=8900)
 
 @mcp.tool()
-def add(a: float, b: float) -> dict:
+def add(
+    a: Annotated[float, Field(description="First number to add.")],
+    b: Annotated[float, Field(description="Second number to add.")],
+) -> dict:
     """Add two numbers and return {"sum": a+b}."""
     return {"sum": a + b}
 
@@ -131,8 +137,16 @@ def main():
     mcp.run(transport="streamable-http")   # endpoint at /mcp
 ```
 
+**Per-parameter descriptions.** FastMCP derives `inputSchema` from the type hints, but the docstring only
+becomes the *tool*-level description — FastMCP does **not** parse a docstring `Args:` block into
+per-parameter docs. To describe each argument (which the agent sees in the schema), annotate it with
+`Annotated[T, Field(description="...")]`, as above. Keep the python default *outside* the `Annotated`
+(`x: Annotated[int, Field(description="...")] = 8`) so the parameter stays optional. `Field` can also carry
+validation (`ge`/`le`/`min_length`/`pattern`) and `examples`, which flow into the schema too — but note that
+adds *rejection* of out-of-range values, so don't use it on a parameter you intend to silently clamp.
+
 Tool names: `^[A-Za-z0-9_-]+$`, unique, non-empty description, valid JSON-Schema `inputSchema` (FastMCP
-derives it from type hints).
+derives it from the type hints, with per-parameter descriptions coming from `Annotated[..., Field(...)]`).
 
 ### HTTP endpoints
 

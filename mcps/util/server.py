@@ -6,8 +6,10 @@ Currently exposes a single `sleep` tool so an agent can pace a polling loop
 server dependency-free and read-only; it must never touch external state.
 """
 import time
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 mcp = FastMCP("util")
 
@@ -15,7 +17,11 @@ MAX_SLEEP_SECONDS = 60
 
 
 @mcp.tool()
-def sleep(seconds: int) -> dict:
+def sleep(
+    seconds: Annotated[int, Field(
+        description="Number of seconds to pause. Values are clamped to "
+                    "[0, 60]; use ~20-30 to space out a polling loop.")],
+) -> dict:
     """Pause execution for `seconds` (capped at 60).
 
     Use this to space out a polling loop, e.g. when waiting for an async job:

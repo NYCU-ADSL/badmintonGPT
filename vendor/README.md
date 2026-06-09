@@ -24,6 +24,29 @@
   Cloudflare Access can reach it), so the env var lets the validator pass and lets bootstrap serve
   remote clients without a nanobot secret; auth is the edge's Access policy. Fails closed (unset → stock
   behavior). The `_is_localhost`-gated WebUI admin controls are intentionally left as-is.
+- `patches/webui-branding.patch` — rebrands the WebUI to **badmintonGPT**: adds
+  `webui/public/brand/shuttlecock.svg` (used as favicon + in-app logo), points the logo refs in
+  `webui/src/components/Sidebar.tsx` and `webui/src/components/settings/SettingsView.tsx` at it, sets
+  the `webui/index.html` title/favicon/boot-splash, the hardcoded settings brand label, and the
+  user-visible "nanobot" brand strings + badminton-themed empty-state greetings across the nine
+  `webui/src/i18n/locales/*/common.json` (the literal `` `nanobot gateway` `` command string is
+  deliberately preserved). Skin-only; no behavior change.
+- `patches/reply-language.patch` — makes the agent reply in the language selected in the WebUI
+  language picker: the WebUI sends a `locale` field on each outbound message
+  (`webui/src/lib/types.ts`, `webui/src/lib/nanobot-client.ts`), `nanobot/channels/websocket.py`
+  stores it in the inbound `metadata`, and `nanobot/agent/loop.py` maps it to a language name and
+  passes it as a per-turn "User UI language" line into the existing `[Runtime Context]` block
+  (`build_messages(current_runtime_lines=…)`). Paired with this repo's `nanobot/workspace/SOUL.md`
+  rule that honors that hint.
+- `patches/webui-thinking-animation.patch` — adds `webui/src/components/BadmintonRallyThinking.tsx`
+  (a decorative badminton rally: two players pinned to the **full conversation width**, volleying a
+  shuttlecock whose vertical arc + horizontal travel form a parabola and whose glyph **rotates along
+  the velocity tangent** — cork leading, flipping at each hit — with each racket waving as it
+  arrives), its CSS keyframes in `webui/src/globals.css` (`br-*`, one shared 1.8s loop; the shuttle
+  wrapper is full-width so `translateX` percentages span the column; `prefers-reduced-motion`
+  freezes it), and mounts it in `webui/src/components/thread/AgentActivityCluster.tsx` below the
+  cluster, gated on `isTurnStreaming` so it shows under the "thinking" process while a turn is live.
+  Skin-only; no behavior change.
 
 It is committed so the gateway image (`../Dockerfile`) builds the **patched** nanobot
 hermetically — no clone of an upstream tag, no `nanobot-ai` PyPI pin, no post-install dist
@@ -42,6 +65,6 @@ and `tests/`, `images/`, `case/`, `docs/`, `.github/`, `.agent/`.
 ## Updating to a new upstream nanobot
 
 1. `git clone --branch <new-tag> https://github.com/HKUDS/nanobot /tmp/nanobot`
-2. Rebase all three patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch`), resolving any conflicts; re-export each patch.
+2. Rebase all patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch && git apply --3way ../patches/webui-branding.patch && git apply --3way ../patches/reply-language.patch && git apply --3way ../patches/webui-thinking-animation.patch`), resolving any conflicts; re-export each patch.
 3. Re-vendor with the same exclusions (see `git log` for the `rsync` invocation), bump the tag/commit above, and bump the image tag in `../docker-compose.yml` + `../Dockerfile` comments.
 4. Rebuild and run the verification in `../DEPLOY.md`.

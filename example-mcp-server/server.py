@@ -17,8 +17,10 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 
@@ -36,13 +38,18 @@ JOBS: dict[str, dict] = {}
 
 # ---- sync tools ---------------------------------------------------------------
 @mcp.tool()
-def add(a: float, b: float) -> dict:
+def add(
+    a: Annotated[float, Field(description="First number to add.")],
+    b: Annotated[float, Field(description="Second number to add.")],
+) -> dict:
     """Add two numbers and return {"sum": a+b}."""
     return {"sum": a + b}
 
 
 @mcp.tool()
-def echo(text: str) -> dict:
+def echo(
+    text: Annotated[str, Field(description="Text to echo back; must be a non-empty string.")],
+) -> dict:
     """Echo text back as {"text": ...}. Validates input is a non-empty string."""
     if not isinstance(text, str) or not text:
         return {"error": "text must be a non-empty string"}
@@ -76,7 +83,11 @@ def _run_render(job_id: str, spec: dict) -> None:
 
 
 @mcp.tool()
-def start_render(spec: dict | None = None) -> dict:
+def start_render(
+    spec: Annotated[dict | None, Field(
+        description="Optional free-form render spec (JSON object) passed through "
+                    "to the job; omit for defaults.")] = None,
+) -> dict:
     """Start a long render job. Returns {job_id, state} immediately (async)."""
     job_id = uuid.uuid4().hex
     JOBS[job_id] = {"state": "queued", "stage": 0, "total_stages": len(RENDER_STEPS), "message": "queued"}
@@ -85,7 +96,9 @@ def start_render(spec: dict | None = None) -> dict:
 
 
 @mcp.tool()
-def get_render_status(job_id: str) -> dict:
+def get_render_status(
+    job_id: Annotated[str, Field(description="The job_id returned by start_render.")],
+) -> dict:
     """Return job progress: {job_id, state, stage, total_stages, message, error?}.
 
     state in queued|running|succeeded|failed. stage/total_stages/message let the
@@ -105,7 +118,9 @@ def get_render_status(job_id: str) -> dict:
 
 
 @mcp.tool()
-def get_render_result(job_id: str) -> dict:
+def get_render_result(
+    job_id: Annotated[str, Field(description="The job_id returned by start_render.")],
+) -> dict:
     """Return {ready, url} when succeeded. url is downloadable over HTTP (not a local path)."""
     j = JOBS.get(job_id) or {}
     if j.get("state") != "succeeded":

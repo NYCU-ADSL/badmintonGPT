@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="badmintonGPT">
+  <!-- feather skirt -->
+  <path d="M24 41 L12 11 Q32 2 52 11 L40 41 Q32 45 24 41 Z"
+        fill="#f1f5f9" stroke="#475569" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- feather separators, fanning from the cork up to the tips -->
+  <g stroke="#475569" stroke-width="1.9" stroke-linecap="round">
+    <path d="M32 42 L12 12"/>
+    <path d="M32 42 L22 6"/>
+    <path d="M32 42 L32 4"/>
+    <path d="M32 42 L42 6"/>
+    <path d="M32 42 L52 12"/>
+  </g>
+  <!-- string band where feathers meet the cork -->
+  <path d="M22 38 Q32 43 42 38" stroke="#475569" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+  <!-- cork base -->
+  <path d="M24 41 Q32 45 40 41 L38 53 Q32 59 26 53 Z"
+        fill="#f59e0b" stroke="#475569" stroke-width="2.4" stroke-linejoin="round"/>
+</svg>
