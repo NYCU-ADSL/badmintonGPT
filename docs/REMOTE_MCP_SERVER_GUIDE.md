@@ -237,7 +237,17 @@ Bind to `127.0.0.1` (only the tunnel reaches it). Set env (e.g. in `.env`):
 | `MCP_PORT` | `8900` | port |
 | `PUBLIC_BASE_URL` | — | public origin, used to build file URLs |
 
-### 2. Expose with Cloudflare Tunnel
+### 2. Expose over HTTPS
+
+The server binds `127.0.0.1`, so something in front must terminate TLS and forward to it. Two paths — pick
+the one matching your auth choice in step 3:
+
+- **Option A — Cloudflare Tunnel** (recommended): Cloudflare gives you TLS, a hostname, and edge auth (the
+  service token in 3A); your app needs no auth code.
+- **Option B — your own reverse proxy**: you terminate TLS and verify a Bearer token in the app (3B). No
+  Cloudflare involved.
+
+#### Option A — Cloudflare Tunnel
 
 No open ports, no public IP, no self-managed TLS.
 
@@ -263,16 +273,79 @@ ingress:
 > (`example-mcp.api.<your-zone>`). Free Cloudflare Universal SSL only covers the apex and `*.<your-zone>`;
 > a 2-level subdomain has no cert and its custom domain hangs at "Verifying".
 
-### 3. Protect with Cloudflare Access (service token)
+#### Option B — Your own reverse proxy (no Cloudflare)
 
-A public endpoint must be gated, or anyone can call your tools.
+Terminate HTTPS yourself in front of the `127.0.0.1:8900` origin. Caddy is the least effort (automatic
+Let's Encrypt certificates):
+
+```caddyfile
+# Caddyfile  —  serves https://example-mcp.example.com
+example-mcp.example.com {
+    reverse_proxy 127.0.0.1:8900     # forwards /mcp, /healthz, /files
+}
+```
+
+(nginx + certbot, or a cloud load balancer, work the same way.) Point the host's DNS `A`/`AAAA` record at
+your machine and open `:443`. There is now **no edge auth** — the proxy forwards everything — so you MUST
+add the app-level Bearer check (Option B of step 3) or your tools are open to anyone who finds the URL.
+
+### 3. Authenticate every request
+
+A public endpoint must be gated, or anyone can call your tools. Use the option matching how you exposed it.
+
+#### Option A — Cloudflare Access service token (pairs with 2A)
 
 1. Zero Trust → **Access → Applications → Add → Self-hosted**; domain = `example-mcp.<your-zone>`.
 2. **Access → Service Auth → Create Service Token** → copy **Client ID** and **Client Secret**.
 3. Add a policy: **Action = Service Auth**, Include = that token.
 
 Only requests with `CF-Access-Client-Id` / `CF-Access-Client-Secret` reach your origin. Give each server
-its own token, named per server (e.g. `EXAMPLE_CF_CLIENT_ID` / `EXAMPLE_CF_CLIENT_SECRET`).
+its own token, named per server (e.g. `EXAMPLE_CF_CLIENT_ID` / `EXAMPLE_CF_CLIENT_SECRET`). The app itself
+needs no auth code — the edge enforces it.
+
+#### Option B — App-level Bearer token (pairs with 2B)
+
+With no Cloudflare Access there is no edge auth, so verify a shared secret **inside the app**. Wrap the
+ASGI app in a tiny pure-ASGI middleware that requires `Authorization: Bearer <token>` on every path except
+`/healthz`, and serve it with uvicorn instead of `mcp.run()`:
+
+```python
+import os
+import hmac
+import uvicorn
+from starlette.responses import JSONResponse
+
+EXPECTED = os.environ["MCP_BEARER_TOKEN"]   # a long random secret, supplied via env
+
+class BearerAuth:
+    """Reject any request lacking `Authorization: Bearer <token>` (except /healthz)."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"] != "/healthz":
+            headers = dict(scope["headers"])
+            token = headers.get(b"authorization", b"").decode().removeprefix("Bearer ").strip()
+            if not hmac.compare_digest(token, EXPECTED):   # constant-time compare
+                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+def main():
+    app = BearerAuth(mcp.streamable_http_app())   # gates /mcp and /files; leaves /healthz open
+    uvicorn.run(app, host=MCP_HOST, port=MCP_PORT)
+```
+
+- Use **pure ASGI** middleware as above — *not* Starlette `BaseHTTPMiddleware`, which buffers the response
+  and can break the streamable-HTTP SSE stream.
+- This replaces `mcp.run(transport="streamable-http")`. `streamable_http_app()` builds the very same app
+  (the `/mcp` mount plus your `@mcp.custom_route` endpoints), just without the wrapper — nothing else in
+  the server changes.
+- `/healthz` stays open so the container HEALTHCHECK (plain `urllib`, no token) keeps working; drop the
+  path check to gate it too.
+- The shipped example server is unauthenticated by design (it expects to sit behind Access); this `main()`
+  is the swap-in for when you front it with your own TLS instead. Hand the consumer the token the same way
+  you would a service token — over a secure channel, never in the repo.
 
 ### 4. Keep it running (systemd)
 
@@ -321,9 +394,11 @@ Container specifics:
   so the URLs from `get_render_result` point at your public origin, not `127.0.0.1`.
 
 **Remote + auth are unchanged.** A plain `docker run` is *unauthenticated* — Docker only replaces the
-"keep it running" step. To go remote you still front the container with **Cloudflare Tunnel + Access**
-exactly as in steps 2–3: point the tunnel ingress at the published port (`service: http://127.0.0.1:8900`)
-and the Access service token still gates every path at the edge.
+"keep it running" step. To go remote you still front the container with one of the step 2–3 paths: either
+**Cloudflare Tunnel + Access** (point the tunnel ingress at the published port,
+`service: http://127.0.0.1:8900`; the service token gates every path at the edge), or **your own reverse
+proxy + the Bearer-token `main()`** (set `MCP_BEARER_TOKEN` in the container env). Either way the auth lives
+outside `docker run` itself.
 
 ---
 
@@ -351,8 +426,15 @@ async def main():
 asyncio.run(main())
 ```
 
-Agent frameworks register it the same way: a streamable-HTTP MCP server at the `/mcp` URL with those two
-headers.
+For a **Bearer-token** deployment (step 3 Option B), send one `Authorization` header instead of the two CF
+headers — everything else is identical:
+
+```python
+HEADERS = {"Authorization": f"Bearer {os.environ['MCP_BEARER_TOKEN']}"}
+```
+
+Agent frameworks register it the same way: a streamable-HTTP MCP server at the `/mcp` URL with whichever
+auth headers your deployment uses.
 
 ### Hand-off: the registration JSON
 
@@ -374,6 +456,13 @@ plus the service-token values sent over a secure channel:
     }
   }
 }
+```
+
+For a **Bearer-token** deployment, swap the `headers` block for a single `Authorization` entry (the rest is
+unchanged):
+
+```json
+"headers": { "Authorization": "Bearer ${EXAMPLE_MCP_TOKEN}" }
 ```
 
 - Keep `${VAR}` placeholders in the JSON — the consumer stores the real token values in their own
