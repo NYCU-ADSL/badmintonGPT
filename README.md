@@ -130,9 +130,11 @@ skills/badminton-reels/    # SKILL.md（reels 非同步編排 playbook）
 eval/run_eval.py           # 9 題驗收 harness
 scripts/load_env.sh        # 匯出執行所需環境變數
 example-mcp-server/        # docs/REMOTE_MCP_SERVER_GUIDE.md 的範例（獨立文件 deliverable，不在 mcps/）
+monitoring/gatus/          # Gatus 監控 + 公開狀態頁（單一容器，monitors 用 YAML；見 docs/MONITORING.md）
 docs/                      # 所有說明文件（見下）
   DESIGN.md  TASK.md       #   完整設計 / 需求脈絡
   DEPLOY.md                #   Docker Compose + Cloudflare 部署
+  MONITORING.md            #   Gatus uptime 監控 + badmintongpt-status.<zone> 公開狀態頁
   ADD_NEW_MCP.md           #   如何新增 MCP（own container HTTP / stdio / skill / 測試）
   MCP_TEST.md              #   mcp_test 用法
   REMOTE_MCP_SERVER_GUIDE.md  #   建 remote MCP 教學（發佈成 docs site）

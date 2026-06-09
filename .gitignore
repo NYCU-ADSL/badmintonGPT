@@ -3,6 +3,9 @@
 **/.env
 .cloudflared/
 
+# monitoring stack (Gatus): ignore the live env (secrets); config + compose are committed
+monitoring/gatus/.env
+
 # python / venv
 .venv/
 __pycache__/

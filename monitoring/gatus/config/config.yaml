@@ -1,0 +1,62 @@
+# Gatus config — BadmintonGPT uptime + public status page.
+# Committed to the repo (no secrets here; ${VAR} is substituted from the gatus container env).
+# Docs: https://github.com/TwiN/gatus
+
+web:
+  port: 3000          # matches the badmintongpt-status tunnel ingress (http://status-page:3000)
+
+ui:
+  title: "BadmintonGPT Status"
+  header: "BadmintonGPT"
+  description: "Live status of the BadmintonGPT agent, its MCP servers, and the docs site."
+
+storage:
+  type: sqlite
+  path: /data/data.db   # uptime history persists in the gatus-data volume
+
+# Re-check + alert config defaults are fine; add `alerting:` + per-endpoint `alerts:` to wire
+# Slack/Discord/Telegram/PagerDuty/email/webhook later (see Gatus docs).
+
+endpoints:
+  # ---- Internal: resolved by container name over the badmintongpt_default Docker network ----
+  - name: "badminton-db MCP"
+    group: "Internal"
+    url: "http://badmintongpt-db:8801/healthz"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].ok == true"
+
+  - name: "agent gateway (WebUI)"
+    group: "Internal"
+    url: "http://badmintongpt-gateway:8765/"
+    interval: 60s
+    conditions:
+      - "[STATUS] == 200"
+
+  # ---- Public: over the internet / Cloudflare edge ----
+  - name: "agent gateway (public edge)"
+    group: "Public"
+    url: "https://badmintongpt.nycu-adsl.cc/"
+    interval: 60s
+    conditions:
+      # Behind Cloudflare Access: an unauthenticated probe gets a login redirect (302/403), NOT 200.
+      # Any non-5xx means edge + tunnel + origin are alive; 502/530 = down.
+      - "[STATUS] < 500"
+
+  - name: "reels MCP"
+    group: "Public"
+    url: "https://reels-mcp.nycu-adsl.cc/healthz"
+    interval: 120s
+    headers:
+      CF-Access-Client-Id: "${REELS_CF_CLIENT_ID}"
+      CF-Access-Client-Secret: "${REELS_CF_CLIENT_SECRET}"
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: "docs site"
+    group: "Public"
+    url: "https://badmintongpt-docs.nycu-adsl.cc/"
+    interval: 300s
+    conditions:
+      - "[STATUS] == 200"

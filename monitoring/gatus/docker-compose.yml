@@ -1,0 +1,55 @@
+# Gatus — uptime monitor + public status page for BadmintonGPT.
+#
+# One tiny container; monitors are committed as YAML (config/config.yaml). A second container runs
+# the dedicated `badmintongpt-status` Cloudflare tunnel (reusing your TUNNEL_TOKEN) and serves the
+# Gatus dashboard publicly at https://badmintongpt-status.nycu-adsl.cc/.
+#
+#   cd monitoring/gatus
+#   cp .env.example .env          # fill TUNNEL_TOKEN + REELS_CF_CLIENT_ID/SECRET
+#   docker compose up -d
+#
+# Prereq: the BadmintonGPT stack must be running — gatus joins its network (badmintongpt_default)
+# to reach the internal targets (badmintongpt-db:8801, badmintongpt-gateway:8765) by container name.
+
+services:
+  gatus:
+    image: ghcr.io/twin/gatus:latest
+    container_name: badmintongpt-gatus
+    restart: unless-stopped
+    volumes:
+      - ./config:/config:ro        # committed monitor definitions
+      - gatus-data:/data           # uptime history (sqlite) persists across restarts
+    environment:
+      # Gatus substitutes ${VAR} in config.yaml from its own env (so no secrets live in the YAML).
+      REELS_CF_CLIENT_ID: ${REELS_CF_CLIENT_ID:?set REELS_CF_CLIENT_ID in .env}
+      REELS_CF_CLIENT_SECRET: ${REELS_CF_CLIENT_SECRET:?set REELS_CF_CLIENT_SECRET in .env}
+    ports:
+      - "127.0.0.1:8095:3000"      # loopback preview/verify only; the world reaches it via cloudflared
+    networks:
+      default:
+        # The existing tunnel ingress points at http://status-page:3000 — alias gatus to that name so
+        # NO Cloudflare dashboard change is needed. (Gatus listens on 3000, see config.yaml web.port.)
+        aliases:
+          - status-page
+      badmintongpt_default: {}
+
+  # Dedicated public tunnel for the status page (reuses the badmintongpt-status connector token).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: badmintongpt-status-cloudflared
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+    depends_on:
+      - gatus
+    networks:
+      - default
+
+# badmintongpt_default is owned by the badmintongpt compose project and must already exist.
+networks:
+  badmintongpt_default:
+    external: true
+
+volumes:
+  gatus-data:

@@ -137,6 +137,8 @@ In the browser, confirm the **tool-progress bar** renders during a reel render �
   The host scripts `scripts/build_webui.sh` / `deploy_webui.sh` are no longer on the deploy path —
   they remain only for host-mode WebUI dev. `uv tool upgrade nanobot-ai` no longer affects the
   served dist (it's baked into the pinned image).
+- **Monitoring / uptime + public status page:** stand up Gatus alongside this stack (one container,
+  monitors as YAML; status page at `badmintongpt-status.<zone>`) — see [`MONITORING.md`](MONITORING.md).
 
 ---
 
