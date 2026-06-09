@@ -1,90 +1,683 @@
 diff --git a/webui/src/components/BadmintonRallyThinking.tsx b/webui/src/components/BadmintonRallyThinking.tsx
 new file mode 100644
-index 0000000..5d4fb8a
+index 0000000..cdd7924
 --- /dev/null
 +++ b/webui/src/components/BadmintonRallyThinking.tsx
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,678 @@
 +/**
 + * BadmintonRallyThinking — a decorative badminton rally shown below the agent
 + * activity/"thinking" cluster while a turn is streaming.
 + *
-+ * Layout is responsive HTML (not one fixed SVG) so the two players sit at the
-+ * far LEFT and RIGHT edges of the conversation column — the player-to-player
-+ * distance equals the container width. The shuttlecock travels the full width
-+ * via a transform-only trick: its wrapper is `left-0 right-0` (== container
-+ * width), so `translateX(100%)` spans the whole column regardless of size.
++ * v2: a single requestAnimationFrame engine drives the whole scene through
++ * refs (no per-frame React state — this component lives inside the streaming
++ * chat tree). Two chibi players (big currentColor heads, faces drawn in the
++ * background colour, amber headband/racket accents) exchange shots picked at
++ * random from a shot table (clear / drop / smash / drive / lift / net), each
++ * with its own arc, speed and pose. Shots chain like real badminton via the
++ * `validFrom` contact-height constraint (smash only off a high feed, lift off
++ * a low pickup, …), so the rally never repeats.
 + *
-+ * Motion lives in CSS keyframes in globals.css (the `br-*` classes), all on one
-+ * shared 1.8s loop so the parabola and the racket swings stay in sync:
-+ *   - br-shuttle-x  : horizontal travel left→right→left (container-relative)
-+ *   - br-shuttle-y  : vertical arc (apex at each mid-flight) → a parabola
-+ *   - br-shuttle-rot: rotates the glyph so the cork leads along the velocity
-+ *                     tangent (up→level→down each arc; flips at each hit) — the
-+ *                     "follows the physics" angle
-+ *   - br-racket-left / br-racket-right: each racket waves as the shuttle arrives
++ * Escalation: intensity ramps 0→1 over RAMP_MS from mount (mount == turn
++ * start; remounting next turn resets it). It speeds shots up, raises the
++ * smash/drive weights, strengthens the amber trail/glow and hardens the
++ * players' baseline expression (smile → serious → fired up). Event faces
++ * (shocked when defending a smash, serious when winding one up) override the
++ * baseline briefly. One-shot comic effects (impact star, smash speed lines,
++ * sweat drop) fire via WAAPI `el.animate` so they never touch the rAF loop.
 + *
-+ * Purely decorative (aria-hidden); freezes under prefers-reduced-motion.
++ * Geometry is a normalised court (x,y ∈ [0,1], y up from the floor) mapped to
++ * pixels each frame from a ResizeObserver-fed size ref, so the rally spans the
++ * full conversation column at any width. Pose/face switching is `data-pose` /
++ * `data-face` attributes cross-faded by the `brt-*` rules in globals.css.
++ *
++ * Purely decorative (aria-hidden); under prefers-reduced-motion the engine is
++ * never started and a static scene renders instead.
 + */
++import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
++
++import { cn } from "@/lib/utils";
++
++const AMBER = "#f59e0b";
++const FACE = "hsl(var(--background))";
++
++const RAMP_MS = 35_000;
++const TRAIL_N = 18;
++const FLOOR_PX = 12;
++const TOP_PX = 6;
++const MARGIN_X = 18;
++const HIGH_CONTACT_Y = 0.45; // arrivals above this are taken overhead
++const PLAYER_W = 72;
++const PLAYER_H = 96;
++
++type Side = "left" | "right";
++type ContactClass = "high" | "low";
++type PoseName = "ready" | "lunge" | "overhead" | "smash" | "drive";
++type FaceName = "smile" | "serious" | "shocked" | "fired";
++
++interface Pt {
++  x: number;
++  y: number;
++}
++
++interface ShotSpec {
++  type: "clear" | "drop" | "smash" | "drive" | "lift" | "net";
++  validFrom: ContactClass | "any";
++  durMs: [number, number]; // at intensity 0; scaled by lerp(1, 0.62, i)
++  apexY: [number, number] | null; // null => straight chord (smash)
++  flat?: boolean; // drive: apex barely above the endpoints
++  cpBias?: number; // control-point x bias toward the target (drop/net)
++  targetX: [number, number]; // 0 = at the net, 1 = back court
++  interceptY: [number, number]; // arrival height -> next ContactClass
++  hitterPose: PoseName;
++  weight: (i: number) => number;
++}
++
++const SHOT_TABLE: ShotSpec[] = [
++  {
++    type: "clear",
++    validFrom: "high",
++    durMs: [1250, 1650],
++    apexY: [0.86, 1.0],
++    targetX: [0.62, 0.92],
++    interceptY: [0.6, 0.78],
++    hitterPose: "overhead",
++    weight: (i) => 1.1 - 0.5 * i,
++  },
++  {
++    type: "drop",
++    validFrom: "high",
++    durMs: [950, 1250],
++    apexY: [0.72, 0.82],
++    cpBias: 0.62,
++    targetX: [0.12, 0.3],
++    interceptY: [0.16, 0.3],
++    hitterPose: "overhead",
++    weight: (i) => 0.7 + 0.3 * i,
++  },
++  {
++    type: "smash",
++    validFrom: "high",
++    durMs: [400, 560],
++    apexY: null,
++    targetX: [0.3, 0.62],
++    interceptY: [0.16, 0.34],
++    hitterPose: "smash",
++    weight: (i) => 0.3 + 1.7 * i,
++  },
++  {
++    type: "drive",
++    validFrom: "high",
++    durMs: [520, 700],
++    apexY: null,
++    flat: true,
++    targetX: [0.45, 0.8],
++    interceptY: [0.42, 0.58],
++    hitterPose: "drive",
++    weight: (i) => 0.25 + 0.75 * i,
++  },
++  {
++    type: "lift",
++    validFrom: "low",
++    durMs: [1150, 1500],
++    apexY: [0.82, 0.98],
++    targetX: [0.55, 0.9],
++    interceptY: [0.6, 0.78],
++    hitterPose: "lunge",
++    weight: () => 1.4,
++  },
++  {
++    type: "net",
++    validFrom: "low",
++    durMs: [850, 1100],
++    apexY: [0.46, 0.55],
++    cpBias: 0.55,
++    targetX: [0.05, 0.18],
++    interceptY: [0.14, 0.26],
++    hitterPose: "lunge",
++    weight: () => 0.7,
++  },
++];
++
++interface ResolvedShot {
++  spec: ShotSpec;
++  hitter: Side;
++  p0: Pt;
++  cp: Pt;
++  p1: Pt;
++  durMs: number;
++  arrivalClass: ContactClass;
++  ease: (t: number) => number;
++}
++
++const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
++const randIn = ([a, b]: [number, number]) => lerp(a, b, Math.random());
++const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
++const other = (s: Side): Side => (s === "left" ? "right" : "left");
++
++const easeLinear = (t: number) => t;
++const easeOutMild = (t: number) => 1 - Math.pow(1 - t, 1.5);
++const easeOutStrong = (t: number) => 1 - Math.pow(1 - t, 2.2); // shuttles decelerate
++
++function qBezier(p0: Pt, cp: Pt, p1: Pt, u: number): Pt {
++  const v = 1 - u;
++  return {
++    x: v * v * p0.x + 2 * u * v * cp.x + u * u * p1.x,
++    y: v * v * p0.y + 2 * u * v * cp.y + u * u * p1.y,
++  };
++}
++
++function qBezierDeriv(p0: Pt, cp: Pt, p1: Pt, u: number): Pt {
++  return {
++    x: 2 * (1 - u) * (cp.x - p0.x) + 2 * u * (p1.x - cp.x),
++    y: 2 * (1 - u) * (cp.y - p0.y) + 2 * u * (p1.y - cp.y),
++  };
++}
++
++function pickShot(from: ContactClass, intensity: number): ShotSpec {
++  const candidates = SHOT_TABLE.filter((s) => s.validFrom === "any" || s.validFrom === from);
++  let total = 0;
++  const weights = candidates.map((s) => {
++    const w = Math.max(0.01, s.weight(intensity));
++    total += w;
++    return w;
++  });
++  let r = Math.random() * total;
++  for (let k = 0; k < candidates.length; k++) {
++    r -= weights[k];
++    if (r <= 0) return candidates[k];
++  }
++  return candidates[candidates.length - 1];
++}
++
++/** Build the next shot: struck by `hitter` from `from`, landing in the other half. */
++function resolveShot(spec: ShotSpec, from: Pt, hitter: Side, intensity: number): ResolvedShot {
++  const p0 = { ...from };
++  if (spec.type === "smash") p0.y = clamp(p0.y + randIn([0.08, 0.14]), 0, 0.92); // jump contact
++  const tx = randIn(spec.targetX);
++  const receiver = other(hitter);
++  const p1: Pt = {
++    x: receiver === "right" ? 0.5 + tx * 0.48 : 0.5 - tx * 0.48,
++    y: randIn(spec.interceptY),
++  };
++  let cp: Pt;
++  if (spec.apexY === null) {
++    cp = spec.flat
++      ? { x: (p0.x + p1.x) / 2, y: Math.max(p0.y, p1.y) + 0.05 }
++      : { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 }; // smash: straight chord
++  } else {
++    const apex = clamp(randIn(spec.apexY), Math.max(p0.y, p1.y) + 0.08, 1.02);
++    cp = {
++      x: lerp(p0.x, p1.x, spec.cpBias ?? 0.5),
++      // quadratic bezier passes through `apex` at u = 0.5
++      y: 2 * apex - (p0.y + p1.y) / 2,
++    };
++  }
++  return {
++    spec,
++    hitter,
++    p0,
++    cp,
++    p1,
++    durMs: randIn(spec.durMs) * lerp(1, 0.62, intensity),
++    arrivalClass: p1.y >= HIGH_CONTACT_Y ? "high" : "low",
++    ease: spec.type === "smash" ? easeLinear : spec.type === "drive" ? easeOutMild : easeOutStrong,
++  };
++}
++
++function usePrefersReducedMotion(): boolean {
++  const [reduced, setReduced] = useState(
++    () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
++  );
++  useEffect(() => {
++    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
++    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
++    mq.addEventListener("change", onChange);
++    return () => mq.removeEventListener("change", onChange);
++  }, []);
++  return reduced;
++}
++
 +export function BadmintonRallyThinking() {
++  const reduced = usePrefersReducedMotion();
++
++  const rootRef = useRef<HTMLDivElement | null>(null);
++  const shuttleRef = useRef<HTMLDivElement | null>(null);
++  const trailRefs = useRef<(HTMLDivElement | null)[]>([]);
++  const starRefs = useRef<(HTMLDivElement | null)[]>([]);
++  const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
++  const posRefs = { left: useRef<HTMLDivElement | null>(null), right: useRef<HTMLDivElement | null>(null) };
++  const svgRefs = { left: useRef<SVGSVGElement | null>(null), right: useRef<SVGSVGElement | null>(null) };
++  const sweatRefs = { left: useRef<HTMLDivElement | null>(null), right: useRef<HTMLDivElement | null>(null) };
++
++  useLayoutEffect(() => {
++    const root = rootRef.current;
++    const shuttle = shuttleRef.current;
++    if (reduced || !root || !shuttle) return;
++
++    const size = { w: root.clientWidth, h: root.clientHeight };
++    const xToPx = (x: number) => MARGIN_X + x * (size.w - 2 * MARGIN_X);
++    const yToPx = (y: number) => size.h - FLOOR_PX - y * (size.h - FLOOR_PX - TOP_PX);
++
++    const mount = performance.now();
++    const state = {
++      shot: null as ResolvedShot | null,
++      shotStart: mount,
++      pending: null as ResolvedShot | null,
++      hitterRecovered: false,
++      lastFrame: mount,
++      lastStamp: 0,
++      trailIdx: 0,
++      trail: Array.from({ length: TRAIL_N }, () => ({ life: 0 })),
++      playerTarget: {
++        left: { x: 0.06, cls: "high" as ContactClass },
++        right: { x: 0.94, cls: "high" as ContactClass },
++      },
++      playerPx: { left: 0, right: 0 },
++      faceOverride: {
++        left: null as { face: FaceName; until: number } | null,
++        right: null as { face: FaceName; until: number } | null,
++      },
++      faceWritten: { left: "smile", right: "smile" } as Record<Side, FaceName>,
++      glowWritten: -1,
++    };
++
++    const intensityAt = (now: number) => Math.min(1, (now - mount) / RAMP_MS);
++
++    const setPose = (side: Side, pose: PoseName) => {
++      const el = svgRefs[side].current;
++      if (el && el.dataset.pose !== pose) el.dataset.pose = pose;
++    };
++
++    /** Park a player so their racket reaches the given contact point. */
++    const applyPlayerTarget = (side: Side) => {
++      const el = posRefs[side].current;
++      if (!el) return;
++      const { x, cls } = state.playerTarget[side];
++      const reach = cls === "low" ? 30 : 18;
++      const contactPx = xToPx(x);
++      const bodyPx = side === "left" ? contactPx - reach : contactPx + reach;
++      state.playerPx[side] = bodyPx;
++      el.style.transform = `translateX(${bodyPx - PLAYER_W / 2}px)`;
++    };
++
++    let starIdx = 0;
++    const burstStar = (px: number, py: number, big: boolean) => {
++      const el = starRefs.current[starIdx++ % starRefs.current.length];
++      if (!el) return;
++      const at = (s: number, r: number) => `translate(${px - 12}px, ${py - 12}px) scale(${s}) rotate(${r}deg)`;
++      el.animate(
++        [
++          { transform: at(0.3, 0), opacity: 0.9 },
++          { transform: at(big ? 1.8 : 1.1, 45), opacity: 0 },
++        ],
++        { duration: big ? 340 : 260, easing: "ease-out" },
++      );
++    };
++
++    const burstSpeedLines = (shot: ResolvedShot) => {
++      const start = qBezier(shot.p0, shot.cp, shot.p1, 0.12);
++      const d = qBezierDeriv(shot.p0, shot.cp, shot.p1, 0.12);
++      const dx = d.x * (size.w - 2 * MARGIN_X);
++      const dy = -d.y * (size.h - FLOOR_PX - TOP_PX);
++      const len = Math.hypot(dx, dy) || 1;
++      const vx = dx / len;
++      const vy = dy / len;
++      const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
++      const px = xToPx(start.x);
++      const py = yToPx(start.y);
++      lineRefs.current.forEach((el, k) => {
++        if (!el) return;
++        const ox = px - vx * (16 + k * 9) - vy * (k - 1) * 7;
++        const oy = py - vy * (16 + k * 9) + vx * (k - 1) * 7;
++        el.animate(
++          [
++            { transform: `translate(${ox}px, ${oy}px) rotate(${ang}deg)`, opacity: 0.75 },
++            { transform: `translate(${ox - vx * 18}px, ${oy - vy * 18}px) rotate(${ang}deg)`, opacity: 0 },
++          ],
++          { duration: 300, delay: k * 36, easing: "ease-out" },
++        );
++      });
++    };
++
++    const burstSweat = (side: Side) => {
++      const el = sweatRefs[side].current;
++      if (!el) return;
++      const px = state.playerPx[side] + (side === "left" ? 16 : -26);
++      const py = size.h - FLOOR_PX - PLAYER_H + 2;
++      el.animate(
++        [
++          { transform: `translate(${px}px, ${py}px)`, opacity: 0.7 },
++          { transform: `translate(${px}px, ${py + 12}px)`, opacity: 0 },
++        ],
++        { duration: 550, easing: "ease-in" },
++      );
++    };
++
++    const beginShot = (shot: ResolvedShot, now: number) => {
++      state.shot = shot;
++      state.shotStart = now;
++      state.pending = null;
++      state.hitterRecovered = false;
++      const receiver = other(shot.hitter);
++      setPose(shot.hitter, shot.spec.hitterPose);
++      // receiver starts moving toward the interception point right away
++      state.playerTarget[receiver] = { x: shot.p1.x, cls: shot.arrivalClass };
++      applyPlayerTarget(receiver);
++      burstStar(xToPx(shot.p0.x), yToPx(shot.p0.y), shot.spec.type === "smash");
++      if (shot.spec.type === "smash") {
++        burstSpeedLines(shot);
++        burstSweat(receiver);
++        state.faceOverride[shot.hitter] = { face: "serious", until: now + shot.durMs + 200 };
++        state.faceOverride[receiver] = { face: "shocked", until: now + shot.durMs + 450 };
++      }
++    };
++
++    const planNext = (now: number): ResolvedShot => {
++      const prev = state.shot!;
++      const i = intensityAt(now);
++      return resolveShot(pickShot(prev.arrivalClass, i), prev.p1, other(prev.hitter), i);
++    };
++
++    const baselineFace = (i: number): FaceName => (i < 0.33 ? "smile" : i < 0.7 ? "serious" : "fired");
++
++    let raf = 0;
++    const tick = (now: number) => {
++      const shot = state.shot!;
++      const dt = clamp(now - state.lastFrame, 0, 100);
++      state.lastFrame = now;
++      const i = intensityAt(now);
++      const t = now - state.shotStart;
++      const u = shot.ease(Math.min(1, t / shot.durMs));
++      const p = qBezier(shot.p0, shot.cp, shot.p1, u);
++      const px = xToPx(p.x);
++      const py = yToPx(p.y);
++      const d = qBezierDeriv(shot.p0, shot.cp, shot.p1, u);
++      const dxPx = d.x * (size.w - 2 * MARGIN_X);
++      const dyPx = -d.y * (size.h - FLOOR_PX - TOP_PX);
++      const angle = (Math.atan2(dyPx, dxPx) * 180) / Math.PI;
++      shuttle.style.transform = `translate(${px - 9}px, ${py - 10}px) rotate(${90 + angle}deg)`;
++
++      // trail: stamp the oldest dot, decay the rest (opacity-only per frame)
++      const fast = shot.spec.type === "smash" || shot.spec.type === "drive";
++      if (now - state.lastStamp >= (fast ? 18 : 30)) {
++        state.lastStamp = now;
++        const k = state.trailIdx++ % TRAIL_N;
++        const dot = trailRefs.current[k];
++        if (dot) {
++          const stretch = shot.spec.type === "smash" ? 2.6 : 1;
++          dot.style.transform = `translate(${px - 5}px, ${py - 5}px) rotate(${angle}deg) scale(${stretch}, 1)`;
++          state.trail[k].life = 1;
++        }
++      }
++      const lifeMs = lerp(260, 460, i);
++      const maxOp = lerp(0.32, 0.6, i);
++      for (let k = 0; k < TRAIL_N; k++) {
++        const seg = state.trail[k];
++        if (seg.life <= 0) continue;
++        seg.life = Math.max(0, seg.life - dt / lifeMs);
++        const dot = trailRefs.current[k];
++        if (dot) dot.style.opacity = String(seg.life * maxOp);
++      }
++
++      // pose timeline: hitter recovers, receiver winds up just before contact
++      if (!state.hitterRecovered && t >= Math.min(500, shot.durMs * 0.6)) {
++        setPose(shot.hitter, "ready");
++        state.hitterRecovered = true;
++      }
++      if (!state.pending && t >= Math.max(shot.durMs - 240, shot.durMs * 0.45)) {
++        state.pending = planNext(now);
++        setPose(other(shot.hitter), state.pending.spec.hitterPose);
++        if (state.pending.spec.type === "smash") {
++          state.faceOverride[other(shot.hitter)] = { face: "serious", until: now + 800 };
++        }
++      }
++
++      // faces: event override while active, else the intensity baseline
++      const base = baselineFace(i);
++      for (const side of ["left", "right"] as const) {
++        const ov = state.faceOverride[side];
++        const face = ov && now < ov.until ? ov.face : base;
++        if (face !== state.faceWritten[side]) {
++          const el = svgRefs[side].current;
++          if (el) el.dataset.face = face;
++          state.faceWritten[side] = face;
++        }
++      }
++
++      // amber glow strength, quantised so we rarely touch the style attribute
++      const glow = Math.round(lerp(0.3, 0.8, i) * 20) / 20;
++      if (glow !== state.glowWritten) {
++        root.style.setProperty("--brt-glow", String(glow));
++        state.glowWritten = glow;
++      }
++
++      if (t >= shot.durMs) beginShot(state.pending ?? planNext(now), now);
++      raf = requestAnimationFrame(tick);
++    };
++
++    const ro = new ResizeObserver(() => {
++      size.w = root.clientWidth;
++      size.h = root.clientHeight;
++      applyPlayerTarget("left");
++      applyPlayerTarget("right");
++    });
++    ro.observe(root);
++
++    applyPlayerTarget("left");
++    applyPlayerTarget("right");
++    // opening serve: an underhand lift from the left back court
++    const liftSpec = SHOT_TABLE.find((s) => s.type === "lift")!;
++    beginShot(resolveShot(liftSpec, { x: 0.07, y: 0.28 }, "left", 0), mount);
++    raf = requestAnimationFrame(tick);
++
++    return () => {
++      cancelAnimationFrame(raf);
++      ro.disconnect();
++    };
++  }, [reduced]);
++
 +  return (
-+    <div aria-hidden className="relative mt-1 h-[78px] w-full text-muted-foreground/80">
++    <div
++      ref={rootRef}
++      aria-hidden
++      className="relative mt-1 h-[120px] w-full overflow-hidden text-muted-foreground/80"
++      style={{ "--brt-glow": 0.35 } as CSSProperties}
++    >
 +      {/* court ground */}
-+      <div className="absolute inset-x-3 bottom-[10px] h-px bg-current opacity-20" />
++      <div className="absolute inset-x-3 bottom-[12px] h-px bg-current opacity-20" />
 +      {/* net (centre) */}
-+      <div className="absolute bottom-[10px] left-1/2 h-[30px] w-px -translate-x-1/2 bg-current opacity-25" />
++      <div className="absolute bottom-[12px] left-1/2 h-[38px] w-px -translate-x-1/2 bg-current opacity-25" />
 +
-+      {/* players pinned to the column edges */}
-+      <Player side="left" className="absolute bottom-[10px] left-0" />
-+      <Player side="right" className="absolute bottom-[10px] right-0" />
-+
-+      {/* shuttlecock: full-width x-travel wraps the y-arc wraps the tangent rotation */}
-+      <div className="br-shuttle-x absolute inset-x-0 bottom-[54px]">
-+        <div className="br-shuttle-y inline-block">
-+          <div className="br-shuttle-rot inline-block">
-+            <svg viewBox="0 0 16 18" width="16" height="18" fill="none" className="block">
-+              {/* cork (nose) at top → glyph "points up" at rotate(0) */}
-+              <circle cx="8" cy="6" r="2.8" fill="#f59e0b" stroke="none" />
-+              {/* feathers fanning down (trailing) */}
-+              <g stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-+                <line x1="8" y1="7" x2="4" y2="16" />
-+                <line x1="8" y1="7" x2="6.5" y2="16.5" />
-+                <line x1="8" y1="7" x2="8" y2="17" />
-+                <line x1="8" y1="7" x2="9.5" y2="16.5" />
-+                <line x1="8" y1="7" x2="12" y2="16" />
-+              </g>
-+            </svg>
-+          </div>
++      {/* players */}
++      <div
++        ref={posRefs.left}
++        className={cn("brt-player-pos absolute bottom-[12px] will-change-transform", reduced ? "left-2" : "left-0")}
++      >
++        <ChibiPlayer svgRef={svgRefs.left} />
++      </div>
++      <div
++        ref={posRefs.right}
++        className={cn("brt-player-pos absolute bottom-[12px] will-change-transform", reduced ? "right-2" : "left-0")}
++      >
++        <div className="-scale-x-100">
++          <ChibiPlayer svgRef={svgRefs.right} />
 +        </div>
++      </div>
++
++      {!reduced && (
++        <>
++          {/* shuttle trail (ring buffer, amber glow dots) */}
++          {Array.from({ length: TRAIL_N }, (_, k) => (
++            <div
++              key={k}
++              ref={(el) => (trailRefs.current[k] = el)}
++              className="absolute left-0 top-0 h-[10px] w-[10px] rounded-full opacity-0 will-change-transform"
++              style={{ background: "radial-gradient(closest-side, rgba(245,158,11,0.85), rgba(245,158,11,0))" }}
++            />
++          ))}
++          {/* smash speed lines */}
++          {Array.from({ length: 3 }, (_, k) => (
++            <div
++              key={k}
++              ref={(el) => (lineRefs.current[k] = el)}
++              className="absolute left-0 top-0 h-[2.5px] w-[16px] rounded-full opacity-0"
++              style={{ background: AMBER }}
++            />
++          ))}
++          {/* impact stars */}
++          {Array.from({ length: 2 }, (_, k) => (
++            <div key={k} ref={(el) => (starRefs.current[k] = el)} className="absolute left-0 top-0 opacity-0">
++              <svg viewBox="0 0 24 24" width="24" height="24">
++                <path d="M12 1 L14.2 9.8 L23 12 L14.2 14.2 L12 23 L9.8 14.2 L1 12 L9.8 9.8 Z" fill={AMBER} />
++              </svg>
++            </div>
++          ))}
++          {/* sweat drops */}
++          {(["left", "right"] as const).map((side) => (
++            <div key={side} ref={sweatRefs[side]} className="absolute left-0 top-0 opacity-0">
++              <svg viewBox="0 0 10 14" width="10" height="14">
++                <path
++                  d="M5 1 C 7 5.5, 9 7.5, 9 10 A 4 4 0 1 1 1 10 C 1 7.5, 3 5.5, 5 1 Z"
++                  fill="currentColor"
++                  opacity="0.55"
++                />
++              </svg>
++            </div>
++          ))}
++        </>
++      )}
++
++      {/* shuttlecock */}
++      <div
++        ref={shuttleRef}
++        className={cn(
++          "absolute will-change-transform",
++          reduced ? "left-1/2 top-7 -translate-x-1/2 rotate-[125deg]" : "left-0 top-0",
++        )}
++        style={
++          reduced
++            ? undefined
++            : {
++                transform: "translate(-40px, -40px)",
++                filter: "drop-shadow(0 0 7px rgb(245 158 11 / var(--brt-glow, 0.35)))",
++              }
++        }
++      >
++        <svg viewBox="0 0 16 18" width="18" height="20" fill="none" className="block">
++          {/* cork (nose) at top → glyph "points up" at rotate(0) */}
++          <circle cx="8" cy="6" r="2.8" fill={AMBER} stroke="none" />
++          {/* feathers fanning down (trailing) */}
++          <g stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
++            <line x1="8" y1="7" x2="4" y2="16" />
++            <line x1="8" y1="7" x2="6.5" y2="16.5" />
++            <line x1="8" y1="7" x2="8" y2="17" />
++            <line x1="8" y1="7" x2="9.5" y2="16.5" />
++            <line x1="8" y1="7" x2="12" y2="16" />
++          </g>
++        </svg>
 +      </div>
 +    </div>
 +  );
 +}
 +
 +/**
-+ * A stick-figure player with a racket. The figure is drawn left-facing (racket
-+ * reaching inward to the right); the right player mirrors every x about the
-+ * box centre (28). The racket-arm group rotates about the shoulder
-+ * (transform-origin set per side in globals.css: left 16,24 — right 40,24).
++ * A chibi badminton player, drawn facing RIGHT (toward the net); the right
++ * player mirrors it with a `-scale-x-100` wrapper. The oversized head stays
++ * put across poses (only the small body/limbs swap), so the face layer never
++ * has to follow a pose. Pose/face groups are toggled by the engine through
++ * `data-pose` / `data-face` and cross-faded by the `brt-*` CSS in globals.css.
 + */
-+function Player({ side, className }: { side: "left" | "right"; className?: string }) {
-+  const flip = side === "right";
-+  const mx = (x: number) => (flip ? 56 - x : x);
-+  const racketClass = side === "left" ? "br-racket-left" : "br-racket-right";
-+  const body = "currentColor";
++function ChibiPlayer({ svgRef }: { svgRef: Ref<SVGSVGElement> }) {
++  const limb = { stroke: "currentColor", strokeWidth: 5, strokeLinecap: "round" as const };
++  const torso = { stroke: "currentColor", strokeWidth: 14, strokeLinecap: "round" as const };
++  const face = { stroke: FACE, strokeWidth: 2.2, strokeLinecap: "round" as const, fill: "none" };
++  const racketFrame = { stroke: AMBER, strokeWidth: 2.4, fill: "none" };
 +  return (
-+    <svg viewBox="0 0 56 58" width="56" height="58" fill="none" className={className}>
-+      {/* body + legs */}
-+      <g stroke={body} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-+        <circle cx={mx(16)} cy={12} r={6} fill={body} stroke="none" />
-+        <line x1={mx(16)} y1={18} x2={mx(16)} y2={38} />
-+        <line x1={mx(16)} y1={38} x2={mx(9)} y2={54} />
-+        <line x1={mx(16)} y1={38} x2={mx(23)} y2={54} />
++    <svg
++      ref={svgRef}
++      viewBox={`0 0 ${PLAYER_W} ${PLAYER_H}`}
++      width={PLAYER_W}
++      height={PLAYER_H}
++      fill="none"
++      className="brt-chibi block"
++      data-pose="ready"
++      data-face="smile"
++    >
++      {/* big head (shared by all poses) + amber headband */}
++      <circle cx="36" cy="26" r="19" fill="currentColor" stroke="none" />
++      <path d="M 19 19 A 19 19 0 0 1 53 19" stroke={AMBER} strokeWidth="4.5" strokeLinecap="round" fill="none" />
++
++      {/* ---- body poses ---- */}
++      <g data-pose-name="ready">
++        <line x1="36" y1="50" x2="35" y2="62" {...torso} />
++        <line x1="31" y1="68" x2="26" y2="86" {...limb} />
++        <line x1="40" y1="68" x2="45" y2="86" {...limb} />
++        <line x1="29" y1="52" x2="22" y2="60" {...limb} />
++        <line x1="43" y1="52" x2="50" y2="46" {...limb} />
++        <line x1="50" y1="46" x2="54" y2="42" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
++        <ellipse cx="58" cy="37" rx="5.5" ry="7" transform="rotate(-40 58 37)" {...racketFrame} />
 +      </g>
-+      {/* racket arm (waves on hit) */}
-+      <g className={racketClass} stroke={body} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-+        <line x1={mx(16)} y1={24} x2={mx(34)} y2={17} />
-+        <line x1={mx(34)} y1={17} x2={mx(40)} y2={13} />
-+        <ellipse cx={mx(43)} cy={11} rx={5} ry={7} stroke={body} strokeWidth="1.8" fill="none" />
++      <g data-pose-name="lunge">
++        <line x1="34" y1="50" x2="41" y2="60" {...torso} />
++        <line x1="43" y1="64" x2="58" y2="85" {...limb} />
++        <line x1="36" y1="64" x2="22" y2="85" {...limb} />
++        <line x1="30" y1="52" x2="23" y2="60" {...limb} />
++        <line x1="44" y1="52" x2="55" y2="62" {...limb} />
++        <line x1="55" y1="62" x2="59" y2="66" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
++        <ellipse cx="63" cy="71" rx="5" ry="6.5" transform="rotate(35 63 71)" {...racketFrame} />
++      </g>
++      <g data-pose-name="overhead">
++        <line x1="36" y1="50" x2="33" y2="62" {...torso} />
++        <line x1="32" y1="68" x2="27" y2="85" {...limb} />
++        <line x1="40" y1="68" x2="46" y2="83" {...limb} />
++        <line x1="30" y1="52" x2="24" y2="44" {...limb} />
++        <line x1="43" y1="50" x2="52" y2="32" {...limb} />
++        <line x1="52" y1="32" x2="55" y2="24" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
++        <ellipse cx="58" cy="16" rx="5.5" ry="7.5" transform="rotate(20 58 16)" {...racketFrame} />
++      </g>
++      <g data-pose-name="smash">
++        <line x1="36" y1="50" x2="32" y2="60" {...torso} />
++        <line x1="33" y1="66" x2="24" y2="78" {...limb} />
++        <line x1="39" y1="66" x2="32" y2="82" {...limb} />
++        <line x1="30" y1="54" x2="22" y2="62" {...limb} />
++        <line x1="42" y1="50" x2="52" y2="36" {...limb} />
++        <line x1="52" y1="36" x2="58" y2="22" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
++        <ellipse cx="62" cy="13" rx="5" ry="7" transform="rotate(30 62 13)" {...racketFrame} />
++      </g>
++      <g data-pose-name="drive">
++        <line x1="36" y1="50" x2="35" y2="62" {...torso} />
++        <line x1="31" y1="66" x2="24" y2="84" {...limb} />
++        <line x1="41" y1="66" x2="48" y2="84" {...limb} />
++        <line x1="29" y1="52" x2="23" y2="58" {...limb} />
++        <line x1="43" y1="50" x2="55" y2="50" {...limb} />
++        <line x1="55" y1="50" x2="59" y2="50" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
++        <ellipse cx="64" cy="50" rx="5" ry="6" {...racketFrame} />
++      </g>
++
++      {/* ---- faces (drawn in the background colour over the head) ---- */}
++      <g data-face-name="smile">
++        <circle cx="36" cy="23" r="2.2" fill={FACE} stroke="none" />
++        <circle cx="47" cy="23" r="2.2" fill={FACE} stroke="none" />
++        <path d="M 38 30 Q 42 34 46 30" {...face} />
++      </g>
++      <g data-face-name="serious">
++        <line x1="32" y1="18.5" x2="39" y2="20.5" {...face} />
++        <line x1="51" y1="18.5" x2="44" y2="20.5" {...face} />
++        <circle cx="36" cy="24" r="2" fill={FACE} stroke="none" />
++        <circle cx="46" cy="24" r="2" fill={FACE} stroke="none" />
++        <line x1="39" y1="32" x2="46" y2="32" {...face} />
++      </g>
++      <g data-face-name="shocked">
++        <polyline points="33,20 38,23 33,26" {...face} />
++        <polyline points="50,20 45,23 50,26" {...face} />
++        <ellipse cx="41.5" cy="32" rx="3" ry="3.8" fill={FACE} stroke="none" />
++      </g>
++      <g data-face-name="fired">
++        <line x1="31" y1="17" x2="39" y2="21" {...face} />
++        <line x1="52" y1="17" x2="44" y2="21" {...face} />
++        <circle cx="36" cy="24" r="2.4" fill={FACE} stroke="none" />
++        <circle cx="46" cy="24" r="2.4" fill={FACE} stroke="none" />
++        <path d="M 37 29 Q 41.5 36 46 29 Z" fill={FACE} stroke="none" />
 +      </g>
 +    </svg>
 +  );
@@ -113,132 +706,53 @@ index 595fb88..81c15bf 100644
    );
  }
 diff --git a/webui/src/globals.css b/webui/src/globals.css
-index e6a2af9..b2e16d7 100644
+index e6a2af9..5241c96 100644
 --- a/webui/src/globals.css
 +++ b/webui/src/globals.css
-@@ -486,4 +486,125 @@
+@@ -486,4 +486,46 @@
    .scrollbar-track-transparent::-webkit-scrollbar-track {
      background: transparent;
    }
 +
 +  /* Badminton rally — decorative "thinking" animation (BadmintonRallyThinking).
-+     One shared 1.8s loop keeps the parabola, the tangent rotation, and the
-+     racket swings in sync: the shuttle leaves the left racket at 0%, reaches
-+     the right at 50%, returns by 100%; each racket waves as it arrives. The
-+     shuttle wrapper is full-width (inset-x-0), so translateX percentages are
-+     relative to the conversation column — the rally spans the whole width. */
-+  .br-shuttle-x {
-+    animation: br-shuttle-x 1.8s ease-in-out infinite;
++     The rally itself is driven by a rAF engine inside the component (random
++     shot table + escalation); CSS only owns the discrete-state tweens. The
++     engine writes data-pose / data-face on each chibi player SVG and the
++     brt-* rules cross-fade the matching <g>; the player position wrapper is
++     tweened by a transform transition the engine writes once per shot. */
++  .brt-chibi g[data-pose-name],
++  .brt-chibi g[data-face-name] {
++    opacity: 0;
++    transition: opacity 120ms ease;
 +  }
-+  .br-shuttle-y {
-+    animation: br-shuttle-y 1.8s ease-in-out infinite;
++  .brt-chibi[data-pose="ready"] g[data-pose-name="ready"],
++  .brt-chibi[data-pose="lunge"] g[data-pose-name="lunge"],
++  .brt-chibi[data-pose="overhead"] g[data-pose-name="overhead"],
++  .brt-chibi[data-pose="smash"] g[data-pose-name="smash"],
++  .brt-chibi[data-pose="drive"] g[data-pose-name="drive"],
++  .brt-chibi[data-face="smile"] g[data-face-name="smile"],
++  .brt-chibi[data-face="serious"] g[data-face-name="serious"],
++  .brt-chibi[data-face="shocked"] g[data-face-name="shocked"],
++  .brt-chibi[data-face="fired"] g[data-face-name="fired"] {
++    opacity: 1;
 +  }
-+  .br-shuttle-rot {
-+    transform-box: fill-box;
-+    transform-origin: center;
-+    animation: br-shuttle-rot 1.8s linear infinite;
++  /* jump smash: a small hop, snapping back on the next pose */
++  .brt-chibi {
++    transition: transform 160ms ease-out;
 +  }
-+  .br-racket-left {
-+    transform-box: view-box;
-+    transform-origin: 16px 24px;
-+    animation: br-racket-left 1.8s linear infinite;
++  .brt-chibi[data-pose="smash"] {
++    transform: translateY(-12px);
 +  }
-+  .br-racket-right {
-+    transform-box: view-box;
-+    transform-origin: 40px 24px;
-+    animation: br-racket-right 1.8s linear infinite;
-+  }
-+  /* Horizontal travel across the full column width (100% == container width;
-+     px offsets keep the shuttle aligned with each racket head). */
-+  @keyframes br-shuttle-x {
-+    0% {
-+      transform: translateX(36px);
-+    }
-+    50% {
-+      transform: translateX(calc(100% - 52px));
-+    }
-+    100% {
-+      transform: translateX(36px);
-+    }
-+  }
-+  /* Vertical arc — apex at each mid-flight; combined with x gives a parabola. */
-+  @keyframes br-shuttle-y {
-+    0%,
-+    50%,
-+    100% {
-+      transform: translateY(0);
-+    }
-+    25%,
-+    75% {
-+      transform: translateY(-20px);
-+    }
-+  }
-+  /* Cork-leading tangent: nose up at 0deg, +90 right, +180 down. The shuttle
-+     tilts up→level→down along each arc and flips ~180deg at each racket hit. */
-+  @keyframes br-shuttle-rot {
-+    0% {
-+      transform: rotate(50deg);
-+    }
-+    25% {
-+      transform: rotate(90deg);
-+    }
-+    46% {
-+      transform: rotate(132deg);
-+    }
-+    50% {
-+      transform: rotate(220deg);
-+    }
-+    54% {
-+      transform: rotate(308deg);
-+    }
-+    75% {
-+      transform: rotate(270deg);
-+    }
-+    96% {
-+      transform: rotate(230deg);
-+    }
-+    100% {
-+      transform: rotate(50deg);
-+    }
-+  }
-+  @keyframes br-racket-left {
-+    0% {
-+      transform: rotate(12deg);
-+    }
-+    12%,
-+    88% {
-+      transform: rotate(0deg);
-+    }
-+    94% {
-+      transform: rotate(-18deg);
-+    }
-+    100% {
-+      transform: rotate(12deg);
-+    }
-+  }
-+  @keyframes br-racket-right {
-+    0%,
-+    38% {
-+      transform: rotate(0deg);
-+    }
-+    44% {
-+      transform: rotate(18deg);
-+    }
-+    50% {
-+      transform: rotate(-12deg);
-+    }
-+    62%,
-+    100% {
-+      transform: rotate(0deg);
-+    }
++  /* footwork: the engine writes one translateX per shot; CSS tweens it */
++  .brt-player-pos {
++    transition: transform 320ms ease-out;
 +  }
 +  @media (prefers-reduced-motion: reduce) {
-+    .br-shuttle-x,
-+    .br-shuttle-y,
-+    .br-shuttle-rot,
-+    .br-racket-left,
-+    .br-racket-right {
-+      animation: none;
++    .brt-chibi,
++    .brt-chibi g[data-pose-name],
++    .brt-chibi g[data-face-name],
++    .brt-player-pos {
++      transition: none;
 +    }
 +  }
  }

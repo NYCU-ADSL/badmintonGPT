@@ -39,14 +39,16 @@
   (`build_messages(current_runtime_lines=…)`). Paired with this repo's `nanobot/workspace/SOUL.md`
   rule that honors that hint.
 - `patches/webui-thinking-animation.patch` — adds `webui/src/components/BadmintonRallyThinking.tsx`
-  (a decorative badminton rally: two players pinned to the **full conversation width**, volleying a
-  shuttlecock whose vertical arc + horizontal travel form a parabola and whose glyph **rotates along
-  the velocity tangent** — cork leading, flipping at each hit — with each racket waving as it
-  arrives), its CSS keyframes in `webui/src/globals.css` (`br-*`, one shared 1.8s loop; the shuttle
-  wrapper is full-width so `translateX` percentages span the column; `prefers-reduced-motion`
-  freezes it), and mounts it in `webui/src/components/thread/AgentActivityCluster.tsx` below the
-  cluster, gated on `isTurnStreaming` so it shows under the "thinking" process while a turn is live.
-  Skin-only; no behavior change.
+  (a decorative badminton rally spanning the **full conversation width**: two chibi players exchange
+  shots picked at random from a shot table — clear/drop/smash/drive/lift/net, chained by realistic
+  contact-height rules — driven by a single rAF engine writing transforms through refs, with an
+  amber glowing shuttle trail, pose + facial-expression switching per shot, one-shot comic effects
+  via WAAPI (impact star, smash speed lines, sweat drop), and an intensity ramp over ~35s of waiting
+  that speeds the rally up, raises the smash rate and hardens the expressions), its `brt-*`
+  pose/face cross-fade rules in `webui/src/globals.css` (`prefers-reduced-motion` renders a static
+  scene, no engine), and mounts it in `webui/src/components/thread/AgentActivityCluster.tsx` below
+  the cluster, gated on `isTurnStreaming` so it shows under the "thinking" process while a turn is
+  live. Skin-only; no behavior change.
 
 It is committed so the gateway image (`../Dockerfile`) builds the **patched** nanobot
 hermetically — no clone of an upstream tag, no `nanobot-ai` PyPI pin, no post-install dist
