@@ -1,0 +1,18 @@
+# Remote MCP Server Guide
+
+> Build, deploy, and consume a remote MCP server (Python + FastMCP, Streamable HTTP). If you are an LLM agent
+> helping a user wrap their *own* code as a remote MCP server, start with the agent playbook below — it has
+> the build steps, the conventions to follow, and what to confirm with the user before writing code.
+
+## For LLM agents
+
+- [Agent playbook: build an MCP server from your code](https://badmintongpt-docs.nycu-adsl.cc/for-llm-agents/): step-by-step workflow, mandatory conventions (return JSON not exceptions, `Field`-described params, async job contract, file-as-URL, `/healthz`, auth), and the four decisions to confirm with the user (which functions→tools, sync vs async, auth model, hosting & domain).
+
+## Docs
+
+- [Guide](https://badmintongpt-docs.nycu-adsl.cc/): full reference — concepts, architecture, run locally, deploy remotely (Cloudflare Access **or** app-level Bearer token), connect a client, troubleshooting.
+- [Example server](https://badmintongpt-docs.nycu-adsl.cc/example/): a complete, runnable reference implementation — sync tools, an async job (`start → status → result`) with progress, file delivery over HTTP, and a health check.
+
+## Optional
+
+- [Example server source (zip)](https://badmintongpt-docs.nycu-adsl.cc/example-mcp-server.zip): downloadable scaffold to copy and adapt.

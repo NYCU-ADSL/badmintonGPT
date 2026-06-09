@@ -44,3 +44,4 @@ markdown_extensions:
 nav:
   - Guide: index.md
   - Example server: example.md
+  - For LLM agents: for-llm-agents.md

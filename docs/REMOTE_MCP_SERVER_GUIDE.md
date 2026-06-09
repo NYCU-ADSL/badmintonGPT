@@ -4,6 +4,11 @@ Build an MCP server, run it locally, and deploy it as a **remote service** any M
 can call over the network. A complete, runnable reference implementation ships alongside this guide:
 **`example-mcp-server/`**.
 
+> **🤖 LLM agents:** if you're an agent helping a user wrap *their own* code as a remote MCP server, read the
+> **[agent playbook → `for-llm-agents.md`](for-llm-agents.md)** first — it has the build steps, the
+> conventions to follow, and the decisions to confirm with your user before writing code. Machine-readable
+> site index: [`/llms.txt`](llms.txt).
+
 ## Who this is for
 
 You're comfortable with **Python** and know the **basics of MCP** (an LLM/agent calls "tools" your
