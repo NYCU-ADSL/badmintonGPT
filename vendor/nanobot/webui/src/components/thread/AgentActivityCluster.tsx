@@ -23,6 +23,7 @@ import { DiffPair } from "@/components/thread/activity/DiffPair";
 import { FileEditGroup, hasVisibleDiffStats, type FileEditSummary } from "@/components/thread/activity/FileEditRow";
 import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
 import { ToolProgress } from "@/components/ToolProgress";
+import { BadmintonRallyThinking } from "@/components/BadmintonRallyThinking";
 import {
   activityEvidenceFromMessageMedia,
   activityEvidenceFromToolEvent,
@@ -525,6 +526,10 @@ export function AgentActivityCluster({
           </div>
         </div>
       )}
+
+      {/* Decorative badminton rally shown below the thinking process while the
+          turn is live (gated like the pinned ToolProgress above). */}
+      {isTurnStreaming && <BadmintonRallyThinking />}
     </div>
   );
 }
