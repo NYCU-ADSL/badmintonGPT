@@ -1,7 +1,7 @@
 #!/bin/sh
 # BadmintonGPT gateway entrypoint.
 # Installs the committed nanobot config + agent brain into $HOME/.nanobot (runtime
-# state in sessions/ and memory/ is preserved by the nanobot_state volume), links
+# state in sessions/ and memory/ is preserved by the nanobot_state volume), copies
 # this repo's skill playbooks into the workspace, then execs `nanobot <cmd>`.
 set -e
 
@@ -17,8 +17,14 @@ for f in SOUL AGENTS USER HEARTBEAT; do
 done
 
 # Skill playbooks are baked into the image at /app/skills; surface them to nanobot.
+# COPY (don't symlink): nanobot's restrictToWorkspace boundary resolves symlinks, so a
+# symlinked skill dir resolves to /app/skills/... (outside $WS) and the agent's read_file
+# is rejected ("Path .../SKILL.md is outside allowed directory"). Copies stay in-bounds.
+# rm -rf first so a stale symlink on the persisted nanobot_state volume is replaced (not
+# copied through). Runs on every container start, so a rebuilt /app/skills propagates.
 for s in badminton-db badminton-reels long-mcp-job; do
-    ln -sfn "/app/skills/$s" "$WS/skills/$s"
+    rm -rf "$WS/skills/$s"
+    cp -r "/app/skills/$s" "$WS/skills/$s"
 done
 
 # The DB lives in the separate badminton-db container now; the gateway reaches it over
