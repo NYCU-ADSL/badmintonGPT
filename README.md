@@ -56,11 +56,13 @@ DB build 已自帶解析（`mcps/badminton-db/ingest_lib/`），只需 HuggingFa
 - `tools.mcpServers`：`badminton-db`（`streamableHttp`，`url` 指向本地 db HTTP server `http://127.0.0.1:8801/mcp`）；`util`（stdio，`command` = `python`、`args` = `mcps/util/server.py`）；`badminton-reels`（遠端 `streamableHttp` + CF Access headers）
 - 路由與 DB 速查規則寫在 `~/.nanobot/workspace/SOUL.md`
 
-把 skills 連到 nanobot workspace（playbook 漸進揭露）：
+把 skills **複製**到 nanobot workspace（playbook 漸進揭露）。注意是 `cp` 不是 `ln -s`：
+nanobot 的 `restrictToWorkspace` 邊界會先 resolve symlink 再做 containment 檢查，symlink 進來的
+skill dir 會 resolve 到 workspace 外的真實路徑，agent 讀 `SKILL.md` 會被擋
+（`Path .../SKILL.md is outside allowed directory`）；複製進來才在邊界內。
+編輯 `skills/*` 後重跑此 script 再重啟 gateway 即可更新：
 ```bash
-ln -sfn "$PWD/skills/badminton-db"    ~/.nanobot/workspace/skills/badminton-db
-ln -sfn "$PWD/skills/badminton-reels" ~/.nanobot/workspace/skills/badminton-reels
-ln -sfn "$PWD/skills/long-mcp-job"    ~/.nanobot/workspace/skills/long-mcp-job
+./scripts/sync_skills.sh   # cp -r skills/* → ~/.nanobot/workspace/skills/（會先清掉舊 symlink）
 ```
 
 ## 執行

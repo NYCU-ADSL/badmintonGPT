@@ -42,8 +42,8 @@ Pages at `badmintongpt-docs.nycu-adsl.cc`. `mcp_test/` is a read-only MCP confor
 (`python -m mcp_test <url> [--header "K: V"] [--stdio "cmd"]`, docs in `docs/MCP_TEST.md`).
 
 Config that drives all this is **committed in the repo** under `nanobot/` (the canonical templates)
-and lands in `~/.nanobot/` at runtime — symlinked/copied in host mode, installed by
-`docker/entrypoint.sh` in the Docker deploy:
+and lands in `~/.nanobot/` at runtime — copied in host mode (config copied/pointed at, skills via
+`scripts/sync_skills.sh`), installed by `docker/entrypoint.sh` in the Docker deploy:
 - `nanobot/config.json` — providers, websocket channel (:8765), `tools.mcpServers` (all three MCPs):
   `badminton-db` = `{ "type": "streamableHttp", "url": "http://badminton-db:8801/mcp",
   "enabledTools": [...] }` (no auth); `util` = `{ "type": "stdio", "command": "python3",
@@ -58,7 +58,13 @@ and lands in `~/.nanobot/` at runtime — symlinked/copied in host mode, install
   (the de-facto system prompt; there is no `systemPrompt` config key). `AGENTS.md` / `USER.md` /
   `HEARTBEAT.md` are the stock workspace templates.
 - `~/.nanobot/workspace/skills/` — where nanobot discovers skills; the repo's `skills/*` are
-  **symlinked** here (host mode `ln -sfn`, container via the entrypoint).
+  **copied** here (host mode `scripts/sync_skills.sh`, container via the entrypoint's `cp -r`).
+  Do **NOT** symlink them: nanobot's `restrictToWorkspace` boundary resolves symlinks before the
+  containment check (`security/workspace_policy.py:is_path_within` → `Path.resolve()`), so a
+  symlinked skill dir resolves to its real path *outside* the workspace and the agent's `read_file`
+  fails with `Path .../SKILL.md is outside allowed directory (... hard policy boundary ...)`.
+  Copying keeps them in-bounds. Trade-off: editing `skills/*` needs a re-copy (re-run
+  `scripts/sync_skills.sh`, or rebuild/restart the container) before nanobot sees the change.
 - `vendor/nanobot/` — the **patched** nanobot source (HKUDS/nanobot v0.2.1 + `patches/webui-progress.patch`),
   vendored so the Docker image builds the progress-bar WebUI hermetically (see `vendor/README.md`).
 
@@ -88,9 +94,7 @@ success-metric bank is in `docs/TASK.md` / `eval/run_eval.py`.
 # --- setup (once) ---
 uv sync                                   # build .venv (py3.12: mcp, huggingface_hub, pydantic, websockets)
 uv tool install nanobot-ai && nanobot onboard
-ln -sfn "$PWD/skills/badminton-db"    ~/.nanobot/workspace/skills/badminton-db
-ln -sfn "$PWD/skills/badminton-reels" ~/.nanobot/workspace/skills/badminton-reels
-ln -sfn "$PWD/skills/long-mcp-job"    ~/.nanobot/workspace/skills/long-mcp-job
+./scripts/sync_skills.sh                  # COPY skills/* → ~/.nanobot/workspace/skills/ (NOT symlink; see Gotchas)
 cp .env.example .env                      # fill OPENAI_API_KEY + REELS_CF_CLIENT_ID/SECRET
 
 # --- build / verify the DB (all paths under mcps/badminton-db/) ---
@@ -158,6 +162,15 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   (`scripts/load_env.sh`, `eval/run_eval.py`) — no fallback to other projects. nanobot resolves
   them via `${VAR}` substitution at startup, so they must be exported before `nanobot gateway`.
 - Model in config is the **bare** name `gpt-5.1` with `provider: "openai"` (not `"openai/gpt-5.1"`).
+- **Skills must be COPIED into `~/.nanobot/workspace/skills/`, never symlinked.** With
+  `restrictToWorkspace: true` (the deployed config), the read_file boundary check
+  (`security/workspace_policy.py:is_path_within`) calls `Path.resolve()`, which **follows
+  symlinks**. A symlinked skill dir therefore resolves to its real path *outside* the workspace
+  (`/mnt/ssd1/.../skills/...` host, `/app/skills/...` Docker) and reading its `SKILL.md` fails with
+  `Path .../skills/badminton-reels/SKILL.md is outside allowed directory ... (... hard policy
+  boundary ...)` — this is exactly what breaks reel generation, since the agent loads the
+  `badminton-reels` SKILL.md on demand. Fix: `scripts/sync_skills.sh` (host) / entrypoint `cp -r`
+  (Docker) copy the dirs in-bounds. Cost: edits aren't live until re-copied.
 
 ## nanobot v0.2.1 runtime facts (verified in source/logs — do not re-litigate)
 
@@ -241,5 +254,9 @@ After changing the DB schema, update `mcps/badminton-db/ingest.py` DDL,
 `mcps/badminton-db/scripts/verify_db.py`, `skills/badminton-db/references/schema.md`, and the
 SOUL.md conventions together.
 The async-job wait recipe is owned by `skills/long-mcp-job/` (SOUL rule 3 carries the one-line
-summary; `skills/badminton-reels/` is domain knowledge only) — edit them together, then restart
-the gateway (reels first; see runtime facts above) to pick changes up.
+summary; `skills/badminton-reels/` is domain knowledge only) — edit them together, then
+**re-copy into the workspace** (`scripts/sync_skills.sh`, host mode; or rebuild/restart the
+container) and restart the gateway (reels first; see runtime facts above) to pick changes up.
+Skills are **copied**, not symlinked, into `~/.nanobot/workspace/skills/` (the
+`restrictToWorkspace` boundary rejects symlinked-in dirs — see Gotchas), so a repo edit is not
+live until re-copied.
