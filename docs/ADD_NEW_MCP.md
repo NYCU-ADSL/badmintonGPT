@@ -47,7 +47,9 @@ Env: MCP_HOST (default 0.0.0.0), MCP_PORT (e.g. 8802), <你需要的其它>。
 """
 from __future__ import annotations
 import os
+from typing import Annotated
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -58,7 +60,9 @@ mcp = FastMCP(                       # 這個名字會出現在 nanobot 工具�
 )
 
 @mcp.tool()
-def my_tool(arg: str) -> dict:
+def my_tool(
+    arg: Annotated[str, Field(description="這個參數是什麼、格式/範例（agent 會在 schema 看到）。")],
+) -> dict:
     """一句話描述工具用途與輸入（LLM 會讀這段 docstring 決定何時呼叫）。"""
     # ... 做事，回傳 JSON-able 的 dict / list / 純值
     return {"result": arg.upper()}
@@ -84,6 +88,7 @@ if __name__ == "__main__":
 - **唯讀/安全**：若碰資料庫，用 `sqlite3.connect("file:...?mode=ro", uri=True)` + 只允許 SELECT（正則擋多句/非 SELECT）。對外輸入做白名單驗證。
 - **回傳結構化**：回 `dict`/`list`，FastMCP 會包成 structured content；錯誤回 `{"error": "..."}` 而非 raise（讓 agent 看得到原因）。
 - **工具命名**：用清楚動詞（`list_*`/`get_*`/`find_*`/`generate_*`）。docstring 寫清楚「何時用」。
+- **每個參數加描述**：docstring 只會變成「工具」層級的描述，FastMCP **不會**把 docstring 的 `Args:` 拆給各參數。要讓 agent 在 `inputSchema` 看到每個參數的說明，用 `Annotated[T, Field(description="...")]`（預設值放在 `Annotated` 外面：`x: Annotated[int, Field(description="...")] = 8`）。`Field` 也能帶 `ge`/`le`/`pattern` 等驗證 —— 但那會「拒絕」超界值，若你本來是想**靜默 clamp**就只寫 `description`，把界限寫進文字。
 - **self-contained**：相依的 lib／資料儘量 vendored 進 `mcps/<name>/`（鏡像 `mcps/badminton-db/ingest_lib/`），不要跨 repo `sys.path` 注入，讓它自己一個 Dockerfile 就能 build。
 
 ### 1.2 寫 per-MCP Dockerfile
@@ -165,11 +170,15 @@ docker compose logs gateway | grep "MCP server '<name>'"     # 應見 connected
 ```python
 #!/usr/bin/env python3
 """<name> — local stdio MCP（in-process 小工具）。Tools: ..."""
+from typing import Annotated
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 mcp = FastMCP("<name>")
 
 @mcp.tool()
-def my_tool(arg: str) -> dict:
+def my_tool(
+    arg: Annotated[str, Field(description="這個參數是什麼、格式/範例。")],
+) -> dict:
     """一句話描述工具用途與輸入。"""
     return {"result": arg.upper()}
 

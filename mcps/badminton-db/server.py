@@ -17,8 +17,10 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -54,7 +56,11 @@ def list_tables() -> list[str]:
 
 
 @mcp.tool()
-def describe_table(table: str) -> list[dict]:
+def describe_table(
+    table: Annotated[str, Field(
+        description="Name of the table to inspect (e.g. 'matches', 'rallies', "
+                    "or 'shots'). Must be a valid SQL identifier.")],
+) -> list[dict]:
     """Return column info (name, type, ...) for a table via PRAGMA table_info."""
     if not _IDENT.match(table):
         return [{"error": f"invalid table name: {table!r}"}]
@@ -69,7 +75,13 @@ def describe_table(table: str) -> list[dict]:
 
 
 @mcp.tool()
-def query(sql: str) -> dict:
+def query(
+    sql: Annotated[str, Field(
+        description="A single read-only SELECT statement to run against the "
+                    "badminton DB. At most 200 rows are returned. Multiple "
+                    "statements, a trailing extra statement, or any non-SELECT "
+                    "query are rejected.")],
+) -> dict:
     """Run a single read-only SELECT and return {rows, row_count} (max 200 rows).
 
     Only one SELECT statement is allowed; anything else is rejected.
