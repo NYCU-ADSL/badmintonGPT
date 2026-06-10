@@ -24,9 +24,12 @@
   Cloudflare Access can reach it), so the env var lets the validator pass and lets bootstrap serve
   remote clients without a nanobot secret; auth is the edge's Access policy. Fails closed (unset → stock
   behavior). The `_is_localhost`-gated WebUI admin controls are intentionally left as-is.
-- `patches/webui-branding.patch` — rebrands the WebUI to **badmintonGPT**: adds
-  `webui/public/brand/shuttlecock.svg` (used as favicon + in-app logo), points the logo refs in
-  `webui/src/components/Sidebar.tsx` and `webui/src/components/settings/SettingsView.tsx` at it, sets
+- `patches/webui-branding.patch` — rebrands the WebUI to **badmintonGPT**: adds four assets from the
+  `../images/logo/` brand kit — `webui/public/brand/mark-green.svg` (settings icon + apple-touch
+  icon + collapsed-sidebar logo), `mark-small-noframe-green.svg` (favicon),
+  `lockup-horizontal.svg` / `lockup-horizontal-dark.svg` (expanded-sidebar wordmark, swapped via
+  Tailwind `dark:` classes) — points the logo refs in
+  `webui/src/components/Sidebar.tsx` and `webui/src/components/settings/SettingsView.tsx` at them, sets
   the `webui/index.html` title/favicon/boot-splash, the hardcoded settings brand label, and the
   user-visible "nanobot" brand strings + badminton-themed empty-state greetings across the nine
   `webui/src/i18n/locales/*/common.json` (the literal `` `nanobot gateway` `` command string is

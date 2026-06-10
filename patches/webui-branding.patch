@@ -1,5 +1,5 @@
 diff --git a/webui/index.html b/webui/index.html
-index 92fb88c..f37b6be 100644
+index 92fb88c..9d5530c 100644
 --- a/webui/index.html
 +++ b/webui/index.html
 @@ -6,14 +6,13 @@
@@ -15,8 +15,8 @@ index 92fb88c..f37b6be 100644
 -    <link rel="icon" type="image/png" sizes="32x32" href="/brand/nanobot_favicon_32.png" />
 -    <link rel="icon" type="image/png" sizes="73x75" href="/brand/nanobot_icon.png" />
 -    <link rel="apple-touch-icon" sizes="180x180" href="/brand/nanobot_apple_touch.png" />
-+    <link rel="icon" type="image/svg+xml" href="/brand/shuttlecock.svg" />
-+    <link rel="apple-touch-icon" href="/brand/shuttlecock.svg" />
++    <link rel="icon" type="image/svg+xml" href="/brand/mark-small-noframe-green.svg" />
++    <link rel="apple-touch-icon" href="/brand/mark-green.svg" />
      <style>
        html,
        body,
@@ -96,45 +96,128 @@ index 92fb88c..f37b6be 100644
          </div>
        </div>
      </div>
-diff --git a/webui/public/brand/shuttlecock.svg b/webui/public/brand/shuttlecock.svg
+diff --git a/webui/public/brand/lockup-horizontal-dark.svg b/webui/public/brand/lockup-horizontal-dark.svg
 new file mode 100644
-index 0000000..90254ec
+index 0000000..f428736
 --- /dev/null
-+++ b/webui/public/brand/shuttlecock.svg
-@@ -0,0 +1,18 @@
-+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="badmintonGPT">
-+  <!-- feather skirt -->
-+  <path d="M24 41 L12 11 Q32 2 52 11 L40 41 Q32 45 24 41 Z"
-+        fill="#f1f5f9" stroke="#475569" stroke-width="2.4" stroke-linejoin="round"/>
-+  <!-- feather separators, fanning from the cork up to the tips -->
-+  <g stroke="#475569" stroke-width="1.9" stroke-linecap="round">
-+    <path d="M32 42 L12 12"/>
-+    <path d="M32 42 L22 6"/>
-+    <path d="M32 42 L32 4"/>
-+    <path d="M32 42 L42 6"/>
-+    <path d="M32 42 L52 12"/>
++++ b/webui/public/brand/lockup-horizontal-dark.svg
+@@ -0,0 +1,12 @@
++<?xml version="1.0"?>
++<svg xmlns="http://www.w3.org/2000/svg" width="660" height="120" viewBox="0 0 660 120" fill="none">
++
++<g transform="rotate(-12 60 60)" stroke-linecap="round" stroke-linejoin="round">
++    <line x1="30" y1="42" x2="74" y2="42" stroke="#3fc168" stroke-width="8"></line>
++    <line x1="20" y1="60" x2="70" y2="60" stroke="#3fc168" stroke-width="8"></line>
++    <line x1="34" y1="78" x2="70" y2="78" stroke="#3fc168" stroke-width="8" opacity="0.5"></line>
++    <circle cx="95" cy="60" r="11" fill="#3fc168"></circle>
++    <path d="M75 48 V40 H83 M107 40 H115 V48 M75 72 V80 H83 M107 80 H115 V72" fill="none" stroke="#3fc168" stroke-width="5" opacity="0.9"></path>
 +  </g>
-+  <!-- string band where feathers meet the cork -->
-+  <path d="M22 38 Q32 43 42 38" stroke="#475569" stroke-width="2.2" stroke-linecap="round" fill="none"/>
-+  <!-- cork base -->
-+  <path d="M24 41 Q32 45 40 41 L38 53 Q32 59 26 53 Z"
-+        fill="#f59e0b" stroke="#475569" stroke-width="2.4" stroke-linejoin="round"/>
++  <text font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" x="152" y="83" font-size="64" font-weight="600" letter-spacing="-1.6" fill="#ffffff">Badminton<tspan font-weight="700" fill="#3fc168">GPT</tspan></text>
 +</svg>
+\ No newline at end of file
+diff --git a/webui/public/brand/lockup-horizontal.svg b/webui/public/brand/lockup-horizontal.svg
+new file mode 100644
+index 0000000..5a6c0ea
+--- /dev/null
++++ b/webui/public/brand/lockup-horizontal.svg
+@@ -0,0 +1,12 @@
++<?xml version="1.0"?>
++<svg xmlns="http://www.w3.org/2000/svg" width="660" height="120" viewBox="0 0 660 120" fill="none">
++
++<g transform="rotate(-12 60 60)" stroke-linecap="round" stroke-linejoin="round">
++    <line x1="30" y1="42" x2="74" y2="42" stroke="#3fc168" stroke-width="8"></line>
++    <line x1="20" y1="60" x2="70" y2="60" stroke="#3fc168" stroke-width="8"></line>
++    <line x1="34" y1="78" x2="70" y2="78" stroke="#3fc168" stroke-width="8" opacity="0.5"></line>
++    <circle cx="95" cy="60" r="11" fill="#3fc168"></circle>
++    <path d="M75 48 V40 H83 M107 40 H115 V48 M75 72 V80 H83 M107 80 H115 V72" fill="none" stroke="#3fc168" stroke-width="5" opacity="0.9"></path>
++  </g>
++  <text font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" x="152" y="83" font-size="64" font-weight="600" letter-spacing="-1.6" fill="#17221c">Badminton<tspan font-weight="700" fill="#3fc168">GPT</tspan></text>
++</svg>
+\ No newline at end of file
+diff --git a/webui/public/brand/mark-green.svg b/webui/public/brand/mark-green.svg
+new file mode 100644
+index 0000000..c49322b
+--- /dev/null
++++ b/webui/public/brand/mark-green.svg
+@@ -0,0 +1,10 @@
++<?xml version="1.0"?>
++<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" fill="none">
++<g transform="rotate(-12 60 60)" stroke-linecap="round" stroke-linejoin="round">
++    <line x1="30" y1="42" x2="74" y2="42" stroke="#3fc168" stroke-width="8"></line>
++    <line x1="20" y1="60" x2="70" y2="60" stroke="#3fc168" stroke-width="8"></line>
++    <line x1="34" y1="78" x2="70" y2="78" stroke="#3fc168" stroke-width="8" opacity="0.5"></line>
++    <circle cx="95" cy="60" r="11" fill="#3fc168"></circle>
++    <path d="M75 48 V40 H83 M107 40 H115 V48 M75 72 V80 H83 M107 80 H115 V72" fill="none" stroke="#3fc168" stroke-width="5" opacity="0.9"></path>
++  </g>
++</svg>
+\ No newline at end of file
+diff --git a/webui/public/brand/mark-small-noframe-green.svg b/webui/public/brand/mark-small-noframe-green.svg
+new file mode 100644
+index 0000000..9752f32
+--- /dev/null
++++ b/webui/public/brand/mark-small-noframe-green.svg
+@@ -0,0 +1,10 @@
++<?xml version="1.0"?>
++<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" fill="none">
++<g transform="rotate(-12 60 60)" stroke-linecap="round" stroke-linejoin="round">
++    <line x1="30" y1="42" x2="74" y2="42" stroke="#3fc168" stroke-width="8"></line>
++    <line x1="20" y1="60" x2="70" y2="60" stroke="#3fc168" stroke-width="8"></line>
++    <line x1="34" y1="78" x2="70" y2="78" stroke="#3fc168" stroke-width="8" opacity="0.5"></line>
++    <circle cx="95" cy="60" r="11" fill="#3fc168"></circle>
++    
++  </g>
++</svg>
+\ No newline at end of file
 diff --git a/webui/src/components/Sidebar.tsx b/webui/src/components/Sidebar.tsx
-index 57cf42a..8e5f47e 100644
+index 57cf42a..1fffe3c 100644
 --- a/webui/src/components/Sidebar.tsx
 +++ b/webui/src/components/Sidebar.tsx
-@@ -94,7 +94,7 @@ export function Sidebar(props: SidebarProps) {
+@@ -87,18 +87,35 @@ export function Sidebar(props: SidebarProps) {
+           onClick={collapsed ? props.onExpand : undefined}
+           tabIndex={collapsed ? 0 : -1}
+           className={cn(
+-            "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
++            "flex h-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
+             collapsed
+-              ? "-ml-0.5 hover:bg-sidebar-accent/75"
++              ? "-ml-0.5 w-9 hover:bg-sidebar-accent/75"
+               : "pointer-events-none -ml-0.5",
            )}
          >
-           <img
+-          <img
 -            src="/brand/nanobot_icon.png"
-+            src="/brand/shuttlecock.svg"
-             alt=""
-             className="h-8 w-8 select-none object-contain"
-             draggable={false}
+-            alt=""
+-            className="h-8 w-8 select-none object-contain"
+-            draggable={false}
+-          />
++          {collapsed ? (
++            <img
++              src="/brand/mark-green.svg"
++              alt=""
++              className="h-8 w-8 select-none object-contain"
++              draggable={false}
++            />
++          ) : (
++            <>
++              <img
++                src="/brand/lockup-horizontal.svg"
++                alt=""
++                className="h-7 w-auto select-none object-contain dark:hidden"
++                draggable={false}
++              />
++              <img
++                src="/brand/lockup-horizontal-dark.svg"
++                alt=""
++                className="hidden h-7 w-auto select-none object-contain dark:block"
++                draggable={false}
++              />
++            </>
++          )}
+         </button>
+         {!collapsed && !props.hostChromeInset && (
+           <Button
 diff --git a/webui/src/components/settings/SettingsView.tsx b/webui/src/components/settings/SettingsView.tsx
-index 227737a..56ae70a 100644
+index 227737a..92907fe 100644
 --- a/webui/src/components/settings/SettingsView.tsx
 +++ b/webui/src/components/settings/SettingsView.tsx
 @@ -167,7 +167,7 @@ type ProviderApiType = "auto" | "chat_completions" | "responses";
@@ -142,7 +225,7 @@ index 227737a..56ae70a 100644
  type CustomMcpTransport = "stdio" | "streamableHttp" | "sse";
  
 -const NANOBOT_ICON_SRC = "/brand/nanobot_icon.png";
-+const NANOBOT_ICON_SRC = "/brand/shuttlecock.svg";
++const NANOBOT_ICON_SRC = "/brand/mark-green.svg";
  const CONTEXT_WINDOW_TOKEN_OPTIONS = [65_536, 262_144] as const;
  const DEFERRED_MODEL_LIST_PROVIDERS = new Set([
    "aihubmix",

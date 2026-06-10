@@ -161,7 +161,9 @@ derives it from the type hints, with per-parameter descriptions coming from `Ann
 | `GET /healthz` | Liveness probe → `{"ok": true}` | required* |
 | `GET /files/{id}` | Download an artifact produced by a job | required* |
 
-\* Behind Cloudflare Access, **every** path on the host requires the service token.
+\* Behind Cloudflare Access, **every** path on the host requires the service token. With the app-level
+Bearer option (3B), `/mcp` is gated by the built-in verifier, `/files` by an in-handler check, and
+`/healthz` is intentionally public.
 
 Add non-MCP routes with `@mcp.custom_route`:
 
@@ -249,8 +251,8 @@ the one matching your auth choice in step 3:
 
 - **Option A — Cloudflare Tunnel** (recommended): Cloudflare gives you TLS, a hostname, and edge auth (the
   service token in 3A); your app needs no auth code.
-- **Option B — your own reverse proxy**: you terminate TLS and verify a Bearer token in the app (3B). No
-  Cloudflare involved.
+- **Option B — your own reverse proxy**: you terminate TLS and the app verifies a Bearer token with
+  FastMCP's built-in token verification (3B). No Cloudflare involved.
 
 #### Option A — Cloudflare Tunnel
 
@@ -310,47 +312,64 @@ needs no auth code — the edge enforces it.
 
 #### Option B — App-level Bearer token (pairs with 2B)
 
-With no Cloudflare Access there is no edge auth, so verify a shared secret **inside the app**. Wrap the
-ASGI app in a tiny pure-ASGI middleware that requires `Authorization: Bearer <token>` on every path except
-`/healthz`, and serve it with uvicorn instead of `mcp.run()`:
+With no Cloudflare Access there is no edge auth, so verify a shared secret **inside the app**. FastMCP has
+token verification built in: pass a `TokenVerifier` to the constructor and the SDK itself gates `/mcp`,
+answering missing/bad tokens with a spec-correct `401` + `WWW-Authenticate: Bearer` header:
 
 ```python
-import os
 import hmac
-import uvicorn
-from starlette.responses import JSONResponse
+import os
+
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 
 EXPECTED = os.environ["MCP_BEARER_TOKEN"]   # a long random secret, supplied via env
 
-class BearerAuth:
-    """Reject any request lacking `Authorization: Bearer <token>` (except /healthz)."""
-    def __init__(self, app):
-        self.app = app
+class StaticVerifier(TokenVerifier):
+    """Accept exactly one shared token (constant-time compare)."""
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if hmac.compare_digest(token, EXPECTED):
+            return AccessToken(token=token, client_id="shared-secret", scopes=[])
+        return None
 
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["path"] != "/healthz":
-            headers = dict(scope["headers"])
-            token = headers.get(b"authorization", b"").decode().removeprefix("Bearer ").strip()
-            if not hmac.compare_digest(token, EXPECTED):   # constant-time compare
-                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
-
-def main():
-    app = BearerAuth(mcp.streamable_http_app())   # gates /mcp and /files; leaves /healthz open
-    uvicorn.run(app, host=MCP_HOST, port=MCP_PORT)
+mcp = FastMCP(
+    "example-mcp", host=MCP_HOST, port=MCP_PORT,
+    token_verifier=StaticVerifier(),
+    auth=AuthSettings(                  # OAuth-shaped plumbing the SDK insists on:
+        issuer_url=PUBLIC_BASE_URL,     #   nominal "issuer" — never contacted
+        resource_server_url=None,       #   skip the RFC 9728 metadata endpoint
+    ),
+)
 ```
 
-- Use **pure ASGI** middleware as above — *not* Starlette `BaseHTTPMiddleware`, which buffers the response
-  and can break the streamable-HTTP SSE stream.
-- This replaces `mcp.run(transport="streamable-http")`. `streamable_http_app()` builds the very same app
-  (the `/mcp` mount plus your `@mcp.custom_route` endpoints), just without the wrapper — nothing else in
-  the server changes.
-- `/healthz` stays open so the container HEALTHCHECK (plain `urllib`, no token) keeps working; drop the
-  path check to gate it too.
-- The shipped example server is unauthenticated by design (it expects to sit behind Access); this `main()`
-  is the swap-in for when you front it with your own TLS instead. Hand the consumer the token the same way
-  you would a service token — over a secure channel, never in the repo.
+Built-in auth covers **only `/mcp`** — `@mcp.custom_route` paths stay public *by design* (the SDK intends
+them for health checks). That's exactly right for `/healthz` (the container HEALTHCHECK — plain `urllib`,
+no token — keeps working) but wrong for `/files`, so gate that one inside its handler:
+
+```python
+@mcp.custom_route("/files/{job_id}", methods=["GET"])
+async def serve_file(request: Request):
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if not hmac.compare_digest(token, EXPECTED):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    ...                                 # 404 if not ready, then FileResponse — unchanged
+```
+
+- Nothing else changes: `mcp.run(transport="streamable-http")` stays (no uvicorn wrapper, no custom
+  middleware), and the client just sends `Authorization: Bearer <token>` (see *Connect a client*).
+- The two `AuthSettings` fields are required because the SDK models auth as an OAuth resource server; for
+  a static shared secret they are inert — `issuer_url` is informational and `resource_server_url=None`
+  disables the `/.well-known/oauth-protected-resource` metadata route. Inert but still **validated**:
+  `issuer_url` must parse as a URL, so a literal `https://example-mcp.<your-zone>` placeholder left in
+  `PUBLIC_BASE_URL` crashes at startup (`ValidationError: … invalid international domain name`) — export
+  the real value first.
+- `TokenVerifier` is the real seam: swap `StaticVerifier` for a JWT or token-introspection verifier later
+  without touching anything else. (The standalone FastMCP package — gofastmcp.com — ships ready-made
+  verifiers behind the same idea, e.g. `JWTVerifier`; note its `StaticTokenVerifier` is dev/test-only per
+  its own docs.)
+- The shipped example server is unauthenticated by design (it expects to sit behind Access); this
+  constructor swap is for when you front it with your own TLS instead. Hand the consumer the token the
+  same way you would a service token — over a secure channel, never in the repo.
 
 ### 4. Keep it running (systemd)
 
@@ -402,8 +421,8 @@ Container specifics:
 "keep it running" step. To go remote you still front the container with one of the step 2–3 paths: either
 **Cloudflare Tunnel + Access** (point the tunnel ingress at the published port,
 `service: http://127.0.0.1:8900`; the service token gates every path at the edge), or **your own reverse
-proxy + the Bearer-token `main()`** (set `MCP_BEARER_TOKEN` in the container env). Either way the auth lives
-outside `docker run` itself.
+proxy + the built-in Bearer verifier** (apply the 3B constructor swap, rebuild the image, and set
+`MCP_BEARER_TOKEN` in the container env). Either way the auth lives outside `docker run` itself.
 
 ---
 
@@ -432,10 +451,11 @@ asyncio.run(main())
 ```
 
 For a **Bearer-token** deployment (step 3 Option B), send one `Authorization` header instead of the two CF
-headers — everything else is identical:
+headers — everything else is identical (per-server naming again: the consumer's `EXAMPLE_MCP_TOKEN` holds
+the same secret the server reads as `MCP_BEARER_TOKEN`):
 
 ```python
-HEADERS = {"Authorization": f"Bearer {os.environ['MCP_BEARER_TOKEN']}"}
+HEADERS = {"Authorization": f"Bearer {os.environ['EXAMPLE_MCP_TOKEN']}"}
 ```
 
 Agent frameworks register it the same way: a streamable-HTTP MCP server at the `/mcp` URL with whichever
@@ -445,7 +465,7 @@ auth headers your deployment uses.
 
 When your server is deployed, the deliverable to the consuming agent team is **one JSON block** —
 most agent frameworks (nanobot, Claude Desktop, …) register MCP servers in exactly this shape —
-plus the service-token values sent over a secure channel:
+plus the secret values (service token or Bearer token) sent over a secure channel:
 
 ```json
 {
@@ -476,8 +496,8 @@ unchanged):
   MCP servers side by side without collisions.
 - `enabledTools` is the consumer-side whitelist — list exactly the tools you intend them to call.
 - Alongside the JSON, hand over: the tool list with one-line descriptions, the async-job contract
-  fields if you have long tasks (see *Server reference*), and the Client ID/Secret (the secret is
-  shown only once at creation — transmit it securely).
+  fields if you have long tasks (see *Server reference*), and the Client ID/Secret or Bearer token
+  (transmit it securely; an Access secret is shown only once at creation).
 
 ---
 
@@ -489,20 +509,22 @@ unchanged):
 | client hangs / `ConnectError` to localhost | server not running on that port | confirm `python server.py` is up; `curl 127.0.0.1:<port>/healthz` |
 | `curl: (35) … handshake failure` / `code 000` on the public URL | no TLS cert yet, or nothing serving | check the tunnel + origin (below); for a new custom domain wait for the cert to issue |
 | public URL returns **530** | tunnel has no active connection (origin unreachable) | `cloudflared tunnel info <name>`; restart `cloudflared tunnel run <name>`; verify `curl 127.0.0.1:<port>/healthz` locally |
-| **401 / 403** | missing/wrong Access token headers | send both `CF-Access-Client-Id` and `CF-Access-Client-Secret`; check the Service Auth policy on the Access app |
+| **401 / 403** | missing/wrong auth (Access headers, or the `Authorization` header in Bearer mode) | Access: send both `CF-Access-Client-Id` and `CF-Access-Client-Secret`; check the Service Auth policy on the Access app. Bearer (3B): send `Authorization: Bearer <token>` matching the server's `MCP_BEARER_TOKEN` |
 | custom domain stuck at **"Verifying"** | 2-level subdomain not covered by free Universal SSL | use a **first-level** subdomain (or enable Advanced Certificate Manager / Total TLS) |
 | (CI) `wrangler … Project not found [code: 8000007]` | the Pages/target project doesn't exist | create it first (e.g. `wrangler pages project create <name> --production-branch=main`) |
 
 **Healthy smoke test** prints the `tools: [...]`, `add(2,3) -> {'sum': 5.0}`, the `start_render →
 status → result` lines, and `OK ✅` (see *Run it locally*). If you get that locally but not remotely, the
-problem is in the tunnel/Access layer, not your server.
+problem is in the tunnel/Access (or proxy/Bearer) layer, not your server.
 
 ---
 
 ## Checklist
 
-- [ ] Server binds `127.0.0.1`; not exposed directly (tunnel only).
-- [ ] Cloudflare Access service token set; all paths (incl. `/files`) protected.
+- [ ] Server binds `127.0.0.1`; not exposed directly (tunnel or reverse proxy only).
+- [ ] Auth in place — Option A: Cloudflare Access service token (edge gates all paths incl. `/files`);
+  or Option B: built-in Bearer verifier on `/mcp` + in-handler check on `/files` (`/healthz` public by
+  design).
 - [ ] First-level subdomain (free SSL coverage).
 - [ ] Secrets in env / `.env`, never committed.
 - [ ] Inputs validated; tools return JSON, `{"error": ...}` on failure.
@@ -511,4 +533,5 @@ problem is in the tunnel/Access layer, not your server.
 - [ ] Artifacts returned as URLs, not local paths.
 - [ ] `GET /healthz` present.
 - [ ] Server kept running — either systemd (`Restart=always`, linger enabled) **or** a container
-  (`restart: unless-stopped`, `MCP_HOST=0.0.0.0`, `/healthz` HEALTHCHECK); tunnel + Access still front it.
+  (`restart: unless-stopped`, `MCP_HOST=0.0.0.0`, `/healthz` HEALTHCHECK); tunnel + Access (or reverse
+  proxy + Bearer) still front it.

@@ -167,7 +167,7 @@ type ProviderApiType = "auto" | "chat_completions" | "responses";
 type ProviderForm = { apiKey: string; apiBase: string; apiType: ProviderApiType };
 type CustomMcpTransport = "stdio" | "streamableHttp" | "sse";
 
-const NANOBOT_ICON_SRC = "/brand/shuttlecock.svg";
+const NANOBOT_ICON_SRC = "/brand/mark-green.svg";
 const CONTEXT_WINDOW_TOKEN_OPTIONS = [65_536, 262_144] as const;
 const DEFERRED_MODEL_LIST_PROVIDERS = new Set([
   "aihubmix",

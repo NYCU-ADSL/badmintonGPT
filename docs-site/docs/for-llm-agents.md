@@ -30,7 +30,7 @@ Ask in plain language, one decision at a time, and confirm before scaffolding.
    scraping, large queries)? If so it needs the **async job contract** (`start → status → result` with
    progress), not a plain blocking tool. Confirm which tools are which.
 3. **Auth model.** How will it be protected? **Cloudflare Access service token** (edge auth, no app code) or
-   an **app-level Bearer token** (you add middleware)? Who issues and holds the secret?
+   an **app-level Bearer token** (FastMCP's built-in token verification)? Who issues and holds the secret?
 4. **Hosting & domain.** Where does it run — **systemd** service or **Docker**? What **public hostname /
    Cloudflare zone** (or self-hosted TLS)? Do any tools return **file artifacts** the client must download?
 

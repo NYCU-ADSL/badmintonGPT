@@ -36,7 +36,8 @@ The image sets `MCP_HOST=0.0.0.0` (so the published port is reachable from outsi
 declares a `HEALTHCHECK` on `GET /healthz`, and uses `OUTPUT_DIR` for job artifacts. Set
 `PUBLIC_BASE_URL` at run time so the file URLs point at your public origin. There is no app-level
 auth — front it with **Cloudflare Tunnel + Access** for the remote/auth boundary, exactly as the
-systemd path does.
+systemd path does (or apply the Guide's Option B built-in Bearer verifier and front it with your own
+reverse proxy instead).
 
 ### `Dockerfile`
 
