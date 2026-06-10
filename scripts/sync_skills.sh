@@ -16,8 +16,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WS="${NANOBOT_WORKSPACE:-$HOME/.nanobot/workspace}"
 mkdir -p "$WS/skills"
 
-for s in badminton-db badminton-reels long-mcp-job; do
+# Enumerate every skill dir under skills/ (don't hardcode names) so a newly added skill
+# is synced automatically without editing this loop.
+for d in "$REPO"/skills/*/; do
+    s="$(basename "$d")"
     rm -rf "$WS/skills/$s"          # also clears a stale symlink from older setups
-    cp -r "$REPO/skills/$s" "$WS/skills/$s"
+    cp -r "$d" "$WS/skills/$s"
     echo "synced skill: $WS/skills/$s"
 done

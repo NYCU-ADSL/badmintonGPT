@@ -22,9 +22,12 @@ done
 # is rejected ("Path .../SKILL.md is outside allowed directory"). Copies stay in-bounds.
 # rm -rf first so a stale symlink on the persisted nanobot_state volume is replaced (not
 # copied through). Runs on every container start, so a rebuilt /app/skills propagates.
-for s in badminton-db badminton-reels long-mcp-job; do
+# Enumerate every skill dir under /app/skills (don't hardcode names) so a newly added
+# skill is surfaced automatically without editing this loop.
+for d in /app/skills/*/; do
+    s="$(basename "$d")"
     rm -rf "$WS/skills/$s"
-    cp -r "/app/skills/$s" "$WS/skills/$s"
+    cp -r "$d" "$WS/skills/$s"
 done
 
 # The DB lives in the separate badminton-db container now; the gateway reaches it over

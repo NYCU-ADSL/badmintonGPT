@@ -52,6 +52,18 @@
   scene, no engine), and mounts it in `webui/src/components/thread/AgentActivityCluster.tsx` below
   the cluster, gated on `isTurnStreaming` so it shows under the "thinking" process while a turn is
   live. Skin-only; no behavior change.
+- `patches/webui-boot-splash.patch` — replaces the `webui/index.html` boot-splash pulsing dot with
+  the animated lock-on mark from `../images/animation/logo-animation.html` (speed lines fly in →
+  shuttle lands → lock frame snaps shut → idle breathe loop; brand green `#3fc168`, the localized
+  `data-boot-copy` line kept beneath). The splash is a fixed overlay **above** `#root` with a
+  play-once gate: it fades out only after BOTH the intro has played once (the lock frame's
+  `boot-snap` `animationend`, ~2.2s, with a 2.8s safety timer) AND the app has mounted into
+  `#root` (MutationObserver) — so a fast React mount can no longer cut the intro off, and a slow
+  load keeps the breathe loop until ready. `prefers-reduced-motion` renders the static mark and
+  skips the forced wait. Also fixes the branding patch's boot-copy localization (the head i18n
+  script ran before `<body>` was parsed, so the localized "Loading…" line never applied; the swap
+  is now deferred to DOMContentLoaded). Applies on top of `webui-branding.patch`'s index.html
+  hunks. Splash-only; no app behavior change.
 
 It is committed so the gateway image (`../Dockerfile`) builds the **patched** nanobot
 hermetically — no clone of an upstream tag, no `nanobot-ai` PyPI pin, no post-install dist
@@ -70,6 +82,6 @@ and `tests/`, `images/`, `case/`, `docs/`, `.github/`, `.agent/`.
 ## Updating to a new upstream nanobot
 
 1. `git clone --branch <new-tag> https://github.com/HKUDS/nanobot /tmp/nanobot`
-2. Rebase all patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch && git apply --3way ../patches/webui-branding.patch && git apply --3way ../patches/reply-language.patch && git apply --3way ../patches/webui-thinking-animation.patch`), resolving any conflicts; re-export each patch.
+2. Rebase all patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch && git apply --3way ../patches/webui-branding.patch && git apply --3way ../patches/reply-language.patch && git apply --3way ../patches/webui-thinking-animation.patch && git apply --3way ../patches/webui-boot-splash.patch`), resolving any conflicts; re-export each patch.
 3. Re-vendor with the same exclusions (see `git log` for the `rsync` invocation), bump the tag/commit above, and bump the image tag in `../docker-compose.yml` + `../Dockerfile` comments.
 4. Rebuild and run the verification in `../DEPLOY.md`.

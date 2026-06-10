@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BadmintonGPT — Lock-On</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #f4f2ee; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    #__bundler_loading { position: fixed; bottom: 20px; right: 20px; font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; color: #666; background: #fff; padding: 8px 14px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.12); z-index: 10000; }
+    #__bundler_thumbnail { position: fixed; inset: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f4f2ee; z-index: 9999; }
+    #__bundler_thumbnail svg { width: 100%; height: 100%; object-fit: contain; }
+    #__bundler_placeholder { color: #999; font-size: 14px; }
+  </style>
+  <noscript>
+    <style>#__bundler_loading { display: none; }</style>
+    <div style="position:fixed;bottom:12px;left:12px;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#999;background:rgba(255,255,255,0.9);padding:6px 12px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.08);z-index:10000;">
+      This page requires JavaScript to display.
+    </div>
+  </noscript>
+</head>
+<body>
+  <div id="__bundler_thumbnail">
+  <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="rotate(-12 60 60)">
+      <line x1="30" y1="42" x2="74" y2="42" stroke="#3fbf77" stroke-width="8"></line>
+      <line x1="20" y1="60" x2="70" y2="60" stroke="#3fbf77" stroke-width="8"></line>
+      <line x1="34" y1="78" x2="70" y2="78" stroke="#3fbf77" stroke-width="8" opacity="0.5"></line>
+      <circle cx="95" cy="60" r="11" fill="#3fbf77"></circle>
+      <path d="M75 48 V40 H83 M107 40 H115 V48 M75 72 V80 H83 M107 80 H115 V72" stroke="#3fbf77" stroke-width="5" opacity="0.9"></path>
+    </g>
+  </svg>
+</div>
+  <div id="__bundler_loading">Unpacking...</div>
+
+  <script>
+    
+document.addEventListener('DOMContentLoaded', async function() {
+  const loading = document.getElementById('__bundler_loading');
+  function setStatus(msg) { if (loading) loading.textContent = msg; }
+
+  // Error sink persists across replaceWith since it's on window, not the DOM.
+  window.addEventListener('error', function(e) {
+    var p = document.body || document.documentElement;
+    var d = document.getElementById('__bundler_err') || p.appendChild(document.createElement('div'));
+    d.id = '__bundler_err';
+    d.style.cssText = 'position:fixed;bottom:12px;left:12px;right:12px;font:12px/1.4 ui-monospace,monospace;background:#2a1215;color:#ff8a80;padding:10px 14px;border-radius:8px;border:1px solid #5c2b2e;z-index:99999;white-space:pre-wrap;max-height:40vh;overflow:auto';
+    d.textContent = (d.textContent ? d.textContent + String.fromCharCode(10) : '') +
+      '[bundle] ' + (e.message || e.type) +
+      (e.filename ? ' (' + e.filename.slice(0, 60) + ':' + e.lineno + ')' : '');
+  }, true);
+
+  try {
+    const manifestEl = document.querySelector('script[type="__bundler/manifest"]');
+    const templateEl = document.querySelector('script[type="__bundler/template"]');
+    if (!manifestEl || !templateEl) {
+      setStatus('Error: missing bundle data');
+      console.error('[bundler] Missing script tags — manifestEl:', !!manifestEl, 'templateEl:', !!templateEl);
+      return;
+    }
+
+    const manifest = JSON.parse(manifestEl.textContent);
+    let template = JSON.parse(templateEl.textContent);
+
+    const uuids = Object.keys(manifest);
+    setStatus('Unpacking ' + uuids.length + ' assets...');
+
+    const blobUrls = {};
+    await Promise.all(uuids.map(async (uuid) => {
+      const entry = manifest[uuid];
+      try {
+        const binaryStr = atob(entry.data);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+        let finalBytes = bytes;
+        if (entry.compressed) {
+          if (typeof DecompressionStream !== 'undefined') {
+            const ds = new DecompressionStream('gzip');
+            const writer = ds.writable.getWriter();
+            const reader = ds.readable.getReader();
+            writer.write(bytes);
+            writer.close();
+            const chunks = [];
+            let totalLen = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              totalLen += value.length;
+            }
+            finalBytes = new Uint8Array(totalLen);
+            let offset = 0;
+            for (const chunk of chunks) { finalBytes.set(chunk, offset); offset += chunk.length; }
+          } else {
+            console.warn('DecompressionStream not available, asset ' + uuid + ' may not render');
+          }
+        }
+
+        blobUrls[uuid] = URL.createObjectURL(new Blob([finalBytes], { type: entry.mime }));
+      } catch (err) {
+        console.error('Failed to decode asset ' + uuid + ':', err);
+        blobUrls[uuid] = URL.createObjectURL(new Blob([], { type: entry.mime }));
+      }
+    }));
+
+    const extResEl = document.querySelector('script[type="__bundler/ext_resources"]');
+    const extResources = extResEl ? JSON.parse(extResEl.textContent) : [];
+    const resourceMap = {};
+    for (const entry of extResources) {
+      if (blobUrls[entry.uuid]) resourceMap[entry.id] = blobUrls[entry.uuid];
+    }
+
+    setStatus('Rendering...');
+    for (const uuid of uuids) template = template.split(uuid).join(blobUrls[uuid]);
+
+    // Strip integrity + crossorigin — blob URLs from a file:// document inherit
+    // a null origin, so crossorigin forces a CORS fetch that SRI then rejects.
+    // The manifest bytes are ours; SRI protects against CDN compromise, not this.
+    template = template.replace(/\s+integrity="[^"]*"/gi, '').replace(/\s+crossorigin="[^"]*"/gi, '');
+
+    const resourceScript = '<script>window.__resources = ' +
+      JSON.stringify(resourceMap).split('</' + 'script>').join('<\\/' + 'script>') +
+      ';</' + 'script>';
+    // Inject after <head> so the DOCTYPE stays first; prepending the script
+    // would push the parser into quirks mode. DOMParser always emits a <head>
+    // (synthesizing one if the source HTML omitted it) but may carry
+    // attributes through, so match the full opening tag. slice() rather than
+    // replace() keeps us clear of $-pattern substitution in resourceScript.
+    const headOpen = template.match(/<head[^>]*>/i);
+    if (headOpen) {
+      const i = headOpen.index + headOpen[0].length;
+      template = template.slice(0, i) + resourceScript + template.slice(i);
+    }
+
+    // Parse the template and swap the root element. Scripts inserted via
+    // DOMParser/replaceWith are inert per spec — re-create each with
+    // createElement so they execute, awaiting onload for src scripts to
+    // preserve ordering (React before ReactDOM before Babel before text/babel).
+    const doc = new DOMParser().parseFromString(template, 'text/html');
+    document.documentElement.replaceWith(doc.documentElement);
+    const dead = Array.from(document.scripts);
+    for (const old of dead) {
+      const s = document.createElement('script');
+      for (const a of old.attributes) s.setAttribute(a.name, a.value);
+      s.textContent = old.textContent;
+      // text/babel scripts with a src: fetch and inline. transformScriptTags
+      // does XHR against the src, but blob:null/ from a file:// origin is
+      // silently dropped. Inlining makes it a plain inline babel script,
+      // which transformScriptTags handles unconditionally.
+      if ((s.type === 'text/babel' || s.type === 'text/jsx') && s.src) {
+        const r = await fetch(s.src);
+        s.textContent = await r.text();
+        s.removeAttribute('src');
+      }
+      const p = s.src ? new Promise(function(r) { s.onload = s.onerror = r; }) : null;
+      old.replaceWith(s);
+      if (p) await p;
+    }
+    // Babel standalone auto-transforms type=text/babel on DOMContentLoaded,
+    // which fired before we swapped the document. Trigger manually if present.
+    if (window.Babel && typeof window.Babel.transformScriptTags === 'function') {
+      window.Babel.transformScriptTags();
+    }
+  } catch (err) {
+    setStatus('Error unpacking: ' + err.message);
+    console.error('Bundle unpack error:', err);
+  }
+});
+
+  </script>
+
+  <script type="__bundler/manifest">
+{}
+  </script>
+
+  <script type="__bundler/ext_resources">
+[]
+  </script>
+
+  <script type="__bundler/template">
+"<!DOCTYPE html>\n<html lang=\"zh-Hant\"><head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>BadmintonGPT — Lock-On<\u002Ftitle>\n<style>\n  /* Lock-On mark animation — 殺球鎖定\n     速度線飛入 → 羽球點落定 → 鎖定框「咔」合上 → 待機呼吸\n     0.5× 速度、爆發緩動。無相依套件,可直接嵌入。 */\n  :root {\n    --lk-bg: #f4f2ee;\n    --lk-green: oklch(0.72 0.17 150);\n    --lk-out: cubic-bezier(0.05, 0.85, 0.15, 1);\n    --lk-snap: cubic-bezier(0.55, 0, 0.15, 1);\n  }\n  * { box-sizing: border-box; }\n  html, body { margin: 0; padding: 0; height: 100%; }\n  body {\n    background: var(--lk-bg);\n    display: flex; align-items: center; justify-content: center;\n  }\n  .lk-mark {\n    width: min(56vmin, 360px);\n    height: min(56vmin, 360px);\n    display: block; overflow: visible;\n    cursor: pointer;\n  }\n  @keyframes lkSlideIn { 0% { transform: translateX(-72px); opacity: 0; } 55% { opacity: 1; } 100% { transform: translateX(0); opacity: 1; } }\n  @keyframes lkDotIn   { 0% { transform: translateX(-96px); opacity: 0; } 35% { opacity: 1; } 100% { transform: translateX(0); opacity: 1; } }\n  @keyframes lkSnap    { 0% { transform: scale(1.75); opacity: 0; } 55% { opacity: 1; } 70% { transform: scale(0.93); } 100% { transform: scale(1); opacity: 0.9; } }\n  @keyframes lkBreathe { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.05); opacity: 1; } }\n\n  .lk-line { animation: lkSlideIn 0.8s var(--lk-out) both; }\n  .lk-line2 { animation-delay: 0.14s; }\n  .lk-line3 { animation-delay: 0.28s; }\n  .lk-dot { animation: lkDotIn 0.96s var(--lk-out) 0.36s both; }\n  .lk-frame {\n    transform-box: fill-box; transform-origin: center;\n    animation: lkSnap 0.76s var(--lk-snap) 1.44s both,\n               lkBreathe 2.6s ease-in-out 3.6s infinite;\n  }\n  @media (prefers-reduced-motion: reduce) {\n    .lk-line, .lk-dot, .lk-frame { animation: none; opacity: 1; }\n    .lk-frame { opacity: 0.9; }\n  }\n<\u002Fstyle>\n<\u002Fhead>\n<body>\n\n<svg class=\"lk-mark\" id=\"lk\" viewBox=\"0 0 120 120\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-label=\"BadmintonGPT Lock-On 標誌\">\n  <g transform=\"rotate(-12 60 60)\">\n    <line class=\"lk-line lk-line1\" x1=\"30\" y1=\"42\" x2=\"74\" y2=\"42\" stroke=\"var(--lk-green)\" stroke-width=\"8\"><\u002Fline>\n    <line class=\"lk-line lk-line2\" x1=\"20\" y1=\"60\" x2=\"70\" y2=\"60\" stroke=\"var(--lk-green)\" stroke-width=\"8\"><\u002Fline>\n    <g opacity=\"0.5\">\n      <line class=\"lk-line lk-line3\" x1=\"34\" y1=\"78\" x2=\"70\" y2=\"78\" stroke=\"var(--lk-green)\" stroke-width=\"8\"><\u002Fline>\n    <\u002Fg>\n    <circle class=\"lk-dot\" cx=\"95\" cy=\"60\" r=\"11\" fill=\"var(--lk-green)\"><\u002Fcircle>\n    <path class=\"lk-frame\" d=\"M75 48 V40 H83 M107 40 H115 V48 M75 72 V80 H83 M107 80 H115 V72\" stroke=\"var(--lk-green)\" stroke-width=\"5\"><\u002Fpath>\n  <\u002Fg>\n<\u002Fsvg>\n<script>\n  // 點擊重播:複製節點以重啟所有 CSS 動畫\n  function lkBindReplay(el) {\n    el.addEventListener('click', function () {\n      const clone = el.cloneNode(true);\n      el.replaceWith(clone);\n      lkBindReplay(clone);\n    });\n  }\n  lkBindReplay(document.getElementById('lk'));\n<\u002Fscript>\n\n\n<\u002Fbody><\u002Fhtml>"
+  </script>
+</body>
+</html>

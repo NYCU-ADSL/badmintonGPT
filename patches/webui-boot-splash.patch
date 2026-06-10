@@ -1,0 +1,281 @@
+diff --git a/webui/index.html b/webui/index.html
+index 9d5530c..101e8cb 100644
+--- a/webui/index.html
++++ b/webui/index.html
+@@ -37,16 +37,30 @@
+       }
+ 
+       .boot-splash {
++        position: fixed;
++        inset: 0;
++        z-index: 9999;
+         display: flex;
+-        height: 100%;
+         align-items: center;
+         justify-content: center;
++        background: #ffffff;
++        transition: opacity 0.4s ease;
++      }
++
++      html.dark .boot-splash {
++        background: #1a1a1a;
++      }
++
++      .boot-splash.boot-splash-leave {
++        opacity: 0;
++        pointer-events: none;
+       }
+ 
+       .boot-splash-inner {
+         display: flex;
++        flex-direction: column;
+         align-items: center;
+-        gap: 10px;
++        gap: 18px;
+         color: rgba(255, 255, 255, 0.74);
+         font-size: 14px;
+       }
+@@ -55,24 +69,105 @@
+         color: rgba(10, 10, 10, 0.64);
+       }
+ 
+-      .boot-dot {
+-        width: 8px;
+-        height: 8px;
+-        border-radius: 9999px;
+-        background: currentColor;
+-        opacity: 0.75;
+-        animation: boot-pulse 1s ease-in-out infinite;
++      /* Lock-on mark animation (brand kit / images/animation/logo-animation.html):
++         speed lines fly in → shuttle lands → lock frame snaps shut → idle breathe. */
++      .boot-mark {
++        width: min(36vmin, 150px);
++        height: min(36vmin, 150px);
++        overflow: visible;
++      }
++
++      @keyframes boot-slide-in {
++        0% {
++          transform: translateX(-72px);
++          opacity: 0;
++        }
++        55% {
++          opacity: 1;
++        }
++        100% {
++          transform: translateX(0);
++          opacity: 1;
++        }
+       }
+ 
+-      @keyframes boot-pulse {
++      @keyframes boot-shuttle-in {
++        0% {
++          transform: translateX(-96px);
++          opacity: 0;
++        }
++        35% {
++          opacity: 1;
++        }
++        100% {
++          transform: translateX(0);
++          opacity: 1;
++        }
++      }
++
++      @keyframes boot-snap {
++        0% {
++          transform: scale(1.75);
++          opacity: 0;
++        }
++        55% {
++          opacity: 1;
++        }
++        70% {
++          transform: scale(0.93);
++        }
++        100% {
++          transform: scale(1);
++          opacity: 0.9;
++        }
++      }
++
++      @keyframes boot-breathe {
+         0%,
+         100% {
+-          transform: scale(0.9);
+-          opacity: 0.45;
++          transform: scale(1);
++          opacity: 0.9;
+         }
+         50% {
+-          transform: scale(1);
+-          opacity: 0.85;
++          transform: scale(1.05);
++          opacity: 1;
++        }
++      }
++
++      .boot-line {
++        animation: boot-slide-in 0.8s cubic-bezier(0.05, 0.85, 0.15, 1) both;
++      }
++
++      .boot-line2 {
++        animation-delay: 0.14s;
++      }
++
++      .boot-line3 {
++        animation-delay: 0.28s;
++      }
++
++      .boot-shuttle {
++        animation: boot-shuttle-in 0.96s cubic-bezier(0.05, 0.85, 0.15, 1) 0.36s both;
++      }
++
++      .boot-frame {
++        transform-box: fill-box;
++        transform-origin: center;
++        animation:
++          boot-snap 0.76s cubic-bezier(0.55, 0, 0.15, 1) 1.44s both,
++          boot-breathe 2.6s ease-in-out 3.6s infinite;
++      }
++
++      @media (prefers-reduced-motion: reduce) {
++        .boot-line,
++        .boot-shuttle,
++        .boot-frame {
++          animation: none;
++          opacity: 1;
++        }
++
++        .boot-frame {
++          opacity: 0.9;
+         }
+       }
+     </style>
+@@ -164,22 +259,117 @@
+           document.documentElement.lang = locale;
+           var description = document.querySelector('[data-i18n-meta=\"description\"]');
+           if (description) description.setAttribute("content", localized.description);
+-          var boot = document.querySelector("[data-boot-copy]");
+-          if (boot) boot.textContent = localized.boot;
++          // This script runs in <head>, before <body> is parsed — defer the
++          // boot-copy swap until the splash markup exists.
++          var applyBootCopy = function () {
++            var boot = document.querySelector("[data-boot-copy]");
++            if (boot) boot.textContent = localized.boot;
++          };
++          if (document.readyState === "loading") {
++            document.addEventListener("DOMContentLoaded", applyBootCopy);
++          } else {
++            applyBootCopy();
++          }
+         } catch {}
+       })();
+     </script>
+     <title>badmintonGPT</title>
+   </head>
+   <body class="bg-background text-foreground antialiased">
+-    <div id="root">
+-      <div class="boot-splash">
+-        <div class="boot-splash-inner">
+-          <span class="boot-dot" aria-hidden="true"></span>
+-          <span data-boot-copy>Loading badmintonGPT…</span>
+-        </div>
++    <div id="root"></div>
++    <div class="boot-splash" id="boot-splash">
++      <div class="boot-splash-inner">
++        <svg
++          class="boot-mark"
++          viewBox="0 0 120 120"
++          fill="none"
++          stroke-linecap="round"
++          stroke-linejoin="round"
++          aria-hidden="true"
++        >
++          <g transform="rotate(-12 60 60)">
++            <line class="boot-line boot-line1" x1="30" y1="42" x2="74" y2="42" stroke="#3fc168" stroke-width="8" />
++            <line class="boot-line boot-line2" x1="20" y1="60" x2="70" y2="60" stroke="#3fc168" stroke-width="8" />
++            <g opacity="0.5">
++              <line class="boot-line boot-line3" x1="34" y1="78" x2="70" y2="78" stroke="#3fc168" stroke-width="8" />
++            </g>
++            <circle class="boot-shuttle" cx="95" cy="60" r="11" fill="#3fc168" />
++            <path class="boot-frame" d="M75 48 V40 H83 M107 40 H115 V48 M75 72 V80 H83 M107 80 H115 V72" stroke="#3fc168" stroke-width="5" />
++          </g>
++        </svg>
++        <span data-boot-copy>Loading badmintonGPT…</span>
+       </div>
+     </div>
++    <script>
++      // The splash is a fixed overlay above #root, so React mounting cannot
++      // cut the intro off. It leaves only after BOTH the lock-on intro has
++      // played once (the frame's boot-snap animation ends) AND the app has
++      // mounted into #root.
++      (function () {
++        var splash = document.getElementById("boot-splash");
++        var root = document.getElementById("root");
++        if (!splash || !root) return;
++
++        var reduced = false;
++        try {
++          reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
++        } catch {}
++
++        var introDone = reduced;
++        var appMounted = false;
++        var leaving = false;
++
++        function leave() {
++          if (leaving) return;
++          leaving = true;
++          if (reduced) {
++            splash.remove();
++            return;
++          }
++          splash.classList.add("boot-splash-leave");
++          splash.addEventListener(
++            "transitionend",
++            function () {
++              splash.remove();
++            },
++            { once: true }
++          );
++          // Safety net in case transitionend never fires.
++          setTimeout(function () {
++            if (splash.parentNode) splash.remove();
++          }, 700);
++        }
++
++        function maybeLeave() {
++          if (introDone && appMounted) leave();
++        }
++
++        splash.addEventListener("animationend", function (event) {
++          if (event.animationName === "boot-snap") {
++            introDone = true;
++            maybeLeave();
++          }
++        });
++        // Safety net: the intro ends at ~2.2s; never hold the app past 2.8s.
++        setTimeout(function () {
++          introDone = true;
++          maybeLeave();
++        }, 2800);
++
++        if (root.childElementCount > 0) {
++          appMounted = true;
++          maybeLeave();
++        } else {
++          new MutationObserver(function (mutations, observer) {
++            if (root.childElementCount > 0) {
++              appMounted = true;
++              observer.disconnect();
++              maybeLeave();
++            }
++          }).observe(root, { childList: true });
++        }
++      })();
++    </script>
+     <script type="module" src="/src/main.tsx"></script>
+   </body>
+ </html>
