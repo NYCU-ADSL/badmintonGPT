@@ -102,12 +102,7 @@ export default function VisualWidget({ code, className }: VisualWidgetProps) {
   useEffect(() => detachObserver, [detachObserver]);
 
   return (
-    <div
-      className={cn(
-        "my-3 overflow-hidden rounded-lg border border-border/60 bg-background",
-        className,
-      )}
-    >
+    <div className={cn("my-3 overflow-hidden rounded-lg", className)}>
       <iframe
         ref={iframeRef}
         title="visualization"

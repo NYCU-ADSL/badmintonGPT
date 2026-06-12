@@ -103,10 +103,10 @@ index d3a664b..1e8813f 100644
    return (
 diff --git a/webui/src/components/VisualWidget.tsx b/webui/src/components/VisualWidget.tsx
 new file mode 100644
-index 0000000..0b3accd
+index 0000000..7adf08b
 --- /dev/null
 +++ b/webui/src/components/VisualWidget.tsx
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,223 @@
 +import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 +import { Loader2 } from "lucide-react";
 +import { useTranslation } from "react-i18next";
@@ -211,12 +211,7 @@ index 0000000..0b3accd
 +  useEffect(() => detachObserver, [detachObserver]);
 +
 +  return (
-+    <div
-+      className={cn(
-+        "my-3 overflow-hidden rounded-lg border border-border/60 bg-background",
-+        className,
-+      )}
-+    >
++    <div className={cn("my-3 overflow-hidden rounded-lg", className)}>
 +      <iframe
 +        ref={iframeRef}
 +        title="visualization"
