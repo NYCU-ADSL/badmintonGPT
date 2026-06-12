@@ -32,14 +32,14 @@ index bad9801..111c884 100644
      </Suspense>
    );
 diff --git a/webui/src/components/MarkdownTextRenderer.tsx b/webui/src/components/MarkdownTextRenderer.tsx
-index d3a664b..de0852e 100644
+index d3a664b..1e8813f 100644
 --- a/webui/src/components/MarkdownTextRenderer.tsx
 +++ b/webui/src/components/MarkdownTextRenderer.tsx
 @@ -10,6 +10,7 @@ import remarkMath from "remark-math";
  import { AttachmentTile } from "@/components/AttachmentTile";
  import { CodeBlock } from "@/components/CodeBlock";
  import { FileReferenceChip, isLikelyFilePath } from "@/components/FileReferenceChip";
-+import VisualWidget from "@/components/VisualWidget";
++import VisualWidget, { VisualPlaceholder } from "@/components/VisualWidget";
  import { inferMediaKind } from "@/lib/media";
  import { cn } from "@/lib/utils";
  
@@ -59,31 +59,40 @@ index d3a664b..de0852e 100644
  }: MarkdownTextRendererProps) {
    const components = useMemo<Components>(
      () => ({
-@@ -333,6 +336,11 @@ export default function MarkdownTextRenderer({
+@@ -333,6 +336,16 @@ export default function MarkdownTextRenderer({
          const match = /language-(\w+)/.exec(cls || "");
          if (match) {
            const code = String(kids).replace(/\n$/, "");
-+          /** ```visualizer fences (skills/visualise) mount a live iframe — but only
-+           * once the message stops streaming, so partial HTML never executes. */
-+          if (match[1] === "visualizer" && !streaming) {
-+            return <VisualWidget code={code} className="my-3" />;
++          /** ```visualizer fences (skills/visualise) mount a live iframe once the
++           * message stops streaming; while streaming, a skeleton card stands in so
++           * the raw HTML/JS never shows and partial HTML never executes. */
++          if (match[1] === "visualizer") {
++            return streaming ? (
++              <VisualPlaceholder className="my-3" />
++            ) : (
++              <VisualWidget code={code} className="my-3" />
++            );
 +          }
            return (
              <CodeBlock
                language={match[1]}
-@@ -383,6 +391,11 @@ export default function MarkdownTextRenderer({
+@@ -383,6 +396,15 @@ export default function MarkdownTextRenderer({
          }
          const fence = codeFenceFromPreChild(lone);
          if (fence) {
 +          /** Mirror the code-handler's visualizer route (covers fences the
 +           * code handler's stricter language regex didn't claim). */
-+          if (fence.language === "visualizer" && !streaming) {
-+            return <VisualWidget code={fence.code} className="my-3" />;
++          if (fence.language === "visualizer") {
++            return streaming ? (
++              <VisualPlaceholder className="my-3" />
++            ) : (
++              <VisualWidget code={fence.code} className="my-3" />
++            );
 +          }
            return (
              <CodeBlock
                language={fence.language || "text"}
-@@ -495,7 +508,7 @@ export default function MarkdownTextRenderer({
+@@ -495,7 +517,7 @@ export default function MarkdownTextRenderer({
          );
        },
      }),
@@ -94,11 +103,13 @@ index d3a664b..de0852e 100644
    return (
 diff --git a/webui/src/components/VisualWidget.tsx b/webui/src/components/VisualWidget.tsx
 new file mode 100644
-index 0000000..7e94aed
+index 0000000..0b3accd
 --- /dev/null
 +++ b/webui/src/components/VisualWidget.tsx
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,228 @@
 +import { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { Loader2 } from "lucide-react";
++import { useTranslation } from "react-i18next";
 +
 +import { useThemeValue } from "@/hooks/useTheme";
 +import { notifyVisualizerSendPrompt } from "@/lib/visualizer-events";
@@ -107,6 +118,33 @@ index 0000000..7e94aed
 +interface VisualWidgetProps {
 +  code: string;
 +  className?: string;
++}
++
++/**
++ * Shown in place of a ```visualizer fence while the message is still streaming —
++ * the raw HTML/JS never appears on screen; the card swaps to the live VisualWidget
++ * once the turn ends.
++ */
++export function VisualPlaceholder({ className }: { className?: string }) {
++  const { t } = useTranslation();
++  return (
++    <div
++      className={cn(
++        "my-3 rounded-lg border border-border/60 bg-muted/30 p-4",
++        className,
++      )}
++    >
++      <div className="mb-3 flex items-center gap-2 text-[12px] text-muted-foreground">
++        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
++        <span>{t("visualizer.generating", "Generating visualization…")}</span>
++      </div>
++      <div className="space-y-2" aria-hidden>
++        <div className="h-3 w-3/4 animate-pulse rounded bg-muted-foreground/15" />
++        <div className="h-3 w-1/2 animate-pulse rounded bg-muted-foreground/15" />
++        <div className="h-24 animate-pulse rounded-md bg-muted-foreground/10" />
++      </div>
++    </div>
++  );
 +}
 +
 +/**
@@ -327,6 +365,58 @@ index 315d4ce..9a70157 100644
    const composer = (
      <>
        {streamError ? (
+diff --git a/webui/src/i18n/locales/en/common.json b/webui/src/i18n/locales/en/common.json
+index b0aafab..817f1e5 100644
+--- a/webui/src/i18n/locales/en/common.json
++++ b/webui/src/i18n/locales/en/common.json
+@@ -760,5 +760,8 @@
+       "usePath": "Use Path",
+       "absolutePathRequired": "Enter an absolute folder path on this machine."
+     }
++  },
++  "visualizer": {
++    "generating": "Generating visualization…"
+   }
+ }
+diff --git a/webui/src/i18n/locales/ja/common.json b/webui/src/i18n/locales/ja/common.json
+index 9f0dc39..a63911f 100644
+--- a/webui/src/i18n/locales/ja/common.json
++++ b/webui/src/i18n/locales/ja/common.json
+@@ -760,5 +760,8 @@
+       "usePath": "Use Path",
+       "absolutePathRequired": "Enter an absolute folder path on this machine."
+     }
++  },
++  "visualizer": {
++    "generating": "ビジュアルを生成中…"
+   }
+ }
+diff --git a/webui/src/i18n/locales/zh-CN/common.json b/webui/src/i18n/locales/zh-CN/common.json
+index 6727238..4739b18 100644
+--- a/webui/src/i18n/locales/zh-CN/common.json
++++ b/webui/src/i18n/locales/zh-CN/common.json
+@@ -760,5 +760,8 @@
+       "usePath": "使用路径",
+       "absolutePathRequired": "请输入这台机器上的绝对文件夹路径。"
+     }
++  },
++  "visualizer": {
++    "generating": "可视化生成中…"
+   }
+ }
+diff --git a/webui/src/i18n/locales/zh-TW/common.json b/webui/src/i18n/locales/zh-TW/common.json
+index 3ea775a..da296ae 100644
+--- a/webui/src/i18n/locales/zh-TW/common.json
++++ b/webui/src/i18n/locales/zh-TW/common.json
+@@ -760,5 +760,8 @@
+       "usePath": "使用路徑",
+       "absolutePathRequired": "請輸入這台機器上的絕對資料夾路徑。"
+     }
++  },
++  "visualizer": {
++    "generating": "視覺化產生中…"
+   }
+ }
 diff --git a/webui/src/lib/visualizer-events.ts b/webui/src/lib/visualizer-events.ts
 new file mode 100644
 index 0000000..f228484

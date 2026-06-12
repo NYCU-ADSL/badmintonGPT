@@ -10,7 +10,7 @@ import remarkMath from "remark-math";
 import { AttachmentTile } from "@/components/AttachmentTile";
 import { CodeBlock } from "@/components/CodeBlock";
 import { FileReferenceChip, isLikelyFilePath } from "@/components/FileReferenceChip";
-import VisualWidget from "@/components/VisualWidget";
+import VisualWidget, { VisualPlaceholder } from "@/components/VisualWidget";
 import { inferMediaKind } from "@/lib/media";
 import { cn } from "@/lib/utils";
 
@@ -336,10 +336,15 @@ export default function MarkdownTextRenderer({
         const match = /language-(\w+)/.exec(cls || "");
         if (match) {
           const code = String(kids).replace(/\n$/, "");
-          /** ```visualizer fences (skills/visualise) mount a live iframe — but only
-           * once the message stops streaming, so partial HTML never executes. */
-          if (match[1] === "visualizer" && !streaming) {
-            return <VisualWidget code={code} className="my-3" />;
+          /** ```visualizer fences (skills/visualise) mount a live iframe once the
+           * message stops streaming; while streaming, a skeleton card stands in so
+           * the raw HTML/JS never shows and partial HTML never executes. */
+          if (match[1] === "visualizer") {
+            return streaming ? (
+              <VisualPlaceholder className="my-3" />
+            ) : (
+              <VisualWidget code={code} className="my-3" />
+            );
           }
           return (
             <CodeBlock
@@ -393,8 +398,12 @@ export default function MarkdownTextRenderer({
         if (fence) {
           /** Mirror the code-handler's visualizer route (covers fences the
            * code handler's stricter language regex didn't claim). */
-          if (fence.language === "visualizer" && !streaming) {
-            return <VisualWidget code={fence.code} className="my-3" />;
+          if (fence.language === "visualizer") {
+            return streaming ? (
+              <VisualPlaceholder className="my-3" />
+            ) : (
+              <VisualWidget code={fence.code} className="my-3" />
+            );
           }
           return (
             <CodeBlock

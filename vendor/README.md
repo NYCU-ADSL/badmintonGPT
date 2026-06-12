@@ -69,8 +69,9 @@
   `webui/src/components/VisualWidget.tsx` (iframe with the skill's theme CSS + SVG utility
   classes injected ahead of the model HTML, auto-height via ResizeObserver, theme-aware) and
   `webui/src/lib/visualizer-events.ts`; routes the fence in `MarkdownTextRenderer.tsx`'s
-  `code`/`pre` handlers gated on `!streaming` (a half-streamed fence stays a code block until
-  the turn ends), threads `streaming` through `MarkdownText.tsx`, and adds a
+  `code`/`pre` handlers gated on `!streaming` — while streaming, a skeleton placeholder card
+  (`VisualPlaceholder`, i18n key `visualizer.generating`) stands in so the raw HTML/JS is never
+  shown and partial HTML never executes; threads `streaming` through `MarkdownText.tsx`, and adds a
   `sendPrompt(text)` bridge — iframe code calls `window.sendPrompt(...)`, a CustomEvent
   listener in `ThreadShell.tsx` posts it as a user message. **Deliberately NOT
   security-hardened** (project decision): `sandbox="allow-scripts allow-same-origin"`, no CSP,

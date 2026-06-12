@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useThemeValue } from "@/hooks/useTheme";
 import { notifyVisualizerSendPrompt } from "@/lib/visualizer-events";
@@ -7,6 +9,33 @@ import { cn } from "@/lib/utils";
 interface VisualWidgetProps {
   code: string;
   className?: string;
+}
+
+/**
+ * Shown in place of a ```visualizer fence while the message is still streaming —
+ * the raw HTML/JS never appears on screen; the card swaps to the live VisualWidget
+ * once the turn ends.
+ */
+export function VisualPlaceholder({ className }: { className?: string }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className={cn(
+        "my-3 rounded-lg border border-border/60 bg-muted/30 p-4",
+        className,
+      )}
+    >
+      <div className="mb-3 flex items-center gap-2 text-[12px] text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+        <span>{t("visualizer.generating", "Generating visualization…")}</span>
+      </div>
+      <div className="space-y-2" aria-hidden>
+        <div className="h-3 w-3/4 animate-pulse rounded bg-muted-foreground/15" />
+        <div className="h-3 w-1/2 animate-pulse rounded bg-muted-foreground/15" />
+        <div className="h-24 animate-pulse rounded-md bg-muted-foreground/10" />
+      </div>
+    </div>
+  );
 }
 
 /**
