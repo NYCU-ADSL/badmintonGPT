@@ -10,6 +10,7 @@ import remarkMath from "remark-math";
 import { AttachmentTile } from "@/components/AttachmentTile";
 import { CodeBlock } from "@/components/CodeBlock";
 import { FileReferenceChip, isLikelyFilePath } from "@/components/FileReferenceChip";
+import VisualWidget from "@/components/VisualWidget";
 import { inferMediaKind } from "@/lib/media";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ interface MarkdownTextRendererProps {
   children: string;
   className?: string;
   highlightCode?: boolean;
+  streaming?: boolean;
 }
 
 type MarkdownAstNode = {
@@ -326,6 +328,7 @@ export default function MarkdownTextRenderer({
   children,
   className,
   highlightCode = true,
+  streaming = false,
 }: MarkdownTextRendererProps) {
   const components = useMemo<Components>(
     () => ({
@@ -333,6 +336,11 @@ export default function MarkdownTextRenderer({
         const match = /language-(\w+)/.exec(cls || "");
         if (match) {
           const code = String(kids).replace(/\n$/, "");
+          /** ```visualizer fences (skills/visualise) mount a live iframe — but only
+           * once the message stops streaming, so partial HTML never executes. */
+          if (match[1] === "visualizer" && !streaming) {
+            return <VisualWidget code={code} className="my-3" />;
+          }
           return (
             <CodeBlock
               language={match[1]}
@@ -383,6 +391,11 @@ export default function MarkdownTextRenderer({
         }
         const fence = codeFenceFromPreChild(lone);
         if (fence) {
+          /** Mirror the code-handler's visualizer route (covers fences the
+           * code handler's stricter language regex didn't claim). */
+          if (fence.language === "visualizer" && !streaming) {
+            return <VisualWidget code={fence.code} className="my-3" />;
+          }
           return (
             <CodeBlock
               language={fence.language || "text"}
@@ -495,7 +508,7 @@ export default function MarkdownTextRenderer({
         );
       },
     }),
-    [highlightCode],
+    [highlightCode, streaming],
   );
 
   return (

@@ -64,6 +64,17 @@
   script ran before `<body>` was parsed, so the localized "Loading…" line never applied; the swap
   is now deferred to DOMContentLoaded). Applies on top of `webui-branding.patch`'s index.html
   hunks. Splash-only; no app behavior change.
+- `patches/webui-visualizer.patch` — renders ```` ```visualizer ```` fences (the
+  `skills/visualise` playbook's output) as live inline visuals instead of code blocks. Adds
+  `webui/src/components/VisualWidget.tsx` (iframe with the skill's theme CSS + SVG utility
+  classes injected ahead of the model HTML, auto-height via ResizeObserver, theme-aware) and
+  `webui/src/lib/visualizer-events.ts`; routes the fence in `MarkdownTextRenderer.tsx`'s
+  `code`/`pre` handlers gated on `!streaming` (a half-streamed fence stays a code block until
+  the turn ends), threads `streaming` through `MarkdownText.tsx`, and adds a
+  `sendPrompt(text)` bridge — iframe code calls `window.sendPrompt(...)`, a CustomEvent
+  listener in `ThreadShell.tsx` posts it as a user message. **Deliberately NOT
+  security-hardened** (project decision): `sandbox="allow-scripts allow-same-origin"`, no CSP,
+  any CDN loads — fence content effectively runs with full access to the WebUI origin.
 
 It is committed so the gateway image (`../Dockerfile`) builds the **patched** nanobot
 hermetically — no clone of an upstream tag, no `nanobot-ai` PyPI pin, no post-install dist
@@ -82,6 +93,6 @@ and `tests/`, `images/`, `case/`, `docs/`, `.github/`, `.agent/`.
 ## Updating to a new upstream nanobot
 
 1. `git clone --branch <new-tag> https://github.com/HKUDS/nanobot /tmp/nanobot`
-2. Rebase all patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch && git apply --3way ../patches/webui-branding.patch && git apply --3way ../patches/reply-language.patch && git apply --3way ../patches/webui-thinking-animation.patch && git apply --3way ../patches/webui-boot-splash.patch`), resolving any conflicts; re-export each patch.
+2. Rebase all patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch && git apply --3way ../patches/webui-branding.patch && git apply --3way ../patches/reply-language.patch && git apply --3way ../patches/webui-thinking-animation.patch && git apply --3way ../patches/webui-boot-splash.patch && git apply --3way ../patches/webui-visualizer.patch`), resolving any conflicts; re-export each patch.
 3. Re-vendor with the same exclusions (see `git log` for the `rsync` invocation), bump the tag/commit above, and bump the image tag in `../docker-compose.yml` + `../Dockerfile` comments.
 4. Rebuild and run the verification in `../DEPLOY.md`.
