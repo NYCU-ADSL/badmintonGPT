@@ -100,6 +100,7 @@ import {
 } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
+import { useTtsSettings, TTS_VOICES } from "@/hooks/useTtsSettings";
 import type {
   CliAppInfo,
   CliAppsPayload,
@@ -1727,6 +1728,8 @@ function AppearanceSettings({
           </SettingsRow>
         </SettingsGroup>
       </section>
+
+      <SpeechSettings />
     </div>
   );
 }
@@ -5420,6 +5423,71 @@ function SegmentedControl({
         </button>
       ))}
     </div>
+  );
+}
+
+// Message TTS preferences (browser-local): voice + auto-prefetch trigger mode.
+// [badmintonGPT — see docs/MESSAGE_TTS.md / patches/webui-tts.patch]
+function SpeechSettings() {
+  const { t } = useTranslation();
+  const { voice, setVoice, autoPrefetch, setAutoPrefetch } = useTtsSettings();
+  return (
+    <section>
+      <SettingsSectionTitle>
+        {t("settings.sections.speech", { defaultValue: "Speech" })}
+      </SettingsSectionTitle>
+      <SettingsGroup>
+        <SettingsRow
+          title={t("settings.rows.voice", { defaultValue: "Voice" })}
+          description={t("settings.help.voice", {
+            defaultValue: "Voice used when reading a reply aloud.",
+          })}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 min-w-[7rem] justify-between gap-2"
+                aria-label={t("settings.rows.voice", { defaultValue: "Voice" })}
+              >
+                <span className="truncate">{voice}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {TTS_VOICES.map((option) => (
+                <DropdownMenuItem key={option} onSelect={() => setVoice(option)}>
+                  <span className="flex w-full items-center justify-between gap-3">
+                    <span>{option}</span>
+                    {option === voice ? <Check className="h-3.5 w-3.5" aria-hidden /> : null}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SettingsRow>
+        <SettingsRow
+          title={t("settings.rows.ttsAutoPrefetch", { defaultValue: "Prepare speech automatically" })}
+          description={t("settings.help.ttsAutoPrefetch", {
+            defaultValue:
+              "Generate speech as soon as a reply finishes so playback starts instantly when you press play.",
+          })}
+        >
+          <ToggleButton
+            checked={autoPrefetch}
+            onChange={setAutoPrefetch}
+            ariaLabel={t("settings.rows.ttsAutoPrefetch", {
+              defaultValue: "Prepare speech automatically",
+            })}
+            label={
+              autoPrefetch
+                ? t("settings.values.on", { defaultValue: "On" })
+                : t("settings.values.off", { defaultValue: "Off" })
+            }
+          />
+        </SettingsRow>
+      </SettingsGroup>
+    </section>
   );
 }
 

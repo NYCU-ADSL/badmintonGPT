@@ -2,6 +2,18 @@ import type { BootstrapResponse } from "./types";
 
 const SECRET_STORAGE_KEY = "nanobot-webui.bootstrap-secret";
 
+/** TTS defaults the gateway derived from the repo-root .env (TTS_DEFAULT_VOICE /
+ *  TTS_AUTO_PREFETCH). Captured on every bootstrap; read by useTtsSettings as the
+ *  initial default when the browser has no stored override. */
+let _ttsBootstrapDefaults: { defaultVoice?: string; autoPrefetch?: boolean } = {};
+
+export function getTtsBootstrapDefaults(): {
+  defaultVoice?: string;
+  autoPrefetch?: boolean;
+} {
+  return _ttsBootstrapDefaults;
+}
+
 /** Read a previously saved bootstrap secret from localStorage. */
 export function loadSavedSecret(): string {
   if (typeof window === "undefined") return "";
@@ -53,6 +65,12 @@ export async function fetchBootstrap(
   const body = (await res.json()) as BootstrapResponse;
   if (!body.token || !body.ws_path) {
     throw new Error("bootstrap response missing token or ws_path");
+  }
+  if (body.tts) {
+    _ttsBootstrapDefaults = {
+      defaultVoice: body.tts.default_voice,
+      autoPrefetch: body.tts.auto_prefetch,
+    };
   }
   return body;
 }

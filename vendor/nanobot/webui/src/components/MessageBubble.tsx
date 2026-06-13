@@ -6,10 +6,21 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Check, ChevronRight, Copy, ImageIcon, Sparkles, Wrench } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  Copy,
+  ImageIcon,
+  Loader2,
+  Sparkles,
+  Square,
+  Volume2,
+  Wrench,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AttachmentTile } from "@/components/AttachmentTile";
+import { useMessageTts } from "@/hooks/useMessageTts";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
@@ -84,6 +95,8 @@ export function MessageBubble({
     });
   }, [message.content]);
 
+  const tts = useMessageTts(message);
+
   if (message.kind === "trace") {
     return <TraceGroup message={message} animClass={baseAnim} />;
   }
@@ -131,13 +144,14 @@ export function MessageBubble({
 
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   const showCopyButton = showAssistantCopyAction && showAssistantActions;
+  const showSpeakButton = showAssistantActions && tts.hasSpeech;
   const latencyMs = message.latencyMs;
   const showLatencyFooter =
     message.role === "assistant"
     && latencyMs != null
     && !message.isStreaming
     && (!empty || hasReasoning || media.length > 0);
-  const showAssistantFooterRow = showCopyButton || showLatencyFooter;
+  const showAssistantFooterRow = showCopyButton || showSpeakButton || showLatencyFooter;
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
       {hasReasoning ? (
@@ -167,6 +181,27 @@ export function MessageBubble({
                     <Check className="h-4 w-4" aria-hidden />
                   ) : (
                     <Copy className="h-4 w-4" aria-hidden />
+                  )}
+                </button>
+              ) : null}
+              {showSpeakButton ? (
+                <button
+                  type="button"
+                  onClick={tts.toggle}
+                  aria-label={t(`message.${tts.ariaKey}`)}
+                  title={t(`message.${tts.ariaKey}`)}
+                  className={cn(
+                    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                    "transition-colors hover:bg-muted/55 hover:text-foreground",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  )}
+                >
+                  {tts.state === "loading" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : tts.state === "playing" ? (
+                    <Square className="h-4 w-4" aria-hidden />
+                  ) : (
+                    <Volume2 className="h-4 w-4" aria-hidden />
                   )}
                 </button>
               ) : null}

@@ -83,6 +83,7 @@
       "system": "系统",
       "status": "状态",
       "localPreferences": "本地偏好",
+      "speech": "语音",
       "presets": "预设",
       "imageGeneration": "图片生成",
       "imageDefaults": "默认值",
@@ -134,6 +135,8 @@
       "activityMode": "活动详情",
       "codeWrap": "代码换行",
       "brandLogos": "品牌 Logo",
+      "voice": "语音",
+      "ttsAutoPrefetch": "自动准备语音",
       "maxResults": "最大结果数",
       "timeout": "超时",
       "jinaReader": "Jina 阅读器",
@@ -174,6 +177,8 @@
       "activityMode": "选择默认显示多少 agent 活动细节。",
       "codeWrap": "让长代码行在小屏幕上也易读。",
       "brandLogos": "在设置中显示第三方提供商和 CLI 图标。",
+      "voice": "朗读回复时使用的语音。",
+      "ttsAutoPrefetch": "回复完成后立即生成语音，按下播放即可立刻开始。",
       "maxResults": "每次 web_search 调用返回的结果数。",
       "timeout": "搜索提供商请求超时前的秒数。",
       "jinaReader": "可用时为 web_fetch 使用 Jina Reader。",
@@ -724,7 +729,11 @@
     "imageAttachment": "图片附件",
     "copyReply": "复制回复",
     "copiedReply": "已复制回复",
-    "turnLatencyTitle": "本轮耗时（端到端）"
+    "turnLatencyTitle": "本轮耗时（端到端）",
+    "speakReply": "朗读",
+    "stopReply": "停止朗读",
+    "speakLoading": "准备语音中…",
+    "speakError": "无法朗读此回复"
   },
   "lightbox": {
     "title": "图片预览",
