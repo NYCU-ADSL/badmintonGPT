@@ -4,13 +4,15 @@ Patterns for interactive explainers, comparisons, data records, metric cards, an
 
 ## Core aesthetic
 
-Flat, clean, white surfaces. Minimal 0.5px borders. Generous whitespace. No gradients, no shadows except focus rings.
+Flat, clean, **transparent** surfaces that blend with the host chat — the `--color-background-*`
+tokens resolve to `transparent`. Use 0.5px borders for definition. Generous whitespace. No gradients,
+no shadows except focus rings. Never hardcode a white/grey background.
 
 ## Tokens
 
 - Borders: `0.5px solid var(--color-border-tertiary)` (or `-secondary` for emphasis)
 - Corner radius: `var(--border-radius-md)` for most, `var(--border-radius-lg)` for cards
-- Cards: white bg, 0.5px border, radius-lg, padding `1rem 1.25rem`
+- Cards: transparent bg (blends with chat), 0.5px border, radius-lg, padding `1rem 1.25rem`
 - Spacing: rem for vertical rhythm, px for internal gaps (8px, 12px, 16px)
 
 ## Pre-styled form elements
@@ -23,14 +25,15 @@ Buttons that trigger `sendPrompt` should append a ↗ arrow.
 
 For summary numbers:
 ```html
-<div style="background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 1rem;">
+<div style="border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 1rem;">
   <p style="font-size: 13px; color: var(--color-text-secondary); margin: 0 0 2px;">Label</p>
   <p style="font-size: 24px; font-weight: 500; margin: 0;">$3,870</p>
 </div>
 ```
 Use in grids of 2-4: `display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;`
 
-No border on metric cards — secondary bg differentiates them.
+Metric cards use a 0.5px border for definition — the surface is transparent (blends with the chat),
+so a border, not a fill, separates them. Do NOT add a `background`.
 
 ## Interactive explainer
 
