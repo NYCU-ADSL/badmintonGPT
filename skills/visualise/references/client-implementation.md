@@ -153,7 +153,9 @@ const SVG_CLASSES = `
   input[type="range"] { -webkit-appearance: none; height: 4px; background: var(--color-border-tertiary); border-radius: 2px; }
   input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--color-background-primary); border: 0.5px solid var(--color-border-secondary); cursor: pointer; }
   * { box-sizing: border-box; margin: 0; font-family: var(--font-sans); }
-  body { background: transparent; color: var(--color-text-primary); line-height: 1.5; }
+  html, body { background: transparent; }
+  body { color: var(--color-text-primary); line-height: 1.5; }
+  canvas { background: transparent; }
 `;
 ```
 
