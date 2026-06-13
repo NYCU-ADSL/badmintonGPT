@@ -52,8 +52,7 @@ export function FileReferenceChip({
               aria-label={fullPath}
               className={cn(
                 "inline-flex max-w-full items-baseline gap-[0.28em] font-medium leading-[inherit]",
-                "text-sky-600 transition-colors hover:text-sky-700",
-                "dark:text-sky-300 dark:hover:text-sky-200",
+                "text-brand transition-colors hover:text-brand/80",
               )}
             >
               <FileReferenceIcon kind={kind} />
@@ -68,7 +67,7 @@ export function FileReferenceChip({
                 {display === "path" && directory ? (
                   <>
                     <span className="text-muted-foreground/65">{directory}</span>
-                    <span className="font-semibold text-sky-700 dark:text-sky-200">{name}</span>
+                    <span className="font-semibold text-brand">{name}</span>
                   </>
                 ) : (
                   displayText
@@ -161,7 +160,7 @@ function FileReferenceIcon({ kind }: { kind: FileReferenceKind }) {
     return (
       <svg
         aria-hidden
-        className="h-[0.92em] w-[0.92em] shrink-0 translate-y-[0.11em] text-sky-500 dark:text-sky-300"
+        className="h-[0.92em] w-[0.92em] shrink-0 translate-y-[0.11em] text-brand"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -180,7 +179,7 @@ function FileReferenceIcon({ kind }: { kind: FileReferenceKind }) {
     return (
       <svg
         aria-hidden
-        className="h-[0.92em] w-[0.92em] shrink-0 translate-y-[0.11em] text-sky-500 dark:text-sky-300"
+        className="h-[0.92em] w-[0.92em] shrink-0 translate-y-[0.11em] text-brand"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -197,7 +196,7 @@ function FileReferenceIcon({ kind }: { kind: FileReferenceKind }) {
   return (
     <svg
       aria-hidden
-      className="h-[0.96em] w-[0.96em] shrink-0 translate-y-[0.12em] text-sky-500 dark:text-sky-300"
+      className="h-[0.96em] w-[0.96em] shrink-0 translate-y-[0.12em] text-brand"
       viewBox="0 0 24 24"
       fill="none"
     >
