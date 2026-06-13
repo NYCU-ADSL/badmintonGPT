@@ -1,0 +1,60 @@
+name: build-fork
+
+# Replaces the old check-patches.yml. Under the fork model the invariant is no longer
+# "the patches still apply onto upstream" but "the fork still builds" + "our delta vs the
+# pristine upstream base is still present (provenance is reconstructable)".
+#
+# - Builds the forked WebUI with the SAME toolchain as the gateway image (npm + package-lock.json;
+#   the image has no bun). This is what catches a bad `git subtree pull` merge.
+# - Compile-checks the forked Python (cheap syntax guard for merge breakage).
+# - Asserts `git diff nanobot-base-v0.2.1..HEAD -- vendor/nanobot` is non-empty (requires the base
+#   tag to be pushed; see vendor/README.md).
+
+on:
+  push:
+    paths:
+      - "vendor/nanobot/**"
+      - ".github/workflows/build-fork.yml"
+  pull_request:
+    paths:
+      - "vendor/nanobot/**"
+      - ".github/workflows/build-fork.yml"
+
+jobs:
+  build-fork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags for the provenance diff
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"      # matches the gateway Dockerfile
+
+      - name: Build the forked WebUI (image toolchain — npm/package-lock.json)
+        working-directory: vendor/nanobot/webui
+        run: |
+          npm ci
+          npm run build            # tsc -p tsconfig.build.json && vite build -> ../nanobot/web/dist
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile-check the forked Python (syntax guard)
+        run: python -m compileall -q vendor/nanobot/nanobot vendor/nanobot/bridge
+
+      - name: Assert fork delta vs upstream base is present (provenance)
+        run: |
+          base="nanobot-base-v0.2.1"
+          if git rev-parse -q --verify "refs/tags/$base" >/dev/null; then
+            if git diff --quiet "$base"..HEAD -- vendor/nanobot; then
+              echo "::error::vendor/nanobot has NO delta vs $base — it matches pristine upstream; the fork's provenance is lost."
+              exit 1
+            fi
+            echo "✓ fork delta present vs $base"
+          else
+            echo "::warning::base tag $base not found in this checkout (push tags so the provenance check can run)"
+          fi
