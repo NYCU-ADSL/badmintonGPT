@@ -769,5 +769,8 @@
       "usePath": "使用路徑",
       "absolutePathRequired": "請輸入這台機器上的絕對資料夾路徑。"
     }
+  },
+  "visualizer": {
+    "generating": "視覺化產生中…"
   }
 }

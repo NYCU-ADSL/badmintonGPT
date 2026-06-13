@@ -25,13 +25,19 @@ const MemoizedMarkdownRenderer = memo(function MemoizedMarkdownRenderer({
   source,
   className,
   highlightCode,
+  streaming,
 }: {
   source: string;
   className?: string;
   highlightCode: boolean;
+  streaming: boolean;
 }) {
   return (
-    <LazyMarkdownRenderer className={className} highlightCode={highlightCode}>
+    <LazyMarkdownRenderer
+      className={className}
+      highlightCode={highlightCode}
+      streaming={streaming}
+    >
       {source}
     </LazyMarkdownRenderer>
   );
@@ -82,6 +88,7 @@ export function MarkdownText({
         source={renderedSource}
         className={className}
         highlightCode={highlightCode}
+        streaming={streaming}
       />
     </Suspense>
   );

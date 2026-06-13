@@ -769,5 +769,8 @@
       "usePath": "Use Path",
       "absolutePathRequired": "Enter an absolute folder path on this machine."
     }
+  },
+  "visualizer": {
+    "generating": "Generating visualization…"
   }
 }
