@@ -19,6 +19,7 @@ import {
   isMcpPresetsPayload,
 } from "@/lib/mcp-preset-events";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
+import { VISUALIZER_SEND_PROMPT_EVENT } from "@/lib/visualizer-events";
 import type {
   ChatSummary,
   CliAppInfo,
@@ -481,6 +482,17 @@ export function ThreadShell({
     },
     [send, withWorkspaceScope],
   );
+
+  /** Bridge: `sendPrompt(text)` inside a visualizer iframe posts as a user message. */
+  useEffect(() => {
+    const onVisualizerPrompt = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: unknown }>).detail?.text;
+      if (typeof text !== "string" || !text.trim()) return;
+      handleThreadSend(text);
+    };
+    window.addEventListener(VISUALIZER_SEND_PROMPT_EVENT, onVisualizerPrompt);
+    return () => window.removeEventListener(VISUALIZER_SEND_PROMPT_EVENT, onVisualizerPrompt);
+  }, [handleThreadSend]);
 
   const composer = (
     <>
