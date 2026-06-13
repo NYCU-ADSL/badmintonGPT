@@ -72,6 +72,21 @@ if TYPE_CHECKING:
 
 UNIFIED_SESSION_KEY = "unified:default"
 
+# Maps a WebUI language-picker locale code (sent as inbound metadata["locale"])
+# to a human language name, surfaced to the model so replies follow the UI setting.
+_UI_LOCALE_NAMES: dict[str, str] = {
+    "en": "English",
+    "zh-CN": "Simplified Chinese (简体中文)",
+    "zh-TW": "Traditional Chinese (繁體中文)",
+    "fr": "French (Français)",
+    "ja": "Japanese (日本語)",
+    "ko": "Korean (한국어)",
+    "es": "Spanish (Español)",
+    "vi": "Vietnamese (Tiếng Việt)",
+    "id": "Indonesian (Bahasa Indonesia)",
+}
+
+
 class TurnState(Enum):
     RESTORE = auto()
     COMPACT = auto()
@@ -1110,6 +1125,16 @@ class AgentLoop:
         current_role = "assistant" if is_subagent else "user"
         workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
 
+        # Surface the WebUI language picker (inbound metadata["locale"]) as a per-turn
+        # runtime hint so the agent replies in the user's selected UI language.
+        ui_locale = msg.metadata.get("locale")
+        locale_runtime_lines: list[str] | None = None
+        if not is_subagent and isinstance(ui_locale, str) and ui_locale:
+            lang_name = _UI_LOCALE_NAMES.get(ui_locale, ui_locale)
+            locale_runtime_lines = [
+                f"User UI language: {lang_name} — reply in this language unless the user explicitly asks for another."
+            ]
+
         messages = self.context.build_messages(
             history=history,
             current_message="" if is_subagent else msg.content,
@@ -1119,6 +1144,7 @@ class AgentLoop:
             sender_id=msg.sender_id,
             session_summary=pending,
             session_metadata=session.metadata,
+            current_runtime_lines=locale_runtime_lines,
             workspace=workspace_scope.project_path,
             runtime_state=self,
             inbound_message=msg,

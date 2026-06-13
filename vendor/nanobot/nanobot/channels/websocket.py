@@ -1578,6 +1578,9 @@ class WebSocketChannel(BaseChannel):
             metadata: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
             if envelope.get("webui") is True:
                 metadata["webui"] = True
+            locale = envelope.get("locale")
+            if isinstance(locale, str) and locale.strip():
+                metadata["locale"] = locale.strip()
             cli_apps = normalize_cli_app_mentions(envelope.get("cli_apps"))
             if cli_apps:
                 metadata["cli_apps"] = cli_apps

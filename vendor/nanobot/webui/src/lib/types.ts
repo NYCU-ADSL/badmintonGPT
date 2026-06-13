@@ -748,6 +748,9 @@ export type Outbound =
       cli_apps?: OutboundCliAppMention[];
       mcp_presets?: OutboundMcpPresetMention[];
       workspace_scope?: WorkspaceScopePayload;
+      /** BCP-47-ish UI locale code (e.g. "zh-TW") of the WebUI language picker,
+       * so the agent can reply in the user's selected language. */
+      locale?: string;
       /** Marks messages sent by the embedded WebUI, without changing the
        * generic websocket protocol for other clients. */
       webui?: true;
