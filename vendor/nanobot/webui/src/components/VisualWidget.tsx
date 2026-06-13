@@ -57,7 +57,7 @@ export default function VisualWidget({ code, className }: VisualWidgetProps) {
     () =>
       `<!doctype html><html><head><meta charset="utf-8">` +
       `<style>${getThemeCSS(isDark)}\n${SVG_CLASSES}${isDark ? DARK_RAMP_OVERRIDES : ""}</style>` +
-      `</head><body>${code}</body></html>`,
+      `</head><body>${blendSurfaces(code)}</body></html>`,
     [code, isDark],
   );
 
@@ -112,6 +112,25 @@ export default function VisualWidget({ code, className }: VisualWidgetProps) {
         style={{ width: "100%", height, border: "none", display: "block", overflow: "hidden" }}
       />
     </div>
+  );
+}
+
+/**
+ * Force generated surfaces to blend with the chat: the transparent --color-background-*
+ * tokens only help when the model uses them, but models sometimes hardcode an opaque
+ * white/near-white (or dark) fill on cards/metric boxes inline. Rewrite those literal
+ * background fills to `transparent` so a visual never renders an out-of-theme box.
+ * Only touches `background`/`background-color` declarations set to a neutral surface
+ * colour — coloured fills, semantic tokens, and overlays (e.g. rgba(0,0,0,.45)) are left alone.
+ */
+function blendSurfaces(code: string): string {
+  const NEUTRAL =
+    "#fff(?:fff)?|#f9fafb|#f3f4f6|#fafafa|#f5f5f5|white|" +
+    "#1a1a1a|#262626|#111(?:111)?|" +
+    "rgba?\\(\\s*255\\s*,\\s*255\\s*,\\s*255\\s*(?:,[^)]*)?\\)";
+  return code.replace(
+    new RegExp(`(background(?:-color)?\\s*:\\s*)(?:${NEUTRAL})`, "gi"),
+    "$1transparent",
   );
 }
 
