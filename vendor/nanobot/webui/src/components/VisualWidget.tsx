@@ -127,9 +127,10 @@ function getThemeCSS(isDark: boolean): string {
       --color-text-success: #34D399;
       --color-text-warning: #FBBF24;
       --color-text-danger: #F87171;
-      --color-background-primary: #1A1A1A;
-      --color-background-secondary: #262626;
-      --color-background-tertiary: #111111;
+      /* Surfaces transparent so cards/metric boxes blend with the chat background. */
+      --color-background-primary: transparent;
+      --color-background-secondary: transparent;
+      --color-background-tertiary: transparent;
       --color-border-tertiary: rgba(255,255,255,0.15);
       --color-border-secondary: rgba(255,255,255,0.3);
       --font-sans: system-ui, -apple-system, sans-serif;
@@ -145,9 +146,10 @@ function getThemeCSS(isDark: boolean): string {
       --color-text-success: #059669;
       --color-text-warning: #D97706;
       --color-text-danger: #DC2626;
-      --color-background-primary: #FFFFFF;
-      --color-background-secondary: #F9FAFB;
-      --color-background-tertiary: #F3F4F6;
+      /* Surfaces transparent so cards/metric boxes blend with the chat background. */
+      --color-background-primary: transparent;
+      --color-background-secondary: transparent;
+      --color-background-tertiary: transparent;
       --color-border-tertiary: rgba(0,0,0,0.15);
       --color-border-secondary: rgba(0,0,0,0.3);
       --font-sans: system-ui, -apple-system, sans-serif;
