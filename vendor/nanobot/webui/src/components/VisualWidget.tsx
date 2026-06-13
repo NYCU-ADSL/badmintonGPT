@@ -53,12 +53,24 @@ export default function VisualWidget({ code, className }: VisualWidgetProps) {
   const timerRef = useRef<number | null>(null);
   const [height, setHeight] = useState(200);
 
+  // Paint the iframe with the host chat's own background colour (shadcn `--background`)
+  // so the visual blends seamlessly. Pure transparency is unreliable here: Chrome can
+  // paint an opaque (white in light scheme) canvas for a color-scheme'd iframe regardless
+  // of `html,body{background:transparent}`, which shows up as a white box on the chat.
+  // Setting the colour explicitly sidesteps that quirk entirely.
+  const chatBg = useMemo(() => {
+    if (typeof window === "undefined") return "transparent";
+    const v = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+    return v ? `hsl(${v})` : "transparent";
+  }, [isDark]);
+
   const srcDoc = useMemo(
     () =>
       `<!doctype html><html><head><meta charset="utf-8">` +
-      `<style>${getThemeCSS(isDark)}\n${SVG_CLASSES}${isDark ? DARK_RAMP_OVERRIDES : ""}</style>` +
+      `<style>${getThemeCSS(isDark)}\n${SVG_CLASSES}${isDark ? DARK_RAMP_OVERRIDES : ""}\n` +
+      `html, body { background: ${chatBg}; }</style>` +
       `</head><body>${blendSurfaces(code)}</body></html>`,
-    [code, isDark],
+    [code, isDark, chatBg],
   );
 
   const detachObserver = useCallback(() => {
