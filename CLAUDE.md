@@ -262,8 +262,9 @@ A speaker button beside each assistant reply's copy button reads the reply aloud
 code/tables/math/charts/media are skipped). Two vendored patches, full design in `docs/MESSAGE_TTS.md`:
 - **`patches/webui-tts-proxy.patch`** (`nanobot/channels/websocket.py`) — a GET-only `/api/tts` route
   (the websockets HTTP parser accepts no other verb) that proxies to the upstream Qwen3-TTS with
-  `TTS_API_KEY` injected server-side, buffers the streamed PCM, and wraps it in a WAV header. Gated
-  by the same bootstrap token as the other `/api/*` routes; reads `TTS_ENDPOINT`/`TTS_API_MODEL`/
+  `TTS_API_KEY` injected server-side **via the openai SDK** (`AsyncOpenAI(base_url=TTS_API_BASE)
+  .audio.speech.create`, `response_format="pcm"`), reads the PCM, and wraps it in a WAV header. Gated
+  by the same bootstrap token as the other `/api/*` routes; reads `TTS_API_BASE`/`TTS_API_MODEL`/
   `TTS_DEFAULT_VOICE`/`TTS_API_KEY` from env. CORS + key-exposure are why it's a server proxy.
 - **`patches/webui-tts.patch`** (`vendor/nanobot/webui/`) — speaker button in `MessageBubble.tsx`,
   `useMessageTts` (module-level single player + LRU blob cache + look-ahead playback), `tts-text.ts`
@@ -271,7 +272,13 @@ code/tables/math/charts/media are skipped). Two vendored patches, full design in
   localStorage), and a Speech group in `SettingsView.tsx`. Plain-text extraction is client-side; the
   text is chunked into short GET requests because the proxy is GET-only.
 - Audio is fetched as WAV **Blobs with the Bearer token** (not `<audio src>`) so it can be cached for
-  instant replays. Trigger modes (Settings): on-demand (default) or auto-prefetch on reply completion.
+  instant replays. Trigger modes: on-demand (default) or auto-prefetch on reply completion.
+- **Defaults come from the repo-root `.env`**, not just hard-coded: the gateway puts
+  `{default_voice: TTS_DEFAULT_VOICE, auto_prefetch: TTS_AUTO_PREFETCH}` into the `/webui/bootstrap`
+  JSON, and `useTtsSettings` uses them as the initial values. Precedence = per-browser localStorage
+  override (set only when a user flips the Settings → Speech control) **>** `.env` default **>**
+  built-in. So a later `.env` change stays live for browsers that never toggled (we persist only on
+  explicit change, never on mount). `TTS_AUTO_PREFETCH` is truthy-parsed (`1/true/yes/on`).
 
 ## When editing nanobot behavior
 

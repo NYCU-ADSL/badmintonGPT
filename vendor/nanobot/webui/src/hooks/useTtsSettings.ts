@@ -1,9 +1,14 @@
-// Message TTS — client-side preferences (voice + trigger mode), persisted to localStorage.
+// Message TTS — client-side preferences (voice + trigger mode).
 // [badmintonGPT — see docs/MESSAGE_TTS.md / patches/webui-tts.patch]
-// Mirrors the useTheme.ts pattern: read on mount, write on change. Usable both in the Settings
-// panel (to render the controls) and in useMessageTts (to read the active values).
+//
+// Precedence: a per-browser localStorage override (set when the user flips a control) wins;
+// otherwise the repo-root .env default delivered via the bootstrap response (TTS_DEFAULT_VOICE /
+// TTS_AUTO_PREFETCH); otherwise the built-in default. We persist ONLY on an explicit change, so a
+// later .env edit stays live for browsers that never touched the setting.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+
+import { getTtsBootstrapDefaults } from "@/lib/bootstrap";
 
 /** Voices offered in the picker. Keep in sync with the backend allow-list (TTS_VOICES in
  *  nanobot/channels/websocket.py). Only "chris" is confirmed upstream so far. */
@@ -13,21 +18,30 @@ export const DEFAULT_TTS_VOICE = "chris";
 const VOICE_KEY = "nanobot-webui.tts-voice";
 const AUTOPREFETCH_KEY = "nanobot-webui.tts-autoprefetch";
 
+function isKnownVoice(v: string | null | undefined): v is string {
+  return !!v && (TTS_VOICES as readonly string[]).includes(v);
+}
+
 function readVoice(): string {
   try {
-    const v = localStorage.getItem(VOICE_KEY);
-    return v && (TTS_VOICES as readonly string[]).includes(v) ? v : DEFAULT_TTS_VOICE;
+    const stored = localStorage.getItem(VOICE_KEY);
+    if (isKnownVoice(stored)) return stored;
   } catch {
-    return DEFAULT_TTS_VOICE;
+    // ignore
   }
+  const fromEnv = getTtsBootstrapDefaults().defaultVoice;
+  if (isKnownVoice(fromEnv)) return fromEnv;
+  return DEFAULT_TTS_VOICE;
 }
 
 function readAutoPrefetch(): boolean {
   try {
-    return localStorage.getItem(AUTOPREFETCH_KEY) === "1";
+    const stored = localStorage.getItem(AUTOPREFETCH_KEY);
+    if (stored !== null) return stored === "1";
   } catch {
-    return false;
+    // ignore
   }
+  return getTtsBootstrapDefaults().autoPrefetch ?? false;
 }
 
 export interface TtsSettings {
@@ -41,24 +55,23 @@ export function useTtsSettings(): TtsSettings {
   const [voice, setVoiceState] = useState<string>(readVoice);
   const [autoPrefetch, setAutoPrefetchState] = useState<boolean>(readAutoPrefetch);
 
-  useEffect(() => {
+  const setVoice = useCallback((next: string) => {
+    setVoiceState(next);
     try {
-      localStorage.setItem(VOICE_KEY, voice);
+      localStorage.setItem(VOICE_KEY, next);
     } catch {
       // ignore
     }
-  }, [voice]);
+  }, []);
 
-  useEffect(() => {
+  const setAutoPrefetch = useCallback((on: boolean) => {
+    setAutoPrefetchState(on);
     try {
-      localStorage.setItem(AUTOPREFETCH_KEY, autoPrefetch ? "1" : "0");
+      localStorage.setItem(AUTOPREFETCH_KEY, on ? "1" : "0");
     } catch {
       // ignore
     }
-  }, [autoPrefetch]);
-
-  const setVoice = useCallback((next: string) => setVoiceState(next), []);
-  const setAutoPrefetch = useCallback((on: boolean) => setAutoPrefetchState(on), []);
+  }, []);
 
   return { voice, setVoice, autoPrefetch, setAutoPrefetch };
 }

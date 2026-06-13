@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 from urllib.parse import parse_qs, unquote, urlparse
 
-import httpx
 from loguru import logger
 from pydantic import Field, field_validator, model_validator
 from websockets.asyncio.server import ServerConnection, serve, unix_serve
@@ -460,15 +459,20 @@ def _http_error(status: int, message: str | None = None) -> Response:
 # cannot reach the upstream TTS service directly (CORS) and must never see the key, so the gateway
 # proxies the request with TTS_API_KEY injected server-side. The route is GET-only (the websockets
 # HTTP parser accepts no other verb), so the spoken text rides in the query string, chunked by the
-# client. The upstream streams raw PCM (24 kHz / s16le / mono); we buffer it and wrap a WAV header
-# so the browser can play it natively.
-TTS_ENDPOINT = os.environ.get("TTS_ENDPOINT", "https://llm.andyjjrt.cc/v1/audio/speech")
+# client. The upstream returns raw PCM (24 kHz / s16le / mono); we fetch it with the openai SDK
+# (audio.speech, base_url=TTS_API_BASE) and wrap a WAV header so the browser can play it natively.
+TTS_API_BASE = os.environ.get("TTS_API_BASE", "https://llm.andyjjrt.cc/v1")
 TTS_MODEL = os.environ.get("TTS_API_MODEL", "DGX/Qwen3-TTS")
 TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "chris")
 TTS_VOICES = {"chris"}  # allow-list; extend once the upstream voice catalog is confirmed
 TTS_SAMPLE_RATE = 24000
 TTS_MAX_INPUT_CHARS = 1200
 TTS_TIMEOUT_S = 60.0
+
+
+def _tts_auto_prefetch_default() -> bool:
+    """Repo-root .env default for the WebUI 'prepare speech automatically' toggle."""
+    return os.environ.get("TTS_AUTO_PREFETCH", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _pcm_to_wav(
@@ -831,38 +835,44 @@ class WebSocketChannel(BaseChannel):
             logger.warning("TTS requested but TTS_API_KEY is not set")
             return _http_error(503, "TTS not configured")
 
-        pcm = bytearray()
         try:
-            async with httpx.AsyncClient(timeout=TTS_TIMEOUT_S) as client:
-                async with client.stream(
-                    "POST",
-                    TTS_ENDPOINT,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": TTS_MODEL,
-                        "input": text,
-                        "voice": voice,
-                        "stream": True,
-                        "response_format": "pcm",
-                    },
-                ) as resp:
-                    if resp.status_code >= 400:
-                        await resp.aread()
-                        logger.warning("TTS upstream returned {}", resp.status_code)
-                        return _http_error(502, f"TTS upstream {resp.status_code}")
-                    async for chunk in resp.aiter_bytes():
-                        pcm.extend(chunk)
-        except httpx.HTTPError as e:
+            import openai
+            from openai import AsyncOpenAI
+        except ImportError:
+            logger.warning("TTS requested but the openai SDK is not installed")
+            return _http_error(503, "TTS not configured")
+
+        # base_url is the /v1 root; the SDK appends /audio/speech. response_format="pcm" yields raw
+        # little-endian PCM (verified), which _pcm_to_wav wraps into a browser-playable WAV.
+        client = AsyncOpenAI(api_key=api_key, base_url=TTS_API_BASE, timeout=TTS_TIMEOUT_S)
+        try:
+            async with client.audio.speech.with_streaming_response.create(
+                model=TTS_MODEL,
+                voice=voice,
+                input=text,
+                response_format="pcm",
+            ) as resp:
+                pcm = await resp.read()
+        except openai.APIStatusError as e:
+            detail = (getattr(e, "message", "") or str(getattr(e, "body", "")))[:300]
+            logger.warning(
+                "TTS upstream returned {} for model {!r} voice {!r}: {}",
+                e.status_code,
+                TTS_MODEL,
+                voice,
+                detail,
+            )
+            return _http_error(502, f"TTS upstream {e.status_code}")
+        except openai.APIError as e:
             logger.warning("TTS proxy upstream error: {}", e)
             return _http_error(502, "TTS upstream error")
+        finally:
+            await client.close()
 
         if not pcm:
             return _http_error(502, "TTS upstream returned no audio")
 
-        wav = _pcm_to_wav(bytes(pcm))
+        wav = _pcm_to_wav(pcm)
         return _http_response(
             wav,
             content_type="audio/wav",
@@ -988,6 +998,12 @@ class WebSocketChannel(BaseChannel):
                 "model_name": _resolve_bootstrap_model_name(self._runtime_model_name),
                 "runtime_surface": self._runtime_surface,
                 "runtime_capabilities": self._runtime_capabilities,
+                # [badmintonGPT patch] repo-root .env drives the WebUI TTS defaults; the browser
+                # uses these unless a per-browser Settings toggle overrides them.
+                "tts": {
+                    "default_voice": TTS_DEFAULT_VOICE,
+                    "auto_prefetch": _tts_auto_prefetch_default(),
+                },
             }
         )
 

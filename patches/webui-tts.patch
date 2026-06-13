@@ -480,16 +480,21 @@ index 0000000..efd0787
 +}
 diff --git a/webui/src/hooks/useTtsSettings.ts b/webui/src/hooks/useTtsSettings.ts
 new file mode 100644
-index 0000000..d9395f5
+index 0000000..b2e424c
 --- /dev/null
 +++ b/webui/src/hooks/useTtsSettings.ts
-@@ -0,0 +1,64 @@
-+// Message TTS — client-side preferences (voice + trigger mode), persisted to localStorage.
+@@ -0,0 +1,77 @@
++// Message TTS — client-side preferences (voice + trigger mode).
 +// [badmintonGPT — see docs/MESSAGE_TTS.md / patches/webui-tts.patch]
-+// Mirrors the useTheme.ts pattern: read on mount, write on change. Usable both in the Settings
-+// panel (to render the controls) and in useMessageTts (to read the active values).
++//
++// Precedence: a per-browser localStorage override (set when the user flips a control) wins;
++// otherwise the repo-root .env default delivered via the bootstrap response (TTS_DEFAULT_VOICE /
++// TTS_AUTO_PREFETCH); otherwise the built-in default. We persist ONLY on an explicit change, so a
++// later .env edit stays live for browsers that never touched the setting.
 +
-+import { useCallback, useEffect, useState } from "react";
++import { useCallback, useState } from "react";
++
++import { getTtsBootstrapDefaults } from "@/lib/bootstrap";
 +
 +/** Voices offered in the picker. Keep in sync with the backend allow-list (TTS_VOICES in
 + *  nanobot/channels/websocket.py). Only "chris" is confirmed upstream so far. */
@@ -499,21 +504,30 @@ index 0000000..d9395f5
 +const VOICE_KEY = "nanobot-webui.tts-voice";
 +const AUTOPREFETCH_KEY = "nanobot-webui.tts-autoprefetch";
 +
++function isKnownVoice(v: string | null | undefined): v is string {
++  return !!v && (TTS_VOICES as readonly string[]).includes(v);
++}
++
 +function readVoice(): string {
 +  try {
-+    const v = localStorage.getItem(VOICE_KEY);
-+    return v && (TTS_VOICES as readonly string[]).includes(v) ? v : DEFAULT_TTS_VOICE;
++    const stored = localStorage.getItem(VOICE_KEY);
++    if (isKnownVoice(stored)) return stored;
 +  } catch {
-+    return DEFAULT_TTS_VOICE;
++    // ignore
 +  }
++  const fromEnv = getTtsBootstrapDefaults().defaultVoice;
++  if (isKnownVoice(fromEnv)) return fromEnv;
++  return DEFAULT_TTS_VOICE;
 +}
 +
 +function readAutoPrefetch(): boolean {
 +  try {
-+    return localStorage.getItem(AUTOPREFETCH_KEY) === "1";
++    const stored = localStorage.getItem(AUTOPREFETCH_KEY);
++    if (stored !== null) return stored === "1";
 +  } catch {
-+    return false;
++    // ignore
 +  }
++  return getTtsBootstrapDefaults().autoPrefetch ?? false;
 +}
 +
 +export interface TtsSettings {
@@ -527,24 +541,23 @@ index 0000000..d9395f5
 +  const [voice, setVoiceState] = useState<string>(readVoice);
 +  const [autoPrefetch, setAutoPrefetchState] = useState<boolean>(readAutoPrefetch);
 +
-+  useEffect(() => {
++  const setVoice = useCallback((next: string) => {
++    setVoiceState(next);
 +    try {
-+      localStorage.setItem(VOICE_KEY, voice);
++      localStorage.setItem(VOICE_KEY, next);
 +    } catch {
 +      // ignore
 +    }
-+  }, [voice]);
++  }, []);
 +
-+  useEffect(() => {
++  const setAutoPrefetch = useCallback((on: boolean) => {
++    setAutoPrefetchState(on);
 +    try {
-+      localStorage.setItem(AUTOPREFETCH_KEY, autoPrefetch ? "1" : "0");
++      localStorage.setItem(AUTOPREFETCH_KEY, on ? "1" : "0");
 +    } catch {
 +      // ignore
 +    }
-+  }, [autoPrefetch]);
-+
-+  const setVoice = useCallback((next: string) => setVoiceState(next), []);
-+  const setAutoPrefetch = useCallback((on: boolean) => setAutoPrefetchState(on), []);
++  }, []);
 +
 +  return { voice, setVoice, autoPrefetch, setAutoPrefetch };
 +}
@@ -675,6 +688,42 @@ index da296ae..bbe17cb 100644
      "activityThinkingFor": "思考中，已 {{duration}}",
      "activityThought": "已思考",
      "activityThoughtFor": "已思考 {{duration}}",
+diff --git a/webui/src/lib/bootstrap.ts b/webui/src/lib/bootstrap.ts
+index 137014d..2b04bdb 100644
+--- a/webui/src/lib/bootstrap.ts
++++ b/webui/src/lib/bootstrap.ts
+@@ -2,6 +2,18 @@ import type { BootstrapResponse } from "./types";
+ 
+ const SECRET_STORAGE_KEY = "nanobot-webui.bootstrap-secret";
+ 
++/** TTS defaults the gateway derived from the repo-root .env (TTS_DEFAULT_VOICE /
++ *  TTS_AUTO_PREFETCH). Captured on every bootstrap; read by useTtsSettings as the
++ *  initial default when the browser has no stored override. */
++let _ttsBootstrapDefaults: { defaultVoice?: string; autoPrefetch?: boolean } = {};
++
++export function getTtsBootstrapDefaults(): {
++  defaultVoice?: string;
++  autoPrefetch?: boolean;
++} {
++  return _ttsBootstrapDefaults;
++}
++
+ /** Read a previously saved bootstrap secret from localStorage. */
+ export function loadSavedSecret(): string {
+   if (typeof window === "undefined") return "";
+@@ -54,6 +66,12 @@ export async function fetchBootstrap(
+   if (!body.token || !body.ws_path) {
+     throw new Error("bootstrap response missing token or ws_path");
+   }
++  if (body.tts) {
++    _ttsBootstrapDefaults = {
++      defaultVoice: body.tts.default_voice,
++      autoPrefetch: body.tts.auto_prefetch,
++    };
++  }
+   return body;
+ }
+ 
 diff --git a/webui/src/lib/tts-text.ts b/webui/src/lib/tts-text.ts
 new file mode 100644
 index 0000000..4291b6a
@@ -806,3 +855,19 @@ index 0000000..4291b6a
 +  flush();
 +  return segments;
 +}
+diff --git a/webui/src/lib/types.ts b/webui/src/lib/types.ts
+index 6ad4518..0f0cdcd 100644
+--- a/webui/src/lib/types.ts
++++ b/webui/src/lib/types.ts
+@@ -203,6 +203,11 @@ export interface BootstrapResponse {
+   model_name?: string | null;
+   runtime_surface?: RuntimeSurface;
+   runtime_capabilities?: RuntimeCapabilities;
++  /** Repo-root .env defaults for message TTS (a per-browser Settings toggle still overrides). */
++  tts?: {
++    default_voice?: string;
++    auto_prefetch?: boolean;
++  };
+ }
+ 
+ export type RuntimeSurface = "browser" | "native";

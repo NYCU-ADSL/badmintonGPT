@@ -107,10 +107,9 @@ issuing one GET per segment (§5.4). Binary responses are returned with the same
 │  _dispatch_http → _dispatch_api_route → _handle_tts(request)            [NEW patch]              │
 │     • auth-gate with _check_api_token                                                            │
 │     • validate voice + text length                                                              │
-│     • httpx.AsyncClient POST llm.andyjjrt.cc/v1/audio/speech                                     │
-│         Authorization: Bearer $TTS_API_KEY   (server-side)                                       │
-│         {model, input:text, voice, stream:true, response_format:"pcm"}                          │
-│     • buffer streamed PCM → wrap WAV header (24kHz/s16/mono)                                     │
+│     • openai SDK: AsyncOpenAI(base_url=TTS_API_BASE).audio.speech.create  (key server-side)      │
+│         model=TTS_MODEL, input=text, voice, response_format="pcm"                                │
+│     • read PCM → wrap WAV header (24kHz/s16/mono)                                                │
 │     • return Response(200, "OK", {Content-Type: audio/wav, Cache-Control}, wav_bytes)           │
 └───────────────────────────────────────│──────────────────────────────────────────────────────┘
                                          │  Authorization: Bearer $TTS_API_KEY
@@ -186,33 +185,34 @@ async def _handle_tts(self, request: WsRequest) -> Response:
     if not api_key:
         return _http_error(503, "TTS not configured")
 
-    pcm = bytearray()
+    import openai
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=api_key, base_url=TTS_API_BASE, timeout=TTS_TIMEOUT_S)
     try:
-        async with httpx.AsyncClient(timeout=TTS_TIMEOUT_S) as client:
-            async with client.stream(
-                "POST", TTS_ENDPOINT,
-                headers={"Authorization": f"Bearer {api_key}",
-                         "Content-Type": "application/json"},
-                json={"model": TTS_MODEL, "input": text, "voice": voice,
-                      "stream": True, "response_format": "pcm"},
-            ) as resp:
-                if resp.status_code >= 400:
-                    await resp.aread()
-                    return _http_error(502, f"TTS upstream {resp.status_code}")
-                async for chunk in resp.aiter_bytes():
-                    pcm.extend(chunk)
-    except httpx.HTTPError as e:
+        async with client.audio.speech.with_streaming_response.create(
+            model=TTS_MODEL, voice=voice, input=text, response_format="pcm",
+        ) as resp:
+            pcm = await resp.read()
+    except openai.APIStatusError as e:
+        detail = (getattr(e, "message", "") or str(getattr(e, "body", "")))[:300]
+        logger.warning("TTS upstream returned {} for model {!r}: {}", e.status_code, TTS_MODEL, detail)
+        return _http_error(502, f"TTS upstream {e.status_code}")
+    except openai.APIError as e:
         logger.warning("TTS proxy upstream error: {}", e)
         return _http_error(502, "TTS upstream error")
+    finally:
+        await client.close()
 
-    wav = _pcm_to_wav(bytes(pcm), sample_rate=24000, bits=16, channels=1)
-    headers = Headers({
-        "Content-Type": "audio/wav",
-        "Content-Length": str(len(wav)),
-        "Cache-Control": "no-store",
-    })
-    return Response(200, "OK", headers, wav)
+    wav = _pcm_to_wav(pcm)  # 24000 Hz / 16-bit / mono
+    return _http_response(wav, content_type="audio/wav", extra_headers=[("Cache-Control", "no-store")])
 ```
+
+> **Why the openai SDK, not raw httpx?** `import openai` is a hard nanobot dependency and its
+> providers already use `AsyncOpenAI`; `base_url=TTS_API_BASE` (the `/v1` root — the SDK appends
+> `/audio/speech`) keeps the call standard, and `response_format="pcm"` returns raw little-endian
+> PCM (the upstream mislabels every format as `audio/mpeg` in the header, but the `pcm` **body** is
+> genuinely raw PCM — verified), so `_pcm_to_wav` is still correct.
 
 `_pcm_to_wav` prepends a 44-byte canonical WAV/RIFF header for `24000 Hz / 16-bit / mono` (use
 Python's `wave` module into an `io.BytesIO`, or write the header by hand). No resampling needed —
@@ -221,7 +221,7 @@ the browser decodes the rate from the header.
 Module constants (top of the patch block):
 
 ```python
-TTS_ENDPOINT = os.environ.get("TTS_ENDPOINT", "https://llm.andyjjrt.cc/v1/audio/speech")
+TTS_API_BASE = os.environ.get("TTS_API_BASE", "https://llm.andyjjrt.cc/v1")  # openai SDK base_url
 TTS_MODEL = os.environ.get("TTS_API_MODEL", "DGX/Qwen3-TTS")
 TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "chris")
 TTS_VOICES = {"chris"}            # extend once the upstream voice catalog is confirmed (§9)
@@ -432,24 +432,32 @@ real catalog is known it is just `["chris"]`; see §9.
 
 `TTS_API_KEY` must reach the **gateway** process (server-side only — never the browser).
 
-1. **`.env.example`** — add (currently missing):
+1. **`.env.example`**:
    ```bash
    # --- Message TTS（WebUI 朗讀；只給 gateway，不進前端 bundle）---
    TTS_API_KEY=sk-...
+   TTS_AUTO_PREFETCH=false   # WebUI default trigger mode (true = prefetch on reply completion)
    # 選填：覆寫端點 / 模型 / 預設語音
-   # TTS_ENDPOINT=https://llm.andyjjrt.cc/v1/audio/speech
+   # TTS_API_BASE=https://llm.andyjjrt.cc/v1
    # TTS_API_MODEL=DGX/Qwen3-TTS
-   # TTS_DEFAULT_VOICE=chris
+   # TTS_DEFAULT_VOICE=chris  # also the WebUI voice-dropdown default
    ```
+   `TTS_DEFAULT_VOICE` and `TTS_AUTO_PREFETCH` are not just server-side: the gateway ships them to
+   the browser in the `/webui/bootstrap` JSON (`tts: {default_voice, auto_prefetch}`), and
+   `useTtsSettings` uses them as the **default**. Precedence = per-browser localStorage override
+   (set only when the user flips a Settings → Speech control) > `.env` default > built-in. The hook
+   persists only on an explicit change (never on mount), so a later `.env` edit stays live for
+   browsers that never toggled. `TTS_API_KEY`/`TTS_API_MODEL`/`TTS_API_BASE` stay server-side only.
 2. **Host mode** — no code change: `scripts/load_env.sh` does `set -a` and sources `.env`, so
    `TTS_API_KEY` is auto-exported into the `nanobot gateway` process. (The DB MCP server does not
    need it.)
 3. **Docker mode** — add to the `gateway` service `environment:` block in `docker-compose.yml`
    (next to `OPENAI_API_KEY`, `REELS_CF_*`):
    ```yaml
-   TTS_API_KEY: ${TTS_API_KEY:?set TTS_API_KEY in .env}
-   # optional overrides:
-   # TTS_DEFAULT_VOICE: ${TTS_DEFAULT_VOICE:-chris}
+   TTS_API_KEY: ${TTS_API_KEY:-}                         # unset → speaker button returns 503
+   TTS_API_MODEL: ${TTS_API_MODEL:-DGX/Qwen3-TTS}
+   TTS_DEFAULT_VOICE: ${TTS_DEFAULT_VOICE:-chris}        # also the WebUI voice default
+   TTS_AUTO_PREFETCH: ${TTS_AUTO_PREFETCH:-false}        # WebUI default trigger mode
    ```
    The `badminton-db` and `ingest` services do **not** get it.
 
@@ -538,7 +546,7 @@ rebuilt.
   sits behind Cloudflare Access; only authenticated WebUI users can drive it.
 - **Input bounds** — server rejects empty text, text over `TTS_MAX_INPUT_CHARS`, and voices outside
   the allow-list, limiting abuse/cost and avoiding passing arbitrary fields upstream.
-- **No SSRF surface** — the endpoint is a fixed constant (`TTS_ENDPOINT`), not user-controlled.
+- **No SSRF surface** — the base URL is a fixed constant (`TTS_API_BASE`), not user-controlled.
 - **`Cache-Control: no-store`** on the audio response (the content is ephemeral; caching is the
   client's in-memory job).
 
@@ -548,7 +556,7 @@ rebuilt.
 
 **Backend (patch `patches/webui-tts-proxy.patch`)**
 - `vendor/nanobot/nanobot/channels/websocket.py` — `/api/tts` route in the api dispatch,
-  `_handle_tts` (async, httpx proxy + auth + validation), `_pcm_to_wav` helper, TTS_* constants.
+  `_handle_tts` (async, openai-SDK proxy + auth + validation), `_pcm_to_wav` helper, TTS_* constants.
 
 **Frontend (patch `patches/webui-tts.patch`)**
 - `vendor/nanobot/webui/src/components/MessageBubble.tsx` — speaker button after the copy button

@@ -33,8 +33,11 @@ services:
       # Message TTS (WebUI speaker button) — server-side only; the gateway proxies /api/tts so the
       # key never reaches the browser. Optional: unset → the speaker button returns 503 (feature off).
       TTS_API_KEY: ${TTS_API_KEY:-}
+      TTS_API_BASE: ${TTS_API_BASE:-https://llm.andyjjrt.cc/v1}
       TTS_API_MODEL: ${TTS_API_MODEL:-DGX/Qwen3-TTS}
       TTS_DEFAULT_VOICE: ${TTS_DEFAULT_VOICE:-chris}
+      # WebUI default for "prepare speech automatically"; shipped to the browser via bootstrap.
+      TTS_AUTO_PREFETCH: ${TTS_AUTO_PREFETCH:-false}
       # WebUI auth is delegated to Cloudflare Access (8765 is expose-only, never host-published),
       # so nanobot serves the WebUI without its own token/secret prompt. See the vendored patch
       # patches/webui-trust-proxy-auth.patch. Unset this to fall back to nanobot's own gate.
