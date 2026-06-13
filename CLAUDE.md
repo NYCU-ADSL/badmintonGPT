@@ -65,8 +65,10 @@ and lands in `~/.nanobot/` at runtime — copied in host mode (config copied/poi
   fails with `Path .../SKILL.md is outside allowed directory (... hard policy boundary ...)`.
   Copying keeps them in-bounds. Trade-off: editing `skills/*` needs a re-copy (re-run
   `scripts/sync_skills.sh`, or rebuild/restart the container) before nanobot sees the change.
-- `vendor/nanobot/` — the **patched** nanobot source (HKUDS/nanobot v0.2.1 + `patches/webui-progress.patch`),
-  vendored so the Docker image builds the progress-bar WebUI hermetically (see `vendor/README.md`).
+- `vendor/nanobot/` — our **fork** of nanobot (HKUDS/nanobot v0.2.1, tracked via git subtree;
+  pristine base tagged `nanobot-base-v0.2.1`), vendored so the Docker image builds the customized
+  WebUI hermetically. Edit it directly; our delta = `git diff nanobot-base-v0.2.1..HEAD -- vendor/nanobot`.
+  Upstream upgrades are a `git subtree pull` merge, not a patch re-apply (see `vendor/README.md`).
 
 Requirements/spec: `docs/TASK.md`. Full design + resolved decisions: `docs/DESIGN.md` (§8 records the actual
 nanobot v0.2.1 facts). Setup walkthrough: `README.md`.
@@ -114,8 +116,8 @@ MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py                 
   --header "CF-Access-Client-Id: $REELS_CF_CLIENT_ID" \
   --header "CF-Access-Client-Secret: $REELS_CF_CLIENT_SECRET"
 
-# --- rebuild/redeploy the patched WebUI (see "Patched WebUI" below) ---
-./scripts/build_webui.sh && ./scripts/deploy_webui.sh
+# --- rebuild the WebUI for local host/dev (Docker rebuilds it automatically via the hatch hook) ---
+( cd vendor/nanobot/webui && bun run build )   # outputs to vendor/nanobot/nanobot/web/dist
 
 # --- run the agent (host/dev mode) ---
 source scripts/load_env.sh                # exports OPENAI_API_KEY + CF_* from ./.env (no fallback)
@@ -169,7 +171,7 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   (`NANOBOT_MODEL=gpt-5.1`). nanobot **errors on an unset `${VAR}`**, so both modes provide a
   fallback: `scripts/load_env.sh` exports `NANOBOT_MODEL:-gpt-5.1` (host) and `docker-compose.yml`
   uses `${NANOBOT_MODEL:-gpt-5.1}` (Docker). The WebUI Settings panel reads config **unresolved**
-  (so it wouldn't expand `${VAR}`); `patches/webui-model-from-env.patch` makes `settings_api.py`
+  (so it wouldn't expand `${VAR}`); the fork's `settings_api.py` change makes it
   resolve the model for display (like `api_base`) and **not clobber** the `${NANOBOT_MODEL}` ref
   when the WebUI echoes the resolved value back on save. (Bootstrap/header already uses the resolved
   runtime model, so only Settings needed it.)
@@ -196,7 +198,7 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   the MCP handshake failed mid-stream, and the anyio task-group teardown raised
   `RuntimeError: Attempted to exit cancel scope in a different task` → restart loop → container
   unhealthy → cloudflared's `depends_on: service_healthy` failed. **Fixed** by
-  `patches/mcp-probe-origin-aware.patch` (origin-aware HTTP probe; treats `>= 502`,
+  the fork's origin-aware `mcp.py` probe (treats `>= 502`,
   `401`/`403` (auth failure — e.g. a wrong/expired reels Cloudflare Access service token, which
   otherwise fails the handshake and crashes the same way), or any connection error as "skip").
   Now a down or mis-credentialed reels is logged `MCP server 'badminton-reels':
@@ -238,8 +240,8 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   (`bootstrap is localhost-only`) for non-localhost clients if not — and the WebUI turns BOTH into the
   "Enter the secret configured as tokenIssueSecret" prompt. Since everything via cloudflared is
   non-localhost, a secret-less remote client is blocked and a secret-ful one is prompted. `host` MUST
-  stay `0.0.0.0` (cloudflared reaches `gateway:8765` over the compose net), so the fix is the vendored
-  patch **`patches/webui-trust-proxy-auth.patch`** + `NANOBOT_WEBUI_TRUST_PROXY: "1"` in
+  stay `0.0.0.0` (cloudflared reaches `gateway:8765` over the compose net), so the fix is the fork's
+  trust-proxy change in `channels/websocket.py` + `NANOBOT_WEBUI_TRUST_PROXY: "1"` in
   `docker-compose.yml`: with the env var truthy, the validator passes with no secret and bootstrap
   serves remote clients without one. Safe because 8765 is `expose`-only (only cloudflared → Cloudflare
   Access reaches it; `badmintongpt.nycu-adsl.cc` redirects to the Access login). Fails closed if unset.
@@ -247,26 +249,28 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   `websocketRequiresToken: false`. (Editing `vendor/` reruns the full nanobot+WebUI image build — slow,
   unlike a config-only change which only re-COPYs a late layer.)
 
-## Patched WebUI (progress bar)
+## Customized WebUI (fork)
 
-The served WebUI is a **patched rebuild**, not the stock dist: a generic `ToolProgress` card renders a
-live progress bar for any tool whose result has numeric `stage`+`total_stages` (e.g. `get_reel_status`).
-Source clone: `/mnt/ssd1/howchien/nanobot-webui` (HKUDS/nanobot @ v0.2.1 + `patches/webui-progress.patch`).
-Rebuild with `scripts/build_webui.sh`, deploy with `scripts/deploy_webui.sh` (backs up the stock dist to
-`dist.orig`, refuses to deploy onto a nanobot version ≠ 0.2.1). **`uv tool upgrade nanobot-ai` wipes the
-deployed dist** — re-run deploy (and rebase the patch if the version changed). Do not upgrade casually.
+The served WebUI is built from our **fork** (`vendor/nanobot/webui/`), not the stock dist. Among the
+changes: a generic `ToolProgress` card renders a live progress bar for any tool whose result has
+numeric `stage`+`total_stages` (e.g. `get_reel_status`). The Docker image rebuilds the WebUI
+automatically (hatch hook, `NANOBOT_FORCE_WEBUI_BUILD=1`) — there is no separate clone, no
+`build_webui.sh`/`deploy_webui.sh`, and no dist-overlay onto a `nanobot-ai` PyPI install. For local
+host/dev, rebuild directly: `( cd vendor/nanobot/webui && bun run build )` → outputs to
+`vendor/nanobot/nanobot/web/dist`. Full list of fork changes + the upstream-merge workflow:
+`vendor/README.md`.
 
 ## Message TTS (WebUI speaker button)
 
 A speaker button beside each assistant reply's copy button reads the reply aloud (plain prose only —
-code/tables/math/charts/media are skipped). Two vendored patches, full design in `docs/MESSAGE_TTS.md`:
-- **`patches/webui-tts-proxy.patch`** (`nanobot/channels/websocket.py`) — a GET-only `/api/tts` route
+code/tables/math/charts/media are skipped). Two fork changes, full design in `docs/MESSAGE_TTS.md`:
+- **`/api/tts` proxy** (`nanobot/channels/websocket.py`) — a GET-only `/api/tts` route
   (the websockets HTTP parser accepts no other verb) that proxies to the upstream Qwen3-TTS with
   `TTS_API_KEY` injected server-side **via the openai SDK** (`AsyncOpenAI(base_url=TTS_API_BASE)
   .audio.speech.create`, `response_format="pcm"`), reads the PCM, and wraps it in a WAV header. Gated
   by the same bootstrap token as the other `/api/*` routes; reads `TTS_API_BASE`/`TTS_API_MODEL`/
   `TTS_DEFAULT_VOICE`/`TTS_API_KEY` from env. CORS + key-exposure are why it's a server proxy.
-- **`patches/webui-tts.patch`** (`vendor/nanobot/webui/`) — speaker button in `MessageBubble.tsx`,
+- **speaker button** (`vendor/nanobot/webui/`) — in `MessageBubble.tsx`,
   `useMessageTts` (module-level single player + LRU blob cache + look-ahead playback), `tts-text.ts`
   (mdast walk → spoken prose + sentence segmentation), `useTtsSettings` (voice + auto-prefetch in
   localStorage), and a Speech group in `SettingsView.tsx`. Plain-text extraction is client-side; the

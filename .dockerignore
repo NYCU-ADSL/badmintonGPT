@@ -13,8 +13,7 @@ __pycache__/
 docs-site/
 example-mcp-server/
 
-# Host-only WebUI dev tooling (the image builds the dist from vendor/nanobot instead).
-patches/
+# Host-only dev tooling (the image builds the dist from vendor/nanobot instead).
 scripts/
 
 # badminton-db is its own image (build context mcps/badminton-db/); the gateway only
@@ -24,3 +23,13 @@ mcps/badminton-db/
 # Never pull a stray vendored node_modules / build artifact into the context
 vendor/**/node_modules/
 vendor/**/dist/
+
+# Full-tree-vendored upstream extras: kept in git for clean subtree merges, but the wheel
+# only packages nanobot/** + bridge + the rebuilt dist, so they bloat the build context for nothing.
+vendor/nanobot/tests/
+vendor/nanobot/docs/
+vendor/nanobot/case/
+vendor/nanobot/images/
+vendor/nanobot/.github/
+vendor/nanobot/.agent/
+vendor/nanobot/webui/src/tests/

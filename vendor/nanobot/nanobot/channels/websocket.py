@@ -204,7 +204,7 @@ class WebSocketConfig(Base):
             return self
         if self.token.strip() or self.token_issue_secret.strip():
             return self
-        if _trust_proxy_auth():  # badmintonGPT patch: auth delegated to an external proxy
+        if _trust_proxy_auth():  # badmintonGPT fork: auth delegated to an external proxy
             return self
         raise ValueError(
             "host is 0.0.0.0 (all interfaces) but neither token nor "
@@ -406,7 +406,7 @@ def _trust_proxy_auth() -> bool:
     Set NANOBOT_WEBUI_TRUST_PROXY=1 to delegate WebUI/API auth to that proxy: the bootstrap
     endpoint then serves remote clients without a nanobot secret and 0.0.0.0 binds need no token.
     Only safe when the listener is reachable solely through the trusted proxy (port not published).
-    [badmintonGPT patch — see patches/webui-trust-proxy-auth.patch]
+    [badmintonGPT fork]
     """
     return os.environ.get("NANOBOT_WEBUI_TRUST_PROXY", "").strip().lower() in (
         "1",
@@ -454,7 +454,7 @@ def _http_error(status: int, message: str | None = None) -> Response:
     return _http_response(body, status=status)
 
 
-# --- Message TTS proxy [badmintonGPT patch — see patches/webui-tts-proxy.patch] -------------
+# --- Message TTS proxy [badmintonGPT fork] -------------
 # The WebUI's speaker button reads a reply aloud by calling same-origin GET /api/tts. The browser
 # cannot reach the upstream TTS service directly (CORS) and must never see the key, so the gateway
 # proxies the request with TTS_API_KEY injected server-side. The route is GET-only (the websockets
@@ -781,7 +781,7 @@ class WebSocketChannel(BaseChannel):
         response = self._dispatch_media_api_route(request, got)
         if response is not None:
             return response
-        # [badmintonGPT patch — see patches/webui-tts-proxy.patch] async TTS proxy
+        # [badmintonGPT fork] async TTS proxy
         if got == "/api/tts":
             return await self._handle_tts(request)
         return self._dispatch_misc_api_route(connection, request, got)
@@ -813,7 +813,7 @@ class WebSocketChannel(BaseChannel):
     async def _handle_tts(self, request: WsRequest) -> Response:
         """Proxy one segment of text to the upstream TTS service and return WAV audio.
 
-        [badmintonGPT patch — see patches/webui-tts-proxy.patch]. GET-only (the websockets HTTP
+        [badmintonGPT fork]. GET-only (the websockets HTTP
         parser accepts no other verb), so ``text`` arrives URL-encoded in the query string. Gated
         by the same bootstrap token as the other ``/api/*`` routes so it is not an open relay.
         """
@@ -968,7 +968,7 @@ class WebSocketChannel(BaseChannel):
                 return _http_error(401, "Unauthorized")
         elif not _is_localhost(connection) and not _trust_proxy_auth():
             # No secret configured: only allow localhost (local dev mode), unless an external
-            # authenticating proxy fronts us (NANOBOT_WEBUI_TRUST_PROXY — badmintonGPT patch).
+            # authenticating proxy fronts us (NANOBOT_WEBUI_TRUST_PROXY — badmintonGPT fork).
             return _http_error(403, "bootstrap is localhost-only")
         # Cap outstanding tokens to avoid runaway growth from a misbehaving client.
         self._purge_expired_issued_tokens()
@@ -998,7 +998,7 @@ class WebSocketChannel(BaseChannel):
                 "model_name": _resolve_bootstrap_model_name(self._runtime_model_name),
                 "runtime_surface": self._runtime_surface,
                 "runtime_capabilities": self._runtime_capabilities,
-                # [badmintonGPT patch] repo-root .env drives the WebUI TTS defaults; the browser
+                # [badmintonGPT fork] repo-root .env drives the WebUI TTS defaults; the browser
                 # uses these unless a per-browser Settings toggle overrides them.
                 "tts": {
                     "default_voice": TTS_DEFAULT_VOICE,

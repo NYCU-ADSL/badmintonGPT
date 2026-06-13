@@ -2,9 +2,9 @@
 #
 # BadmintonGPT gateway image.
 #
-# Builds the PATCHED nanobot from the in-repo vendor (vendor/nanobot/ = HKUDS/nanobot
-# v0.2.1 + patches/webui-progress.patch) so the served WebUI carries the tool-progress
-# bar, then layers the embedded `util` stdio MCP (mcps/util/), skills, and the committed
+# Builds our nanobot FORK from the in-repo vendor (vendor/nanobot/ = HKUDS/nanobot
+# v0.2.1 tracked via git subtree + this repo's changes) so the served WebUI carries the
+# customizations, then layers the embedded `util` stdio MCP (mcps/util/), skills, and the committed
 # agent config/brain. badminton-db is now its OWN container (mcps/badminton-db/) reached
 # over HTTP; reels is remote. The WebUI dist is bundled at install time by the vendored
 # hatch build hook (NANOBOT_FORCE_WEBUI_BUILD=1). See docs/DEPLOY.md.

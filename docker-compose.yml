@@ -1,6 +1,6 @@
 # BadmintonGPT — reproducible hosting. Each MCP is its own container; reels stays remote.
 #
-#   gateway       nanobot agent + patched WebUI (+ embedded `util` stdio MCP)
+#   gateway       nanobot agent + forked WebUI (+ embedded `util` stdio MCP)
 #   badminton-db  the badminton-db MCP, served over HTTP at badminton-db:8801/mcp (compose net)
 #   cloudflared   tunnels ${BADMINTONGPT_HOSTNAME} -> gateway:8765
 #   ingest        one-shot DB build (profile), shares the badminton-db image
@@ -10,7 +10,7 @@
 # Bring it up:       docker compose up -d --build
 
 services:
-  # The nanobot agent + patched WebUI. Reachable only via cloudflared (no host port).
+  # The nanobot agent + forked WebUI. Reachable only via cloudflared (no host port).
   # badminton-db is now a separate HTTP MCP (below); reels is remote — so the gateway no
   # longer opens the SQLite file and only embeds the tiny `util` stdio MCP.
   gateway:
@@ -39,8 +39,8 @@ services:
       # WebUI default for "prepare speech automatically"; shipped to the browser via bootstrap.
       TTS_AUTO_PREFETCH: ${TTS_AUTO_PREFETCH:-false}
       # WebUI auth is delegated to Cloudflare Access (8765 is expose-only, never host-published),
-      # so nanobot serves the WebUI without its own token/secret prompt. See the vendored patch
-      # patches/webui-trust-proxy-auth.patch. Unset this to fall back to nanobot's own gate.
+      # so nanobot serves the WebUI without its own token/secret prompt. See the fork's trust-proxy
+      # change in vendor/nanobot (vendor/README.md). Unset this to fall back to nanobot's own gate.
       NANOBOT_WEBUI_TRUST_PROXY: "1"
     volumes:
       - nanobot_state:/home/nanobot/.nanobot  # persist sessions/ + memory/ across restarts
