@@ -1,0 +1,181 @@
+import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+
+import { cn } from "@/lib/utils";
+import type { ToolProgressEvent } from "@/lib/types";
+
+/**
+ * Generic tool-progress card.
+ *
+ * Renders a live progress bar for any tool whose `result` carries numeric
+ * `stage` + `total_stages` (optional: string `message`, string `state`
+ * "queued"|"running"|"succeeded"|"failed", string `job_id`, bool `ready`).
+ * Returns null when no such events exist, so ordinary tool traces are
+ * unaffected.
+ */
+
+type ProgressStatus = "running" | "done" | "failed";
+
+interface ProgressCard {
+  key: string;
+  label: string;
+  stage: number;
+  total: number;
+  percent: number;
+  status: ProgressStatus;
+}
+
+function asNum(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function resultOf(ev: ToolProgressEvent): Record<string, unknown> | null {
+  let r: unknown = ev.result;
+  // nanobot normalizes MCP tool results to strings for the LLM, so the raw
+  // result usually arrives as a JSON string — parse it before inspecting.
+  if (typeof r === "string") {
+    try {
+      r = JSON.parse(r);
+    } catch {
+      return null;
+    }
+  }
+  return r && typeof r === "object" ? (r as Record<string, unknown>) : null;
+}
+
+function progressResult(ev: ToolProgressEvent): {
+  stage: number;
+  total: number;
+  state?: string;
+  message?: string;
+} | null {
+  if (ev.phase !== "end") return null; // "start" has no result yet
+  const r = resultOf(ev);
+  if (!r) return null;
+  const stage = asNum(r.stage);
+  const total = asNum(r.total_stages);
+  if (stage == null || total == null || total <= 0) return null;
+  return {
+    stage,
+    total,
+    state: typeof r.state === "string" ? r.state : undefined,
+    message: typeof r.message === "string" ? r.message : undefined,
+  };
+}
+
+/**
+ * Group progress events by job identity (result.job_id, falling back to the
+ * tool name) and reduce each group to its latest snapshot. Terminal signals
+ * (failed/error, succeeded/ready) are sticky and override later stale frames.
+ */
+export function selectProgressCards(
+  events: ToolProgressEvent[] | undefined,
+  turnActive: boolean,
+): ProgressCard[] {
+  if (!events?.length) return [];
+
+  const latest = new Map<string, ProgressCard>();
+  const terminal = new Map<string, "done" | "failed">();
+
+  const jobKeyOf = (ev: ToolProgressEvent, r: Record<string, unknown> | null): string => {
+    const jid = r && typeof r.job_id === "string" ? r.job_id : null;
+    return jid ?? (typeof ev.name === "string" && ev.name ? `name:${ev.name}` : "job:default");
+  };
+
+  for (const ev of events) {
+    const r = resultOf(ev);
+    const key = jobKeyOf(ev, r);
+
+    if (ev.phase === "error") terminal.set(key, "failed");
+    if (r) {
+      if (r.state === "failed") terminal.set(key, "failed");
+      if (r.state === "succeeded" || r.ready === true) terminal.set(key, "done");
+    }
+
+    const p = progressResult(ev);
+    if (!p) continue;
+    const percent = Math.max(0, Math.min(100, Math.round((p.stage / p.total) * 100)));
+    let status: ProgressStatus = turnActive ? "running" : "done";
+    if (p.state === "running" || p.state === "queued") status = "running";
+    else if (p.state === "succeeded") status = "done";
+    else if (p.state === "failed") status = "failed";
+    latest.set(key, {
+      key,
+      label: p.message || (typeof ev.name === "string" ? ev.name : "") || "Working…",
+      stage: p.stage,
+      total: p.total,
+      percent,
+      status,
+    });
+  }
+
+  const cards: ProgressCard[] = [];
+  for (const card of latest.values()) {
+    const t = terminal.get(card.key);
+    if (t === "failed") {
+      card.status = "failed";
+    } else if (t === "done") {
+      card.status = "done";
+      card.percent = 100;
+      card.stage = card.total;
+    }
+    cards.push(card);
+  }
+  return cards;
+}
+
+export function ToolProgress({
+  events,
+  active,
+}: {
+  events: ToolProgressEvent[] | undefined;
+  active: boolean;
+}) {
+  const cards = selectProgressCards(events, active);
+  if (!cards.length) return null;
+  return (
+    <div className="my-1 flex flex-col gap-1.5">
+      {cards.map((c) => (
+        <div
+          key={c.key}
+          className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-2"
+        >
+          <div className="mb-1 flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+            {c.status === "running" ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+            ) : c.status === "failed" ? (
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+            )}
+            <span className="min-w-0 flex-1 truncate" title={c.label}>
+              {c.label}
+            </span>
+            <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground/70">
+              {c.stage}/{c.total}
+            </span>
+          </div>
+          <div
+            className="h-1.5 w-full overflow-hidden rounded-full bg-muted-foreground/15"
+            role="progressbar"
+            aria-valuenow={c.percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              className={cn(
+                "h-full rounded-full transition-[width] duration-500 ease-out",
+                c.status === "failed"
+                  ? "bg-destructive"
+                  : c.status === "done"
+                    ? "bg-emerald-600 dark:bg-emerald-400"
+                    : "bg-primary",
+                c.status === "running" && "animate-pulse",
+              )}
+              style={{ width: `${c.percent}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

@@ -22,6 +22,7 @@ import { ActivityStep } from "@/components/thread/activity/ActivityStep";
 import { DiffPair } from "@/components/thread/activity/DiffPair";
 import { FileEditGroup, hasVisibleDiffStats, type FileEditSummary } from "@/components/thread/activity/FileEditRow";
 import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
+import { ToolProgress } from "@/components/ToolProgress";
 import {
   activityEvidenceFromMessageMedia,
   activityEvidenceFromToolEvent,
@@ -470,6 +471,15 @@ export function AgentActivityCluster({
           )}
         />
       </button>
+
+      {/* Pinned outside the auto-scrolling timeline so live job progress stays
+          visible regardless of expand/collapse or scroll position. */}
+      <div className="ml-1 mt-0.5">
+        <ToolProgress
+          events={messages.flatMap((m) => m.toolEvents ?? [])}
+          active={isTurnStreaming}
+        />
+      </div>
 
       {outerExpanded && (
         <div
