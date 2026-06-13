@@ -3,7 +3,7 @@
     "defaults": {
       "workspace": "~/.nanobot/workspace",
       "modelPreset": null,
-      "model": "gpt-5.1",
+      "model": "${NANOBOT_MODEL}",
       "provider": "openai",
       "maxTokens": 8192,
       "contextWindowTokens": 65536,

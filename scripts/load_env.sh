@@ -16,5 +16,8 @@ else
   echo "⚠️  找不到 $_GPT_ENV（請 cp .env.example .env 後填值）" >&2
 fi
 
+# config.json 用 ${NANOBOT_MODEL} 解析 Agent 預設模型；未設會讓 nanobot 啟動時報錯，故給預設值。
+export NANOBOT_MODEL="${NANOBOT_MODEL:-gpt-5.1}"
+
 [ -z "$OPENAI_API_KEY" ] && echo "⚠️  OPENAI_API_KEY 未設定（Agent 將無法回應）" >&2
-echo "env loaded from .env: OPENAI_API_KEY=${OPENAI_API_KEY:+set} REELS_CF_CLIENT_ID=${REELS_CF_CLIENT_ID:+set}"
+echo "env loaded from .env: OPENAI_API_KEY=${OPENAI_API_KEY:+set} NANOBOT_MODEL=${NANOBOT_MODEL} REELS_CF_CLIENT_ID=${REELS_CF_CLIENT_ID:+set}"

@@ -161,7 +161,18 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   are read ONLY from this repo's `.env`
   (`scripts/load_env.sh`, `eval/run_eval.py`) — no fallback to other projects. nanobot resolves
   them via `${VAR}` substitution at startup, so they must be exported before `nanobot gateway`.
-- Model in config is the **bare** name `gpt-5.1` with `provider: "openai"` (not `"openai/gpt-5.1"`).
+  `TTS_API_KEY` (WebUI message TTS) is **optional** and read straight from `os.environ` by the
+  gateway's `/api/tts` proxy (NOT via `${VAR}`/config.json) — unset → the speaker button returns
+  503. Server-side only; it never reaches the browser. See "Message TTS" below + `docs/MESSAGE_TTS.md`.
+- Model in config is the **bare** name (not `"openai/gpt-5.1"`) with `provider: "openai"`. It is now
+  env-driven: `nanobot/config.json` has `"model": "${NANOBOT_MODEL}"`, set via `.env`
+  (`NANOBOT_MODEL=gpt-5.1`). nanobot **errors on an unset `${VAR}`**, so both modes provide a
+  fallback: `scripts/load_env.sh` exports `NANOBOT_MODEL:-gpt-5.1` (host) and `docker-compose.yml`
+  uses `${NANOBOT_MODEL:-gpt-5.1}` (Docker). The WebUI Settings panel reads config **unresolved**
+  (so it wouldn't expand `${VAR}`); `patches/webui-model-from-env.patch` makes `settings_api.py`
+  resolve the model for display (like `api_base`) and **not clobber** the `${NANOBOT_MODEL}` ref
+  when the WebUI echoes the resolved value back on save. (Bootstrap/header already uses the resolved
+  runtime model, so only Settings needed it.)
 - **Skills must be COPIED into `~/.nanobot/workspace/skills/`, never symlinked.** With
   `restrictToWorkspace: true` (the deployed config), the read_file boundary check
   (`security/workspace_policy.py:is_path_within`) calls `Path.resolve()`, which **follows
@@ -244,6 +255,30 @@ Source clone: `/mnt/ssd1/howchien/nanobot-webui` (HKUDS/nanobot @ v0.2.1 + `patc
 Rebuild with `scripts/build_webui.sh`, deploy with `scripts/deploy_webui.sh` (backs up the stock dist to
 `dist.orig`, refuses to deploy onto a nanobot version ≠ 0.2.1). **`uv tool upgrade nanobot-ai` wipes the
 deployed dist** — re-run deploy (and rebase the patch if the version changed). Do not upgrade casually.
+
+## Message TTS (WebUI speaker button)
+
+A speaker button beside each assistant reply's copy button reads the reply aloud (plain prose only —
+code/tables/math/charts/media are skipped). Two vendored patches, full design in `docs/MESSAGE_TTS.md`:
+- **`patches/webui-tts-proxy.patch`** (`nanobot/channels/websocket.py`) — a GET-only `/api/tts` route
+  (the websockets HTTP parser accepts no other verb) that proxies to the upstream Qwen3-TTS with
+  `TTS_API_KEY` injected server-side **via the openai SDK** (`AsyncOpenAI(base_url=TTS_API_BASE)
+  .audio.speech.create`, `response_format="pcm"`), reads the PCM, and wraps it in a WAV header. Gated
+  by the same bootstrap token as the other `/api/*` routes; reads `TTS_API_BASE`/`TTS_API_MODEL`/
+  `TTS_DEFAULT_VOICE`/`TTS_API_KEY` from env. CORS + key-exposure are why it's a server proxy.
+- **`patches/webui-tts.patch`** (`vendor/nanobot/webui/`) — speaker button in `MessageBubble.tsx`,
+  `useMessageTts` (module-level single player + LRU blob cache + look-ahead playback), `tts-text.ts`
+  (mdast walk → spoken prose + sentence segmentation), `useTtsSettings` (voice + auto-prefetch in
+  localStorage), and a Speech group in `SettingsView.tsx`. Plain-text extraction is client-side; the
+  text is chunked into short GET requests because the proxy is GET-only.
+- Audio is fetched as WAV **Blobs with the Bearer token** (not `<audio src>`) so it can be cached for
+  instant replays. Trigger modes: on-demand (default) or auto-prefetch on reply completion.
+- **Defaults come from the repo-root `.env`**, not just hard-coded: the gateway puts
+  `{default_voice: TTS_DEFAULT_VOICE, auto_prefetch: TTS_AUTO_PREFETCH}` into the `/webui/bootstrap`
+  JSON, and `useTtsSettings` uses them as the initial values. Precedence = per-browser localStorage
+  override (set only when a user flips the Settings → Speech control) **>** `.env` default **>**
+  built-in. So a later `.env` change stays live for browsers that never toggled (we persist only on
+  explicit change, never on mount). `TTS_AUTO_PREFETCH` is truthy-parsed (`1/true/yes/on`).
 
 ## When editing nanobot behavior
 

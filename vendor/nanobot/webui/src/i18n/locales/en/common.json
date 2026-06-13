@@ -83,6 +83,7 @@
       "system": "System",
       "status": "Status",
       "localPreferences": "Local preferences",
+      "speech": "Speech",
       "presets": "Presets",
       "imageGeneration": "Image generation",
       "imageDefaults": "Defaults",
@@ -134,6 +135,8 @@
       "activityMode": "Activity detail",
       "codeWrap": "Code wrapping",
       "brandLogos": "Brand logos",
+      "voice": "Voice",
+      "ttsAutoPrefetch": "Prepare speech automatically",
       "maxResults": "Max results",
       "timeout": "Timeout",
       "jinaReader": "Jina reader",
@@ -174,6 +177,8 @@
       "activityMode": "Choose how much agent activity chrome to show by default.",
       "codeWrap": "Keep long code lines readable on smaller screens.",
       "brandLogos": "Show third-party provider and CLI logos in Settings.",
+      "voice": "Voice used when reading a reply aloud.",
+      "ttsAutoPrefetch": "Generate speech as soon as a reply finishes so playback starts instantly when you press play.",
       "maxResults": "Results returned by each web_search call.",
       "timeout": "Seconds before a search provider request times out.",
       "jinaReader": "Use Jina Reader for web_fetch when available.",
@@ -724,7 +729,11 @@
     "imageAttachment": "Image attachment",
     "copyReply": "Copy reply",
     "copiedReply": "Copied reply",
-    "turnLatencyTitle": "Response time (end-to-end)"
+    "turnLatencyTitle": "Response time (end-to-end)",
+    "speakReply": "Read aloud",
+    "stopReply": "Stop reading",
+    "speakLoading": "Preparing audio…",
+    "speakError": "Couldn't read this reply"
   },
   "lightbox": {
     "title": "Image preview",

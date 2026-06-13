@@ -203,6 +203,11 @@ export interface BootstrapResponse {
   model_name?: string | null;
   runtime_surface?: RuntimeSurface;
   runtime_capabilities?: RuntimeCapabilities;
+  /** Repo-root .env defaults for message TTS (a per-browser Settings toggle still overrides). */
+  tts?: {
+    default_voice?: string;
+    auto_prefetch?: boolean;
+  };
 }
 
 export type RuntimeSurface = "browser" | "native";
