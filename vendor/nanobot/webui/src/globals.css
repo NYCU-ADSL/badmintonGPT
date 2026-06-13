@@ -486,4 +486,46 @@
   .scrollbar-track-transparent::-webkit-scrollbar-track {
     background: transparent;
   }
+
+  /* Badminton rally — decorative "thinking" animation (BadmintonRallyThinking).
+     The rally itself is driven by a rAF engine inside the component (random
+     shot table + escalation); CSS only owns the discrete-state tweens. The
+     engine writes data-pose / data-face on each chibi player SVG and the
+     brt-* rules cross-fade the matching <g>; the player position wrapper is
+     tweened by a transform transition the engine writes once per shot. */
+  .brt-chibi g[data-pose-name],
+  .brt-chibi g[data-face-name] {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .brt-chibi[data-pose="ready"] g[data-pose-name="ready"],
+  .brt-chibi[data-pose="lunge"] g[data-pose-name="lunge"],
+  .brt-chibi[data-pose="overhead"] g[data-pose-name="overhead"],
+  .brt-chibi[data-pose="smash"] g[data-pose-name="smash"],
+  .brt-chibi[data-pose="drive"] g[data-pose-name="drive"],
+  .brt-chibi[data-face="smile"] g[data-face-name="smile"],
+  .brt-chibi[data-face="serious"] g[data-face-name="serious"],
+  .brt-chibi[data-face="shocked"] g[data-face-name="shocked"],
+  .brt-chibi[data-face="fired"] g[data-face-name="fired"] {
+    opacity: 1;
+  }
+  /* jump smash: a small hop, snapping back on the next pose */
+  .brt-chibi {
+    transition: transform 160ms ease-out;
+  }
+  .brt-chibi[data-pose="smash"] {
+    transform: translateY(-12px);
+  }
+  /* footwork: the engine writes one translateX per shot; CSS tweens it */
+  .brt-player-pos {
+    transition: transform 320ms ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .brt-chibi,
+    .brt-chibi g[data-pose-name],
+    .brt-chibi g[data-face-name],
+    .brt-player-pos {
+      transition: none;
+    }
+  }
 }
