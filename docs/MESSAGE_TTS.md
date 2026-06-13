@@ -222,7 +222,7 @@ Module constants (top of the patch block):
 
 ```python
 TTS_ENDPOINT = os.environ.get("TTS_ENDPOINT", "https://llm.andyjjrt.cc/v1/audio/speech")
-TTS_MODEL = os.environ.get("TTS_MODEL", "DGX/Qwen3-TTS")
+TTS_MODEL = os.environ.get("TTS_API_MODEL", "DGX/Qwen3-TTS")
 TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "chris")
 TTS_VOICES = {"chris"}            # extend once the upstream voice catalog is confirmed (§9)
 TTS_MAX_INPUT_CHARS = 1200
@@ -438,7 +438,7 @@ real catalog is known it is just `["chris"]`; see §9.
    TTS_API_KEY=sk-...
    # 選填：覆寫端點 / 模型 / 預設語音
    # TTS_ENDPOINT=https://llm.andyjjrt.cc/v1/audio/speech
-   # TTS_MODEL=DGX/Qwen3-TTS
+   # TTS_API_MODEL=DGX/Qwen3-TTS
    # TTS_DEFAULT_VOICE=chris
    ```
 2. **Host mode** — no code change: `scripts/load_env.sh` does `set -a` and sources `.env`, so

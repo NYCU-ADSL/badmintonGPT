@@ -1,0 +1,40 @@
+diff --git a/nanobot/webui/settings_api.py b/nanobot/webui/settings_api.py
+index 8a9df66..003e8f9 100644
+--- a/nanobot/webui/settings_api.py
++++ b/nanobot/webui/settings_api.py
+@@ -649,7 +649,8 @@ def settings_payload(
+             "label": "Default",
+             "active": active_preset_name == "default",
+             "is_default": True,
+-            "model": defaults.model,
++            # Resolve ${VAR} refs (e.g. ${NANOBOT_MODEL}) for display, like api_base/api_key.
++            "model": _resolve_env_placeholders(defaults.model) or defaults.model,
+             "provider": defaults.provider,
+             "max_tokens": defaults.max_tokens,
+             "context_window_tokens": defaults.context_window_tokens,
+@@ -680,7 +681,7 @@ def settings_payload(
+     )
+     payload = {
+         "agent": {
+-            "model": effective_preset.model,
++            "model": _resolve_env_placeholders(effective_preset.model) or effective_preset.model,
+             "provider": selected_provider,
+             "resolved_provider": provider_name,
+             "has_api_key": bool(provider and provider.api_key),
+@@ -791,7 +792,15 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
+         model = model.strip()
+         if not model:
+             raise WebUISettingsError("model is required")
+-        if defaults.model != model:
++        # Preserve a ${VAR} reference (e.g. ${NANOBOT_MODEL}) when the WebUI echoes back the
++        # resolved display value unchanged; only overwrite on a genuine user change.
++        stored = defaults.model
++        echoes_env_ref = (
++            isinstance(stored, str)
++            and "${" in stored
++            and model == (_resolve_env_placeholders(stored) or stored)
++        )
++        if defaults.model != model and not echoes_env_ref:
+             defaults.model = model
+             changed = True
+ 

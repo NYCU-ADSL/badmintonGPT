@@ -463,7 +463,7 @@ def _http_error(status: int, message: str | None = None) -> Response:
 # client. The upstream streams raw PCM (24 kHz / s16le / mono); we buffer it and wrap a WAV header
 # so the browser can play it natively.
 TTS_ENDPOINT = os.environ.get("TTS_ENDPOINT", "https://llm.andyjjrt.cc/v1/audio/speech")
-TTS_MODEL = os.environ.get("TTS_MODEL", "DGX/Qwen3-TTS")
+TTS_MODEL = os.environ.get("TTS_API_MODEL", "DGX/Qwen3-TTS")
 TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "chris")
 TTS_VOICES = {"chris"}  # allow-list; extend once the upstream voice catalog is confirmed
 TTS_SAMPLE_RATE = 24000

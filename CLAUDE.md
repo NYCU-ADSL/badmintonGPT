@@ -164,7 +164,15 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   `TTS_API_KEY` (WebUI message TTS) is **optional** and read straight from `os.environ` by the
   gateway's `/api/tts` proxy (NOT via `${VAR}`/config.json) — unset → the speaker button returns
   503. Server-side only; it never reaches the browser. See "Message TTS" below + `docs/MESSAGE_TTS.md`.
-- Model in config is the **bare** name `gpt-5.1` with `provider: "openai"` (not `"openai/gpt-5.1"`).
+- Model in config is the **bare** name (not `"openai/gpt-5.1"`) with `provider: "openai"`. It is now
+  env-driven: `nanobot/config.json` has `"model": "${NANOBOT_MODEL}"`, set via `.env`
+  (`NANOBOT_MODEL=gpt-5.1`). nanobot **errors on an unset `${VAR}`**, so both modes provide a
+  fallback: `scripts/load_env.sh` exports `NANOBOT_MODEL:-gpt-5.1` (host) and `docker-compose.yml`
+  uses `${NANOBOT_MODEL:-gpt-5.1}` (Docker). The WebUI Settings panel reads config **unresolved**
+  (so it wouldn't expand `${VAR}`); `patches/webui-model-from-env.patch` makes `settings_api.py`
+  resolve the model for display (like `api_base`) and **not clobber** the `${NANOBOT_MODEL}` ref
+  when the WebUI echoes the resolved value back on save. (Bootstrap/header already uses the resolved
+  runtime model, so only Settings needed it.)
 - **Skills must be COPIED into `~/.nanobot/workspace/skills/`, never symlinked.** With
   `restrictToWorkspace: true` (the deployed config), the read_file boundary check
   (`security/workspace_policy.py:is_path_within`) calls `Path.resolve()`, which **follows
@@ -255,7 +263,7 @@ code/tables/math/charts/media are skipped). Two vendored patches, full design in
 - **`patches/webui-tts-proxy.patch`** (`nanobot/channels/websocket.py`) — a GET-only `/api/tts` route
   (the websockets HTTP parser accepts no other verb) that proxies to the upstream Qwen3-TTS with
   `TTS_API_KEY` injected server-side, buffers the streamed PCM, and wraps it in a WAV header. Gated
-  by the same bootstrap token as the other `/api/*` routes; reads `TTS_ENDPOINT`/`TTS_MODEL`/
+  by the same bootstrap token as the other `/api/*` routes; reads `TTS_ENDPOINT`/`TTS_API_MODEL`/
   `TTS_DEFAULT_VOICE`/`TTS_API_KEY` from env. CORS + key-exposure are why it's a server proxy.
 - **`patches/webui-tts.patch`** (`vendor/nanobot/webui/`) — speaker button in `MessageBubble.tsx`,
   `useMessageTts` (module-level single player + LRU blob cache + look-ahead playback), `tts-text.ts`
