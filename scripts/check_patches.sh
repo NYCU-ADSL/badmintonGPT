@@ -18,7 +18,8 @@ TAG="v0.2.1"                       # keep in sync with vendor/README.md and the 
 # Apply in the same order as vendor/README.md's recipe:
 PATCHES=(webui-progress.patch mcp-probe-origin-aware.patch webui-trust-proxy-auth.patch
          webui-branding.patch reply-language.patch webui-thinking-animation.patch
-         webui-boot-splash.patch webui-visualizer.patch webui-court-theme.patch)
+         webui-boot-splash.patch webui-visualizer.patch webui-court-theme.patch
+         webui-tts-proxy.patch webui-tts.patch)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PATCH_DIR="$HERE/patches"
