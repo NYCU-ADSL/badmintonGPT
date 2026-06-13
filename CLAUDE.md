@@ -161,6 +161,9 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   are read ONLY from this repo's `.env`
   (`scripts/load_env.sh`, `eval/run_eval.py`) — no fallback to other projects. nanobot resolves
   them via `${VAR}` substitution at startup, so they must be exported before `nanobot gateway`.
+  `TTS_API_KEY` (WebUI message TTS) is **optional** and read straight from `os.environ` by the
+  gateway's `/api/tts` proxy (NOT via `${VAR}`/config.json) — unset → the speaker button returns
+  503. Server-side only; it never reaches the browser. See "Message TTS" below + `docs/MESSAGE_TTS.md`.
 - Model in config is the **bare** name `gpt-5.1` with `provider: "openai"` (not `"openai/gpt-5.1"`).
 - **Skills must be COPIED into `~/.nanobot/workspace/skills/`, never symlinked.** With
   `restrictToWorkspace: true` (the deployed config), the read_file boundary check
@@ -244,6 +247,23 @@ Source clone: `/mnt/ssd1/howchien/nanobot-webui` (HKUDS/nanobot @ v0.2.1 + `patc
 Rebuild with `scripts/build_webui.sh`, deploy with `scripts/deploy_webui.sh` (backs up the stock dist to
 `dist.orig`, refuses to deploy onto a nanobot version ≠ 0.2.1). **`uv tool upgrade nanobot-ai` wipes the
 deployed dist** — re-run deploy (and rebase the patch if the version changed). Do not upgrade casually.
+
+## Message TTS (WebUI speaker button)
+
+A speaker button beside each assistant reply's copy button reads the reply aloud (plain prose only —
+code/tables/math/charts/media are skipped). Two vendored patches, full design in `docs/MESSAGE_TTS.md`:
+- **`patches/webui-tts-proxy.patch`** (`nanobot/channels/websocket.py`) — a GET-only `/api/tts` route
+  (the websockets HTTP parser accepts no other verb) that proxies to the upstream Qwen3-TTS with
+  `TTS_API_KEY` injected server-side, buffers the streamed PCM, and wraps it in a WAV header. Gated
+  by the same bootstrap token as the other `/api/*` routes; reads `TTS_ENDPOINT`/`TTS_MODEL`/
+  `TTS_DEFAULT_VOICE`/`TTS_API_KEY` from env. CORS + key-exposure are why it's a server proxy.
+- **`patches/webui-tts.patch`** (`vendor/nanobot/webui/`) — speaker button in `MessageBubble.tsx`,
+  `useMessageTts` (module-level single player + LRU blob cache + look-ahead playback), `tts-text.ts`
+  (mdast walk → spoken prose + sentence segmentation), `useTtsSettings` (voice + auto-prefetch in
+  localStorage), and a Speech group in `SettingsView.tsx`. Plain-text extraction is client-side; the
+  text is chunked into short GET requests because the proxy is GET-only.
+- Audio is fetched as WAV **Blobs with the Bearer token** (not `<audio src>`) so it can be cached for
+  instant replays. Trigger modes (Settings): on-demand (default) or auto-prefetch on reply completion.
 
 ## When editing nanobot behavior
 

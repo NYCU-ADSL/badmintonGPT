@@ -27,6 +27,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}
       REELS_CF_CLIENT_ID: ${REELS_CF_CLIENT_ID:?set REELS_CF_CLIENT_ID in .env}
       REELS_CF_CLIENT_SECRET: ${REELS_CF_CLIENT_SECRET:?set REELS_CF_CLIENT_SECRET in .env}
+      # Message TTS (WebUI speaker button) — server-side only; the gateway proxies /api/tts so the
+      # key never reaches the browser. Optional: unset → the speaker button returns 503 (feature off).
+      TTS_API_KEY: ${TTS_API_KEY:-}
+      TTS_DEFAULT_VOICE: ${TTS_DEFAULT_VOICE:-chris}
       # WebUI auth is delegated to Cloudflare Access (8765 is expose-only, never host-published),
       # so nanobot serves the WebUI without its own token/secret prompt. See the vendored patch
       # patches/webui-trust-proxy-auth.patch. Unset this to fall back to nanobot's own gate.

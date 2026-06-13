@@ -1,0 +1,138 @@
+diff --git a/nanobot/channels/websocket.py b/nanobot/channels/websocket.py
+index b16d671..d536c6f 100644
+--- a/nanobot/channels/websocket.py
++++ b/nanobot/channels/websocket.py
+@@ -12,6 +12,7 @@ import os
+ import re
+ import secrets
+ import ssl
++import struct
+ import time
+ import uuid
+ from collections.abc import Callable
+@@ -20,6 +21,7 @@ from pathlib import Path
+ from typing import TYPE_CHECKING, Any, Self
+ from urllib.parse import parse_qs, unquote, urlparse
+ 
++import httpx
+ from loguru import logger
+ from pydantic import Field, field_validator, model_validator
+ from websockets.asyncio.server import ServerConnection, serve, unix_serve
+@@ -453,6 +455,37 @@ def _http_error(status: int, message: str | None = None) -> Response:
+     return _http_response(body, status=status)
+ 
+ 
++# --- Message TTS proxy [badmintonGPT patch — see patches/webui-tts-proxy.patch] -------------
++# The WebUI's speaker button reads a reply aloud by calling same-origin GET /api/tts. The browser
++# cannot reach the upstream TTS service directly (CORS) and must never see the key, so the gateway
++# proxies the request with TTS_API_KEY injected server-side. The route is GET-only (the websockets
++# HTTP parser accepts no other verb), so the spoken text rides in the query string, chunked by the
++# client. The upstream streams raw PCM (24 kHz / s16le / mono); we buffer it and wrap a WAV header
++# so the browser can play it natively.
++TTS_ENDPOINT = os.environ.get("TTS_ENDPOINT", "https://llm.andyjjrt.cc/v1/audio/speech")
++TTS_MODEL = os.environ.get("TTS_MODEL", "DGX/Qwen3-TTS")
++TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "chris")
++TTS_VOICES = {"chris"}  # allow-list; extend once the upstream voice catalog is confirmed
++TTS_SAMPLE_RATE = 24000
++TTS_MAX_INPUT_CHARS = 1200
++TTS_TIMEOUT_S = 60.0
++
++
++def _pcm_to_wav(
++    pcm: bytes, *, sample_rate: int = TTS_SAMPLE_RATE, bits: int = 16, channels: int = 1
++) -> bytes:
++    """Wrap raw little-endian PCM in a canonical 44-byte WAV/RIFF header so browsers can decode it."""
++    byte_rate = sample_rate * channels * bits // 8
++    block_align = channels * bits // 8
++    data_len = len(pcm)
++    header = b"RIFF" + struct.pack("<I", 36 + data_len) + b"WAVE"
++    header += b"fmt " + struct.pack(
++        "<IHHIIHH", 16, 1, channels, sample_rate, byte_rate, block_align, bits
++    )
++    header += b"data" + struct.pack("<I", data_len)
++    return header + pcm
++
++
+ def _bearer_token(headers: Any) -> str | None:
+     """Pull a Bearer token out of standard or query-style headers."""
+     auth = headers.get("Authorization") or headers.get("authorization")
+@@ -744,6 +777,9 @@ class WebSocketChannel(BaseChannel):
+         response = self._dispatch_media_api_route(request, got)
+         if response is not None:
+             return response
++        # [badmintonGPT patch — see patches/webui-tts-proxy.patch] async TTS proxy
++        if got == "/api/tts":
++            return await self._handle_tts(request)
+         return self._dispatch_misc_api_route(connection, request, got)
+ 
+     def _dispatch_misc_api_route(
+@@ -770,6 +806,69 @@ class WebSocketChannel(BaseChannel):
+ 
+         return None
+ 
++    async def _handle_tts(self, request: WsRequest) -> Response:
++        """Proxy one segment of text to the upstream TTS service and return WAV audio.
++
++        [badmintonGPT patch — see patches/webui-tts-proxy.patch]. GET-only (the websockets HTTP
++        parser accepts no other verb), so ``text`` arrives URL-encoded in the query string. Gated
++        by the same bootstrap token as the other ``/api/*`` routes so it is not an open relay.
++        """
++        if not self._check_api_token(request):
++            return _http_error(401, "Unauthorized")
++
++        query = _parse_query(request.path)
++        text = (_query_first(query, "text") or "").strip()
++        voice = _query_first(query, "voice") or TTS_DEFAULT_VOICE
++        if not text:
++            return _http_error(400, "empty text")
++        if len(text) > TTS_MAX_INPUT_CHARS:
++            return _http_error(413, "text too long")
++        if voice not in TTS_VOICES:
++            return _http_error(400, "unknown voice")
++
++        api_key = os.environ.get("TTS_API_KEY")
++        if not api_key:
++            logger.warning("TTS requested but TTS_API_KEY is not set")
++            return _http_error(503, "TTS not configured")
++
++        pcm = bytearray()
++        try:
++            async with httpx.AsyncClient(timeout=TTS_TIMEOUT_S) as client:
++                async with client.stream(
++                    "POST",
++                    TTS_ENDPOINT,
++                    headers={
++                        "Authorization": f"Bearer {api_key}",
++                        "Content-Type": "application/json",
++                    },
++                    json={
++                        "model": TTS_MODEL,
++                        "input": text,
++                        "voice": voice,
++                        "stream": True,
++                        "response_format": "pcm",
++                    },
++                ) as resp:
++                    if resp.status_code >= 400:
++                        await resp.aread()
++                        logger.warning("TTS upstream returned {}", resp.status_code)
++                        return _http_error(502, f"TTS upstream {resp.status_code}")
++                    async for chunk in resp.aiter_bytes():
++                        pcm.extend(chunk)
++        except httpx.HTTPError as e:
++            logger.warning("TTS proxy upstream error: {}", e)
++            return _http_error(502, "TTS upstream error")
++
++        if not pcm:
++            return _http_error(502, "TTS upstream returned no audio")
++
++        wav = _pcm_to_wav(bytes(pcm))
++        return _http_response(
++            wav,
++            content_type="audio/wav",
++            extra_headers=[("Cache-Control", "no-store")],
++        )
++
+     async def _dispatch_settings_api_route(
+         self,
+         request: WsRequest,
