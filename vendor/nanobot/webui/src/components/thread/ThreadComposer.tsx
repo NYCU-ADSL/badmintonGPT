@@ -1375,15 +1375,15 @@ export function ThreadComposer({
       <div
         className={cn(
           "group/composer relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
-          "after:pointer-events-none after:absolute after:inset-[-1px] after:rounded-[inherit] after:border after:border-blue-300/75 after:opacity-0 after:transition-opacity after:duration-200 focus-within:after:opacity-100 dark:after:border-blue-400/55",
+          "after:pointer-events-none after:absolute after:inset-[-1px] after:rounded-[inherit] after:border after:border-ring/70 after:opacity-0 after:transition-opacity after:duration-200 focus-within:after:opacity-100 dark:after:border-ring/55",
           isHero
-            ? "max-w-[58rem] rounded-[28px] border border-black/[0.035] bg-card shadow-[0_20px_55px_rgba(15,23,42,0.08)] dark:border-white/[0.06] dark:shadow-[0_24px_55px_rgba(0,0,0,0.34)]"
-            : "max-w-[49.5rem] rounded-[22px] border border-black/[0.035] bg-card shadow-[0_12px_30px_rgba(15,23,42,0.07)] dark:border-white/[0.06] dark:shadow-[0_16px_34px_rgba(0,0,0,0.28)]",
-          "focus-within:border-blue-300/75 dark:focus-within:border-blue-400/55",
+            ? "max-w-[58rem] rounded-[28px] border border-black/[0.035] bg-card shadow-[0_20px_55px_rgba(15,23,42,0.08)] dark:border-white/[0.12] dark:bg-background dark:shadow-[0_24px_55px_rgba(0,0,0,0.34)]"
+            : "max-w-[49.5rem] rounded-[22px] border border-black/[0.035] bg-card shadow-[0_12px_30px_rgba(15,23,42,0.07)] dark:border-white/[0.12] dark:bg-background dark:shadow-[0_16px_34px_rgba(0,0,0,0.28)]",
+          "focus-within:border-ring/70 dark:focus-within:border-ring/55",
           disabled && "opacity-60",
           isDragging && "ring-2 ring-primary/40 motion-reduce:ring-0 motion-reduce:border-primary",
           goalState?.active &&
-            "goal-shell-glow ring-1 ring-sky-400/35 motion-reduce:ring-sky-400/25 dark:ring-sky-400/45",
+            "goal-shell-glow ring-1 ring-brand/35 motion-reduce:ring-brand/25 dark:ring-brand/45",
         )}
       >
         {queuedPrompts.length > 0 ? (
@@ -1547,8 +1547,8 @@ export function ThreadComposer({
                 showStopButton
                   ? "border border-border/70 bg-card text-foreground/85 shadow-[0_3px_10px_rgba(15,23,42,0.08)] hover:bg-muted/65 hover:text-foreground disabled:text-muted-foreground/50"
                   : isHero
-                    ? "border border-foreground bg-foreground text-background shadow-[0_4px_12px_rgba(15,23,42,0.20)] hover:bg-foreground/90 disabled:border-foreground/35 disabled:bg-foreground/35 disabled:text-background/80"
-                    : "border border-foreground bg-foreground text-background shadow-[0_3px_10px_rgba(15,23,42,0.18)] hover:bg-foreground/90 disabled:border-foreground/35 disabled:bg-foreground/35 disabled:text-background/80",
+                    ? "border border-brand bg-brand text-brand-foreground shadow-[0_4px_12px_rgba(15,23,42,0.20)] hover:bg-brand/90 disabled:border-brand/35 disabled:bg-brand/35 disabled:text-brand-foreground/80 dark:shadow-[0_0_18px_rgba(45,189,126,0.5)]"
+                    : "border border-brand bg-brand text-brand-foreground shadow-[0_3px_10px_rgba(15,23,42,0.18)] hover:bg-brand/90 disabled:border-brand/35 disabled:bg-brand/35 disabled:text-brand-foreground/80 dark:shadow-[0_0_18px_rgba(45,189,126,0.5)]",
                 isHero ? "h-8 w-8" : "h-9 w-9",
                 (canSend || showStopButton) && "hover:scale-[1.03] active:scale-95",
               )}
@@ -1984,7 +1984,7 @@ function CliAppMentionPalette({
                   "ml-2 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-normal",
                   candidate.kind === "cli"
                     ? "bg-orange-500/10 text-orange-600 dark:text-orange-300"
-                    : "bg-sky-500/10 text-sky-600 dark:text-sky-300",
+                    : "bg-brand/10 text-brand dark:text-brand",
                 )}
               >
                 {typeLabel}

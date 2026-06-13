@@ -1,4 +1,5 @@
 import {
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -10,6 +11,7 @@ import {
 import { ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { CourtBackdrop } from "@/components/thread/CourtBackdrop";
 import { ThreadMessages } from "@/components/thread/ThreadMessages";
 import { isAgentActivityMember } from "@/components/thread/AgentActivityCluster";
 import { Button } from "@/components/ui/button";
@@ -71,6 +73,9 @@ export function ThreadViewport({
   /** User scrolled away from the bottom; do not auto-yank until they return or we reset (new chat / send). */
   const userReadingHistoryRef = useRef(false);
   const [atBottom, setAtBottom] = useState(true);
+  /** Home Ball-in drop: shown only after the composer textarea is clicked; then the
+   * ball is left on the court. Reset per conversation so a fresh home starts ball-less. */
+  const [courtDropped, setCourtDropped] = useState(false);
   const [composerDockHeight, setComposerDockHeight] = useState(0);
   const [visibleMessageCount, setVisibleMessageCount] =
     useState(INITIAL_HISTORY_WINDOW);
@@ -123,6 +128,16 @@ export function ThreadViewport({
     [cancelScheduledBottomScroll, scrollToBottomNow],
   );
 
+  /** Clicking inside the home composer textarea drops the Ball-in shuttle (which then stays).
+   * Pointer-down, not focus — the composer auto-focuses on mount, which must NOT trigger it. */
+  const handleCourtPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (hasMessages) return;
+      if ((event.target as HTMLElement).tagName === "TEXTAREA") setCourtDropped(true);
+    },
+    [hasMessages],
+  );
+
   const loadEarlierMessages = useCallback(() => {
     const el = scrollRef.current;
     if (el) {
@@ -166,6 +181,7 @@ export function ThreadViewport({
     pendingConversationScrollRef.current = true;
     userReadingHistoryRef.current = false;
     setAtBottom(true);
+    setCourtDropped(false);
     setVisibleMessageCount(INITIAL_HISTORY_WINDOW);
   }, [conversationKey]);
 
@@ -233,7 +249,8 @@ export function ThreadViewport({
   }, []);
 
   return (
-    <div className="relative flex min-h-0 flex-1 overflow-hidden">
+    <div className="court-root relative flex min-h-0 flex-1 overflow-hidden" onPointerDown={handleCourtPointerDown}>
+      <CourtBackdrop state={hasMessages ? "chat" : "home"} dropped={courtDropped} />
       <div
         ref={scrollRef}
         className={cn(
@@ -262,7 +279,7 @@ export function ThreadViewport({
             <div
               ref={composerDockRef}
               data-testid="thread-composer-dock"
-              className="sticky bottom-0 z-10 mt-auto bg-background"
+              className="sticky bottom-0 z-10 mt-auto"
             >
               <div className="px-4 pb-3">
                 {composer}
@@ -288,6 +305,17 @@ export function ThreadViewport({
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-background to-transparent"
       />
+
+      {/* Full-width fade behind the docked composer: masks scrolling messages while
+          blending into the court (no opaque dock rectangle). Chat state only — the
+          home court keeps its full baseline/service line. Paints above messages
+          (z-auto) but below the composer dock (z-10). */}
+      {hasMessages ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-background via-background to-transparent"
+        />
+      ) : null}
 
       {showScrollToBottomButton && !atBottom && (
         <Button
