@@ -4,7 +4,9 @@ import typography from "@tailwindcss/typography";
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  // Exclude vendored test files: they must not drive production CSS (keeps the
+  // built dist identical after full-tree vendoring of webui/src/tests/**).
+  content: ["./index.html", "./src/**/*.{ts,tsx}", "!./src/tests/**", "!./src/**/*.test.{ts,tsx}"],
   theme: {
     container: {
       center: true,
