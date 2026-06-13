@@ -87,18 +87,35 @@ export function Sidebar(props: SidebarProps) {
           onClick={collapsed ? props.onExpand : undefined}
           tabIndex={collapsed ? 0 : -1}
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
+            "flex h-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
             collapsed
-              ? "-ml-0.5 hover:bg-sidebar-accent/75"
+              ? "-ml-0.5 w-9 hover:bg-sidebar-accent/75"
               : "pointer-events-none -ml-0.5",
           )}
         >
-          <img
-            src="/brand/nanobot_icon.png"
-            alt=""
-            className="h-8 w-8 select-none object-contain"
-            draggable={false}
-          />
+          {collapsed ? (
+            <img
+              src="/brand/mark-green.svg"
+              alt=""
+              className="h-8 w-8 select-none object-contain"
+              draggable={false}
+            />
+          ) : (
+            <>
+              <img
+                src="/brand/lockup-horizontal.svg"
+                alt=""
+                className="h-7 w-auto select-none object-contain dark:hidden"
+                draggable={false}
+              />
+              <img
+                src="/brand/lockup-horizontal-dark.svg"
+                alt=""
+                className="hidden h-7 w-auto select-none object-contain dark:block"
+                draggable={false}
+              />
+            </>
+          )}
         </button>
         {!collapsed && !props.hostChromeInset && (
           <Button

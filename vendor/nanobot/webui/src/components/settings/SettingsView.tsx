@@ -167,7 +167,7 @@ type ProviderApiType = "auto" | "chat_completions" | "responses";
 type ProviderForm = { apiKey: string; apiBase: string; apiType: ProviderApiType };
 type CustomMcpTransport = "stdio" | "streamableHttp" | "sse";
 
-const NANOBOT_ICON_SRC = "/brand/nanobot_icon.png";
+const NANOBOT_ICON_SRC = "/brand/mark-green.svg";
 const CONTEXT_WINDOW_TOKEN_OPTIONS = [65_536, 262_144] as const;
 const DEFERRED_MODEL_LIST_PROVIDERS = new Set([
   "aihubmix",
@@ -1513,7 +1513,7 @@ function OverviewSettings({
             <div className="flex min-w-0 items-center gap-3">
               <NanobotBrandLogo size="lg" testId="overview-nanobot-logo" />
               <div className="min-w-0">
-                <div className="text-[12px] font-medium text-muted-foreground">nanobot</div>
+                <div className="text-[12px] font-medium text-muted-foreground">badmintonGPT</div>
                 <div className="mt-0.5 truncate text-[18px] font-semibold leading-6 text-foreground">
                   {settings.agent.model}
                 </div>
