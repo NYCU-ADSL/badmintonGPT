@@ -64,6 +64,31 @@
   script ran before `<body>` was parsed, so the localized "Loading…" line never applied; the swap
   is now deferred to DOMContentLoaded). Applies on top of `webui-branding.patch`'s index.html
   hunks. Splash-only; no app behavior change.
+- `patches/webui-visualizer.patch` — renders ```` ```visualizer ```` fences (the
+  `skills/visualise` playbook's output) as live inline visuals instead of code blocks. Adds
+  `webui/src/components/VisualWidget.tsx` (iframe with the skill's theme CSS + SVG utility
+  classes injected ahead of the model HTML, auto-height via ResizeObserver, theme-aware) and
+  `webui/src/lib/visualizer-events.ts`; routes the fence in `MarkdownTextRenderer.tsx`'s
+  `code`/`pre` handlers gated on `!streaming` — while streaming, a skeleton placeholder card
+  (`VisualPlaceholder`, i18n key `visualizer.generating`) stands in so the raw HTML/JS is never
+  shown and partial HTML never executes; threads `streaming` through `MarkdownText.tsx`, and adds a
+  `sendPrompt(text)` bridge — iframe code calls `window.sendPrompt(...)`, a CustomEvent
+  listener in `ThreadShell.tsx` posts it as a user message. **Deliberately NOT
+  security-hardened** (project decision): `sandbox="allow-scripts allow-same-origin"`, no CSP,
+  any CDN loads — fence content effectively runs with full access to the WebUI origin.
+- `patches/webui-court-theme.patch` — the「淡綠場館 / Ball-in」home-page redesign (from a Claude
+  Design handoff). Recolours the shadcn neutral tokens in `webui/src/globals.css` to a pale-green
+  court palette (light) / night-green (dark), adds `--brand`/`--brand-foreground` (+ a `brand`
+  colour in `tailwind.config.js`) for the green send button & focus ring, and appends court-line
+  utilities + the Ball-in `court-dropIn`/`ringOut`/`chipPop` keyframes. Adds
+  `webui/src/components/thread/CourtBackdrop.tsx` (decorative white court lines — a baseline+service
+  "L" on the empty/home state, framing lines in chat — plus the ball→ripple→IN drop) mounted as the
+  first child of `ThreadViewport.tsx`'s root (`court-root`, non-scrolling layer; the drop fires via
+  `.court-root:focus-within`, which excludes the header). Greens the composer accents in
+  `ThreadComposer.tsx` and the stray blue/sky accents in `globals.css` (goal-glow, run-pulse),
+  `ChatList.tsx` (status dot/spinner) and `FileReferenceChip.tsx`. Loads `Noto Sans TC` via Google
+  Fonts in `index.html` and recolours the boot-splash/`theme-color` to court-bg. Skin-only — no
+  behaviour change. (Settings stays blue: that file is owned by `webui-branding.patch`.)
 
 It is committed so the gateway image (`../Dockerfile`) builds the **patched** nanobot
 hermetically — no clone of an upstream tag, no `nanobot-ai` PyPI pin, no post-install dist
@@ -82,6 +107,6 @@ and `tests/`, `images/`, `case/`, `docs/`, `.github/`, `.agent/`.
 ## Updating to a new upstream nanobot
 
 1. `git clone --branch <new-tag> https://github.com/HKUDS/nanobot /tmp/nanobot`
-2. Rebase all patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch && git apply --3way ../patches/webui-branding.patch && git apply --3way ../patches/reply-language.patch && git apply --3way ../patches/webui-thinking-animation.patch && git apply --3way ../patches/webui-boot-splash.patch`), resolving any conflicts; re-export each patch.
+2. Rebase all patches onto it (`cd /tmp/nanobot && git apply --3way ../patches/webui-progress.patch && git apply --3way ../patches/mcp-probe-origin-aware.patch && git apply --3way ../patches/webui-trust-proxy-auth.patch && git apply --3way ../patches/webui-branding.patch && git apply --3way ../patches/reply-language.patch && git apply --3way ../patches/webui-thinking-animation.patch && git apply --3way ../patches/webui-boot-splash.patch && git apply --3way ../patches/webui-visualizer.patch && git apply --3way ../patches/webui-court-theme.patch`), resolving any conflicts; re-export each patch.
 3. Re-vendor with the same exclusions (see `git log` for the `rsync` invocation), bump the tag/commit above, and bump the image tag in `../docker-compose.yml` + `../Dockerfile` comments.
 4. Rebuild and run the verification in `../DEPLOY.md`.
