@@ -53,12 +53,24 @@ export default function VisualWidget({ code, className }: VisualWidgetProps) {
   const timerRef = useRef<number | null>(null);
   const [height, setHeight] = useState(200);
 
+  // Paint the iframe with the host chat's own background colour (shadcn `--background`)
+  // so the visual blends seamlessly. Pure transparency is unreliable here: Chrome can
+  // paint an opaque (white in light scheme) canvas for a color-scheme'd iframe regardless
+  // of `html,body{background:transparent}`, which shows up as a white box on the chat.
+  // Setting the colour explicitly sidesteps that quirk entirely.
+  const chatBg = useMemo(() => {
+    if (typeof window === "undefined") return "transparent";
+    const v = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+    return v ? `hsl(${v})` : "transparent";
+  }, [isDark]);
+
   const srcDoc = useMemo(
     () =>
       `<!doctype html><html><head><meta charset="utf-8">` +
-      `<style>${getThemeCSS(isDark)}\n${SVG_CLASSES}${isDark ? DARK_RAMP_OVERRIDES : ""}</style>` +
-      `</head><body>${code}</body></html>`,
-    [code, isDark],
+      `<style>${getThemeCSS(isDark)}\n${SVG_CLASSES}${isDark ? DARK_RAMP_OVERRIDES : ""}\n` +
+      `html, body { background: ${chatBg}; }</style>` +
+      `</head><body>${blendSurfaces(code)}</body></html>`,
+    [code, isDark, chatBg],
   );
 
   const detachObserver = useCallback(() => {
@@ -115,6 +127,25 @@ export default function VisualWidget({ code, className }: VisualWidgetProps) {
   );
 }
 
+/**
+ * Force generated surfaces to blend with the chat: the transparent --color-background-*
+ * tokens only help when the model uses them, but models sometimes hardcode an opaque
+ * white/near-white (or dark) fill on cards/metric boxes inline. Rewrite those literal
+ * background fills to `transparent` so a visual never renders an out-of-theme box.
+ * Only touches `background`/`background-color` declarations set to a neutral surface
+ * colour — coloured fills, semantic tokens, and overlays (e.g. rgba(0,0,0,.45)) are left alone.
+ */
+function blendSurfaces(code: string): string {
+  const NEUTRAL =
+    "#fff(?:fff)?|#f9fafb|#f3f4f6|#fafafa|#f5f5f5|white|" +
+    "#1a1a1a|#262626|#111(?:111)?|" +
+    "rgba?\\(\\s*255\\s*,\\s*255\\s*,\\s*255\\s*(?:,[^)]*)?\\)";
+  return code.replace(
+    new RegExp(`(background(?:-color)?\\s*:\\s*)(?:${NEUTRAL})`, "gi"),
+    "$1transparent",
+  );
+}
+
 /** Design tokens from skills/visualise references/client-implementation.md. */
 function getThemeCSS(isDark: boolean): string {
   return isDark
@@ -127,9 +158,10 @@ function getThemeCSS(isDark: boolean): string {
       --color-text-success: #34D399;
       --color-text-warning: #FBBF24;
       --color-text-danger: #F87171;
-      --color-background-primary: #1A1A1A;
-      --color-background-secondary: #262626;
-      --color-background-tertiary: #111111;
+      /* Surfaces transparent so cards/metric boxes blend with the chat background. */
+      --color-background-primary: transparent;
+      --color-background-secondary: transparent;
+      --color-background-tertiary: transparent;
       --color-border-tertiary: rgba(255,255,255,0.15);
       --color-border-secondary: rgba(255,255,255,0.3);
       --font-sans: system-ui, -apple-system, sans-serif;
@@ -145,9 +177,10 @@ function getThemeCSS(isDark: boolean): string {
       --color-text-success: #059669;
       --color-text-warning: #D97706;
       --color-text-danger: #DC2626;
-      --color-background-primary: #FFFFFF;
-      --color-background-secondary: #F9FAFB;
-      --color-background-tertiary: #F3F4F6;
+      /* Surfaces transparent so cards/metric boxes blend with the chat background. */
+      --color-background-primary: transparent;
+      --color-background-secondary: transparent;
+      --color-background-tertiary: transparent;
       --color-border-tertiary: rgba(0,0,0,0.15);
       --color-border-secondary: rgba(0,0,0,0.3);
       --font-sans: system-ui, -apple-system, sans-serif;
@@ -199,7 +232,9 @@ const SVG_CLASSES = `
   input[type="range"] { -webkit-appearance: none; height: 4px; background: var(--color-border-tertiary); border-radius: 2px; }
   input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--color-background-primary); border: 0.5px solid var(--color-border-secondary); cursor: pointer; }
   * { box-sizing: border-box; margin: 0; font-family: var(--font-sans); }
-  body { background: transparent; color: var(--color-text-primary); line-height: 1.5; }
+  html, body { background: transparent; }
+  body { color: var(--color-text-primary); line-height: 1.5; }
+  canvas { background: transparent; }
 `;
 
 /**

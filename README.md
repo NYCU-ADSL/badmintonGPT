@@ -95,8 +95,8 @@ nanobot agent -m "資料庫裡有哪些 Axelsen 的比賽？"
 > - 更深入的排錯與 runtime 細節見 `CLAUDE.md`（gotchas / runtime facts）與 `docs/DEPLOY.md`（Docker 排錯）。
 
 ### 正式部署（Docker Compose + Cloudflare Tunnel）
-對外掛在 `badmintongpt.<zone>` 的可重現部署——`docker compose up` 起三個 service：`gateway`（含 patch
-過的 WebUI，由 `vendor/nanobot/` 建出，內嵌 util stdio MCP）＋ `badminton-db`（自家 HTTP MCP，僅內網
+對外掛在 `badmintongpt.<zone>` 的可重現部署——`docker compose up` 起三個 service：`gateway`（含自家 fork
+的 WebUI，由 `vendor/nanobot/` 建出，內嵌 util stdio MCP）＋ `badminton-db`（自家 HTTP MCP，僅內網
 `:8801`）＋ `cloudflared` tunnel；另有 `ingest`（profile）一次性建 DB。`gateway` 經
 `depends_on: badminton-db (healthy)` 等 DB 先就緒，agent 的 config/brain 都收進 repo 當 template。
 完整步驟（含 Cloudflare 一次性設定、建 DB、驗收）見 **`docs/DEPLOY.md`**。

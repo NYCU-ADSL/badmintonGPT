@@ -6,7 +6,7 @@ prose** is spoken — code, tables, math, charts, and media are skipped.
 
 This document is the complete, build-ready design. Section 1 restates the task and the resolved
 product decisions; sections 2–11 are the architecture, the backend proxy, the frontend, the
-plain‑text extraction rules, config/secrets, the build/patch loop, edge cases, security, and the
+plain‑text extraction rules, config/secrets, the build/deploy loop, edge cases, security, and the
 testing plan; section 12 is the concrete file-change checklist.
 
 ---
@@ -104,7 +104,7 @@ issuing one GET per segment (§5.4). Binary responses are returned with the same
                                          │  same-origin GET  (Authorization / ?token = bootstrap token)
                                          ▼
 ┌──────────────────────── Gateway :8765  (nanobot WebSocket channel, GET-only HTTP) ───────────────┐
-│  _dispatch_http → _dispatch_api_route → _handle_tts(request)            [NEW patch]              │
+│  _dispatch_http → _dispatch_api_route → _handle_tts(request)            [fork route]            │
 │     • auth-gate with _check_api_token                                                            │
 │     • validate voice + text length                                                              │
 │     • openai SDK: AsyncOpenAI(base_url=TTS_API_BASE).audio.speech.create  (key server-side)      │
@@ -129,9 +129,8 @@ issuing one GET per segment (§5.4). Binary responses are returned with the same
 
 ## 4. Backend: the `/api/tts` proxy route
 
-A new **nanobot patch** (`patches/webui-tts-proxy.patch`) editing
-`vendor/nanobot/nanobot/channels/websocket.py`. It follows the existing patterns
-(`webui-trust-proxy-auth.patch`, `reply-language.patch`): a self-contained, marked block.
+A **fork change** to `vendor/nanobot/nanobot/channels/websocket.py`. It follows the existing
+fork patterns (trust-proxy auth, reply-language): a self-contained, `badmintonGPT fork`-marked block.
 
 ### 4.1 Routing
 
@@ -139,7 +138,7 @@ Register the route in `_dispatch_misc_api_route`
 (`websocket.py:749`, alongside `/api/commands`, `/api/workspaces`):
 
 ```python
-# [badmintonGPT patch — see patches/webui-tts-proxy.patch]
+# [badmintonGPT fork]
 if got == "/api/tts":
     return await self._handle_tts(request)
 ```
@@ -218,7 +217,7 @@ async def _handle_tts(self, request: WsRequest) -> Response:
 Python's `wave` module into an `io.BytesIO`, or write the header by hand). No resampling needed —
 the browser decodes the rate from the header.
 
-Module constants (top of the patch block):
+Module constants (top of the fork block):
 
 ```python
 TTS_API_BASE = os.environ.get("TTS_API_BASE", "https://llm.andyjjrt.cc/v1")  # openai SDK base_url
@@ -247,8 +246,8 @@ bus and is out of scope.)
 
 ## 5. Frontend
 
-All new frontend code is a **WebUI patch** (`patches/webui-tts.patch`) on
-`vendor/nanobot/webui/`. React 18 + TypeScript + Tailwind + lucide-react.
+All new frontend code lives in the fork under `vendor/nanobot/webui/` (edited directly).
+React 18 + TypeScript + Tailwind + lucide-react.
 
 ### 5.1 The speaker button (MessageBubble)
 
@@ -466,7 +465,7 @@ No entry in `nanobot/config.json` is needed — the proxy reads `os.environ["TTS
 
 ---
 
-## 8. Build, patch & deploy
+## 8. Build & deploy
 
 This touches **both** the vendored frontend (`vendor/nanobot/webui/`) and the vendored backend
 (`vendor/nanobot/nanobot/channels/websocket.py`), so two patches are produced and the full image is
@@ -475,18 +474,13 @@ rebuilt.
 1. **Edit** the vendored source directly:
    - `vendor/nanobot/nanobot/channels/websocket.py` — the `/api/tts` route + `_pcm_to_wav` helper.
    - `vendor/nanobot/webui/src/...` — button, hook, util, settings, i18n strings.
-2. **Build the WebUI to verify** (per the repo's WebUI build notes): build the **vendored** webui
-   directly — `cd vendor/nanobot/webui && bun run build` (it has `node_modules`; outputs to
-   `vendor/nanobot/nanobot/web/dist`). Do **not** use the stale `scripts/build_webui.sh` clone at
-   `/mnt/ssd1/howchien/nanobot-webui` for verification.
+2. **Build the WebUI to verify**: build the **vendored** webui directly —
+   `cd vendor/nanobot/webui && bun run build` (it has `node_modules`; outputs to
+   `vendor/nanobot/nanobot/web/dist`).
 3. **Add the i18n keys** to every locale in `vendor/nanobot/webui/src/i18n/locales/*/common.json`
    (mirror how `message.copyReply` / `message.copiedReply` are defined): `message.speakReply`,
    `message.stopReply`, `message.speakLoading`, `message.speakError`, plus the Settings labels.
-4. **Regenerate the patch files** from the vendored tree (recipe from the WebUI verification notes):
-   `git diff --relative=vendor/nanobot <vendor-base-commit>^ -- <paths>` → write
-   `patches/webui-tts.patch` (frontend) and `patches/webui-tts-proxy.patch` (backend). Keep each a
-   clean `git diff` so it composes with the existing seven patches.
-5. **Rebuild & redeploy** (Docker): `docker compose up -d --build`. The Dockerfile's hatch hook
+4. **Rebuild & redeploy** (Docker): `docker compose up -d --build`. The Dockerfile's hatch hook
    (`NANOBOT_FORCE_WEBUI_BUILD=1`) rebuilds the WebUI and bundles it into the wheel; the gateway
    serves the new dist and exposes `/api/tts`.
 6. **Note:** editing `vendor/` triggers the slow full nanobot+WebUI image rebuild (unlike a
@@ -503,7 +497,7 @@ rebuilt.
   keep them in sync.
 - **Upstream `wav`/`mp3` support.** If confirmed, the proxy can request that format and pass it
   through, dropping the PCM→WAV wrap (§4.3). Worth a one-line probe during implementation.
-- **Language/voice match.** Replies are often Chinese (see `reply-language.patch` + `SOUL.md`).
+- **Language/voice match.** Replies are often Chinese (see the fork's reply-language change + `SOUL.md`).
   Qwen3-TTS is multilingual, so `chris` should handle CJK; verify audibly during testing.
 
 ---
@@ -554,11 +548,11 @@ rebuilt.
 
 ## 12. File-change checklist
 
-**Backend (patch `patches/webui-tts-proxy.patch`)**
+**Backend (fork: `vendor/nanobot/nanobot/channels/websocket.py`)**
 - `vendor/nanobot/nanobot/channels/websocket.py` — `/api/tts` route in the api dispatch,
   `_handle_tts` (async, openai-SDK proxy + auth + validation), `_pcm_to_wav` helper, TTS_* constants.
 
-**Frontend (patch `patches/webui-tts.patch`)**
+**Frontend (fork: `vendor/nanobot/webui/`)**
 - `vendor/nanobot/webui/src/components/MessageBubble.tsx` — speaker button after the copy button
   (footer row, ~line 171); `showSpeakButton`; wire `useMessageTts`.
 - `vendor/nanobot/webui/src/hooks/useMessageTts.ts` — **new**: state machine, fetch, cache, player.
@@ -577,5 +571,5 @@ rebuilt.
 
 **Docs**
 - `docs/MESSAGE_TTS.md` — this document.
-- `CLAUDE.md` — once shipped, add `webui-tts*.patch` to the patch list and note the `TTS_API_KEY`
+- `CLAUDE.md` / `vendor/README.md` — describe the TTS fork changes and note the `TTS_API_KEY`
   env requirement.

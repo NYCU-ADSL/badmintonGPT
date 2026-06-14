@@ -13,10 +13,11 @@ The core design tokens and rules that every visual must follow. Read this once p
 
 The client injects these into the iframe. Always use them — never hardcode colors.
 
-**Backgrounds:**
-- `--color-background-primary` — white / main content
-- `--color-background-secondary` — surfaces, cards, metric boxes
-- `--color-background-tertiary` — page background
+**Backgrounds:** (all resolve to `transparent` so visuals blend with the host chat — use borders, not
+fills, for definition; never hardcode a white/grey background)
+- `--color-background-primary` — main content surface (transparent)
+- `--color-background-secondary` — surfaces, cards, metric boxes (transparent)
+- `--color-background-tertiary` — page background (transparent)
 - `--color-background-info` / `-danger` / `-success` / `-warning` — semantic
 
 **Text:**

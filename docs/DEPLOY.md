@@ -133,10 +133,10 @@ In the browser, confirm the **tool-progress bar** renders during a reel render �
   config/brain on boot; `sessions/` + `memory/` persist in the `nanobot_state` volume.
 - **Pin `cloudflared`:** `docker-compose.yml` uses `cloudflare/cloudflared:latest` for convenience.
   For reproducibility, pin it to a specific release tag (or digest) once you've chosen one.
-- **Updating nanobot itself:** re-vendor `vendor/nanobot/` (see `vendor/README.md`) and rebuild.
-  The host scripts `scripts/build_webui.sh` / `deploy_webui.sh` are no longer on the deploy path —
-  they remain only for host-mode WebUI dev. `uv tool upgrade nanobot-ai` no longer affects the
-  served dist (it's baked into the pinned image).
+- **Updating nanobot itself:** `git subtree pull` the new upstream tag into `vendor/nanobot/`,
+  resolve conflicts once, and rebuild (full runbook in `vendor/README.md`). The WebUI dist is rebuilt
+  hermetically by the image's hatch hook, so there is no separate build/deploy-webui step and
+  `uv tool upgrade nanobot-ai` does not affect the served dist (it's baked into the pinned image).
 - **Monitoring / uptime + public status page:** stand up Gatus alongside this stack (one container,
   monitors as YAML; status page at `badmintongpt-status.<zone>`) — see [`MONITORING.md`](MONITORING.md).
 
