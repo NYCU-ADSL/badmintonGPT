@@ -278,11 +278,23 @@ code/tables/math/charts/media are skipped). Two fork changes, full design in `do
 - Audio is fetched as WAV **Blobs with the Bearer token** (not `<audio src>`) so it can be cached for
   instant replays. Trigger modes: on-demand (default) or auto-prefetch on reply completion.
 - **Defaults come from the repo-root `.env`**, not just hard-coded: the gateway puts
-  `{default_voice: TTS_DEFAULT_VOICE, auto_prefetch: TTS_AUTO_PREFETCH}` into the `/webui/bootstrap`
-  JSON, and `useTtsSettings` uses them as the initial values. Precedence = per-browser localStorage
+  `{default_voice: TTS_DEFAULT_VOICE, auto_prefetch: TTS_AUTO_PREFETCH, max_segment_chars:
+  min(TTS_SEGMENT_CHARS, TTS_MAX_INPUT_CHARS)}` into the `/webui/bootstrap` JSON, and `useTtsSettings`
+  uses them as the initial values. Precedence = per-browser localStorage
   override (set only when a user flips the Settings → Speech control) **>** `.env` default **>**
   built-in. So a later `.env` change stays live for browsers that never toggled (we persist only on
   explicit change, never on mount). `TTS_AUTO_PREFETCH` is truthy-parsed (`1/true/yes/on`).
+- **Latency knobs (`TTS_SEGMENT_CHARS` / `TTS_MAX_INPUT_CHARS` / `TTS_TIMEOUT_S`) are env-driven** —
+  the bottleneck for long replies is **synthesis TIME, not size**: the `/api/tts` proxy is
+  non-streaming (buffers the whole segment's PCM before returning) and upstream synthesis is
+  ~linear (~0.1 s/char measured). So the client chunks each reply into `TTS_SEGMENT_CHARS`-sized
+  pieces (default **60** ≈ first sound ~6 s; was effectively 400 ≈ ~34 s → felt broken) shipped via
+  bootstrap; `TTS_MAX_INPUT_CHARS` (default **300**, was a hardcoded 1200 that could exceed the
+  timeout) 413s anything bigger. Invariant **`TTS_SEGMENT_CHARS ≤ TTS_MAX_INPUT_CHARS`** (bootstrap
+  clamps). These are **runtime env** (read at process start + per-bootstrap), so re-tuning is `.env`
+  + `docker compose up -d` — **no image rebuild**, unlike editing the `vendor/` source. URL length is
+  NOT the constraint (400 CJK chars URL-encode to ~3.6 KB, far under `MAX_LINE_LENGTH` 8192). Full
+  rationale + measurements in `docs/MESSAGE_TTS.md` §5.4.
 
 ## When editing nanobot behavior
 

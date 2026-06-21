@@ -20,6 +20,14 @@ services:
     image: badmintongpt-gateway:0.2.1
     container_name: badmintongpt-gateway
     restart: unless-stopped
+    # nanobot's tools.exec.sandbox=bwrap runs bubblewrap inside this unprivileged
+    # container. Relax the container's own seccomp/apparmor so bwrap can create the
+    # user + mount namespaces it needs; mount/pivot_root are otherwise blocked by
+    # Docker's default seccomp (gated on CAP_SYS_ADMIN) and the docker-default
+    # apparmor profile. bwrap then re-sandboxes each exec'd command to the workspace.
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
     depends_on:
       badminton-db:
         condition: service_healthy
@@ -38,6 +46,14 @@ services:
       TTS_DEFAULT_VOICE: ${TTS_DEFAULT_VOICE:-chris}
       # WebUI default for "prepare speech automatically"; shipped to the browser via bootstrap.
       TTS_AUTO_PREFETCH: ${TTS_AUTO_PREFETCH:-false}
+      # Latency knobs — the /api/tts proxy is non-streaming and synthesis is ~0.1 s/char, so the
+      # client chunks each reply into TTS_SEGMENT_CHARS-sized pieces (shipped via bootstrap) to keep
+      # time-to-first-audio low. Invariant: TTS_SEGMENT_CHARS <= TTS_MAX_INPUT_CHARS (the server 413s
+      # anything bigger). At ~0.1 s/char the 60 s timeout tops out near ~600 chars. Tune via .env +
+      # `docker compose up -d` (no rebuild needed — these are runtime env, not baked into the image).
+      TTS_SEGMENT_CHARS: ${TTS_SEGMENT_CHARS:-60}
+      TTS_MAX_INPUT_CHARS: ${TTS_MAX_INPUT_CHARS:-300}
+      TTS_TIMEOUT_S: ${TTS_TIMEOUT_S:-60}
       # WebUI auth is delegated to Cloudflare Access (8765 is expose-only, never host-published),
       # so nanobot serves the WebUI without its own token/secret prompt. See the fork's trust-proxy
       # change in vendor/nanobot (vendor/README.md). Unset this to fall back to nanobot's own gate.

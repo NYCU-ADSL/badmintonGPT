@@ -154,7 +154,7 @@ already called from the `async _dispatch_api_route`) or branch on the path earli
 
 | Param | Required | Notes |
 |-------|----------|-------|
-| `text` | yes | URL-encoded UTF-8 plain text for **one segment**. Server rejects if empty or longer than `TTS_MAX_INPUT_CHARS` (default 1200). |
+| `text` | yes | URL-encoded UTF-8 plain text for **one segment**. Server rejects if empty or longer than `TTS_MAX_INPUT_CHARS` (env-driven, default 300). |
 | `voice` | no | Defaults to `TTS_DEFAULT_VOICE` (`"chris"`). Validated against an allow-list (`TTS_VOICES`) to avoid passing arbitrary values upstream. |
 | `token` | conditionally | The WebUI bootstrap token, the same one the WS handshake uses. Required when a secret is configured; behind Cloudflare Access + `NANOBOT_WEBUI_TRUST_PROXY=1` the gate still runs via `_check_api_token`. |
 
@@ -224,9 +224,17 @@ TTS_API_BASE = os.environ.get("TTS_API_BASE", "https://llm.andyjjrt.cc/v1")  # o
 TTS_MODEL = os.environ.get("TTS_API_MODEL", "DGX/Qwen3-TTS")
 TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "chris")
 TTS_VOICES = {"chris"}            # extend once the upstream voice catalog is confirmed (§9)
-TTS_MAX_INPUT_CHARS = 1200
-TTS_TIMEOUT_S = 60.0
+# Latency knobs — env-driven (the bottleneck is synthesis TIME, ~0.1 s/char, not size; see §5.4).
+TTS_SEGMENT_CHARS = int(os.environ.get("TTS_SEGMENT_CHARS", "60"))    # client chunk size (bootstrap)
+TTS_MAX_INPUT_CHARS = int(os.environ.get("TTS_MAX_INPUT_CHARS", "300"))  # server 413 above this
+TTS_TIMEOUT_S = float(os.environ.get("TTS_TIMEOUT_S", "60"))
 ```
+
+> **Invariant:** `TTS_SEGMENT_CHARS ≤ TTS_MAX_INPUT_CHARS` (the bootstrap clamps the value it ships
+> so a misconfig can't make the client send a segment the server would 413). At ~0.1 s/char the
+> `TTS_TIMEOUT_S` ceiling is ~600 chars, so the 300 default for `TTS_MAX_INPUT_CHARS` stays inside it.
+> Tune via `.env` + `docker compose up -d` (runtime env — **no image rebuild**); the browser picks up
+> the new `TTS_SEGMENT_CHARS` from `/webui/bootstrap` on reload.
 
 > **Why request `pcm` and wrap, instead of asking upstream for `wav`/`mp3`?** The doc only verifies
 > `pcm` works. Wrapping PCM→WAV is deterministic and avoids depending on unverified format support.
@@ -355,13 +363,20 @@ Output: a single normalized string. If it is empty/whitespace → `hasSpeech = f
 Split the extracted text into ordered segments for the per-GET requests:
 
 - Split on sentence boundaries: `。！？!?；;` and hard line breaks; keep the delimiter.
-- Greedily pack sentences into a segment until adding the next would exceed
-  `TTS_SEGMENT_CHARS` (default ~400 chars — comfortably under any URL limit even for CJK, which
-  URL-encodes to ~9 bytes/char).
+- Greedily pack sentences into a segment until adding the next would exceed the segment budget.
 - A single oversized sentence is hard-split at the char budget.
 
-Smaller segments → lower time-to-first-audio and shorter URLs; the trade-off is more requests.
-~400 chars balances both.
+The budget is **server-driven**: the gateway ships `TTS_SEGMENT_CHARS` (default **60**) in the
+`/webui/bootstrap` `tts.max_segment_chars` field; `useTtsSettings` reads it and passes it to
+`segmentForTts(text, maxChars)` (fallback `DEFAULT_SEGMENT_CHARS = 60` only when the field is
+absent). It is an internal latency knob — **no localStorage override, no Settings-UI control**.
+
+**Why small (this is the band-aid for "long reply → no audio"):** the proxy is non-streaming
+(§4.4), so the first sound can't play until the *entire* first segment is synthesized, and
+synthesis is ~linear in chars (~0.1 s/char measured). A 400-char first segment took ~34 s before a
+single byte of audio (perceived as broken; and anything over `TTS_TIMEOUT_S` hard-fails with 502).
+60 chars → first sound in ~6 s. Smaller = lower time-to-first-audio; the trade-off is more requests.
+URL length is **not** the constraint (even 400 CJK chars URL-encode to ~3.6 KB, far under limits).
 
 ### 5.5 Fetching & gapless playback
 

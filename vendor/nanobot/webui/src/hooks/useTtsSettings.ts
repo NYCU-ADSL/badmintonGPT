@@ -14,6 +14,10 @@ import { getTtsBootstrapDefaults } from "@/lib/bootstrap";
  *  nanobot/channels/websocket.py). Only "chris" is confirmed upstream so far. */
 export const TTS_VOICES = ["chris"] as const;
 export const DEFAULT_TTS_VOICE = "chris";
+// Fallback used only when the bootstrap omits `tts.max_segment_chars` (older gateway). The live
+// value is server-driven (TTS_SEGMENT_CHARS). This is an internal latency knob, not a user
+// preference, so it has NO localStorage override and NO Settings-UI control.
+export const DEFAULT_TTS_SEGMENT_CHARS = 60;
 
 const VOICE_KEY = "nanobot-webui.tts-voice";
 const AUTOPREFETCH_KEY = "nanobot-webui.tts-autoprefetch";
@@ -44,16 +48,27 @@ function readAutoPrefetch(): boolean {
   return getTtsBootstrapDefaults().autoPrefetch ?? false;
 }
 
+function readMaxSegmentChars(): number {
+  const fromEnv = getTtsBootstrapDefaults().maxSegmentChars;
+  if (typeof fromEnv === "number" && Number.isFinite(fromEnv) && fromEnv > 0) {
+    return Math.floor(fromEnv);
+  }
+  return DEFAULT_TTS_SEGMENT_CHARS;
+}
+
 export interface TtsSettings {
   voice: string;
   setVoice: (voice: string) => void;
   autoPrefetch: boolean;
   setAutoPrefetch: (on: boolean) => void;
+  /** Server-driven (bootstrap) max chars per /api/tts request; no per-browser override. */
+  maxSegmentChars: number;
 }
 
 export function useTtsSettings(): TtsSettings {
   const [voice, setVoiceState] = useState<string>(readVoice);
   const [autoPrefetch, setAutoPrefetchState] = useState<boolean>(readAutoPrefetch);
+  const [maxSegmentChars] = useState<number>(readMaxSegmentChars);
 
   const setVoice = useCallback((next: string) => {
     setVoiceState(next);
@@ -73,5 +88,5 @@ export function useTtsSettings(): TtsSettings {
     }
   }, []);
 
-  return { voice, setVoice, autoPrefetch, setAutoPrefetch };
+  return { voice, setVoice, autoPrefetch, setAutoPrefetch, maxSegmentChars };
 }
