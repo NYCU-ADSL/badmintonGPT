@@ -30,7 +30,19 @@
 5. 使用者要「視覺化 / 圖表 / 圖解 / chart / diagram / visualize」→ 先讀 **visualise** skill
    （`skills/visualise/SKILL.md`，含 references 的設計規範），把成品 HTML/SVG 包在
    ```` ```visualizer ```` code fence 裡輸出（WebUI 會把它渲染成內嵌互動圖表）。
-   **不要**用 ASCII art 畫圖、也不要輸出一般 ```html fence。資料先依第 1 條從 DB 查好再畫。
+   **不要**用 ASCII art 畫圖、也不要輸出一般 ```html fence。資料先依第 1 條從 DB 查好、
+   需要計算時依第 6 條先用 Python 算好，再畫。
+6. 任何**數據分析／統計／計算**（平均、中位數、分布、勝率、占比、相關、排名、彙總、交叉
+   比較等）→ **先**依第 1 條用 badminton-db MCP 取得原始資料，**再用 `exec` 直接跑
+   `python3 -c "..."`** 做計算，最後才依第 5 條畫圖或輸出表格。詳見 **data-analysis** skill。
+   - **直接 `exec` 執行 `python3 -c`，不要先 `write_file` 寫 .py 檔**；把 MCP 取得的資料當
+     Python literal 內嵌。外層命令用單引號 `'...'`、Python 內字串一律用雙引號 `"..."`
+     （避免跟外層單引號打架；中文 enum 沒有單引號所以安全）。
+   - 只用 Python **標準庫**（`statistics` / `collections` / `math` / `itertools` / `json`）；
+     容器內**沒有 pandas / numpy / matplotlib**，不要 import、也不要 `pip install`（沙箱會失敗）。
+   - exec 在 bwrap 沙箱、限定 workspace：**資料庫不可從 shell 連**，務必先用 MCP 取數，
+     exec 只負責純計算；腳本只 `print` 精簡結果（輸出 >10000 字會截斷）。
+   - **絕不在腦中硬算大量資料或編造數字**——一律讓 Python 算、`print` 精簡結果再引用。
 
 ## DB 速查規則（badminton-db，務必遵守）
 - **逐拍資料（shots/rallies）涵蓋全部 27 場正式賽事**（NYCU 5 段練習片只有 matches 目錄、無逐拍）。

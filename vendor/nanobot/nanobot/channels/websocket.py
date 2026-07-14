@@ -466,8 +466,16 @@ TTS_MODEL = os.environ.get("TTS_API_MODEL", "DGX/Qwen3-TTS")
 TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "chris")
 TTS_VOICES = {"chris"}  # allow-list; extend once the upstream voice catalog is confirmed
 TTS_SAMPLE_RATE = 24000
-TTS_MAX_INPUT_CHARS = 1200
-TTS_TIMEOUT_S = 60.0
+# [badmintonGPT fork] Sizing/timeout knobs are env-driven because the bottleneck is *latency*, not
+# size: the proxy is non-streaming (reads the whole segment's PCM before returning) and upstream
+# synthesis is ~linear in input length (~0.1 s/char measured). So the client chunks a reply into
+# TTS_SEGMENT_CHARS-sized pieces (shipped to the browser via bootstrap) to keep time-to-first-audio
+# low, TTS_MAX_INPUT_CHARS rejects anything that would blow the timeout, and the two must satisfy
+# TTS_SEGMENT_CHARS <= TTS_MAX_INPUT_CHARS (a longer segment than the cap would 413). At ~0.1 s/char
+# the 60 s timeout tops out near ~600 chars, so the 300 default stays comfortably inside it.
+TTS_SEGMENT_CHARS = int(os.environ.get("TTS_SEGMENT_CHARS", "60"))
+TTS_MAX_INPUT_CHARS = int(os.environ.get("TTS_MAX_INPUT_CHARS", "300"))
+TTS_TIMEOUT_S = float(os.environ.get("TTS_TIMEOUT_S", "60"))
 
 
 def _tts_auto_prefetch_default() -> bool:
@@ -1003,6 +1011,9 @@ class WebSocketChannel(BaseChannel):
                 "tts": {
                     "default_voice": TTS_DEFAULT_VOICE,
                     "auto_prefetch": _tts_auto_prefetch_default(),
+                    # Client segment size; clamped so a misconfig can't make the browser send a
+                    # segment the server would 413 (see TTS_SEGMENT_CHARS comment above).
+                    "max_segment_chars": min(TTS_SEGMENT_CHARS, TTS_MAX_INPUT_CHARS),
                 },
             }
         )

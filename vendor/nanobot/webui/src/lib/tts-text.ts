@@ -93,7 +93,11 @@ export function markdownToSpeechText(markdown: string): string {
   return normalize(out.join(""));
 }
 
-const DEFAULT_SEGMENT_CHARS = 400;
+// Fallback segment size, used only when the bootstrap omits `tts.max_segment_chars`. The live value
+// is server-driven (TTS_SEGMENT_CHARS → bootstrap → useTtsSettings → segmentForTts). Kept small
+// because the TTS proxy is non-streaming: the first sound can't play until the whole first segment
+// is synthesized, and synthesis is ~linear in chars (~0.1 s/char), so smaller = lower latency.
+const DEFAULT_SEGMENT_CHARS = 60;
 // Split after sentence-ending punctuation (CJK + ASCII) and hard breaks, keeping the delimiter.
 const SENTENCE_RE = /[^。．！？!?；;\n]*[。．！？!?；;\n]+|[^。．！？!?；;\n]+$/g;
 

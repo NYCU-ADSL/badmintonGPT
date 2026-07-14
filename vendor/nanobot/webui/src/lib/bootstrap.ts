@@ -5,11 +5,16 @@ const SECRET_STORAGE_KEY = "nanobot-webui.bootstrap-secret";
 /** TTS defaults the gateway derived from the repo-root .env (TTS_DEFAULT_VOICE /
  *  TTS_AUTO_PREFETCH). Captured on every bootstrap; read by useTtsSettings as the
  *  initial default when the browser has no stored override. */
-let _ttsBootstrapDefaults: { defaultVoice?: string; autoPrefetch?: boolean } = {};
+let _ttsBootstrapDefaults: {
+  defaultVoice?: string;
+  autoPrefetch?: boolean;
+  maxSegmentChars?: number;
+} = {};
 
 export function getTtsBootstrapDefaults(): {
   defaultVoice?: string;
   autoPrefetch?: boolean;
+  maxSegmentChars?: number;
 } {
   return _ttsBootstrapDefaults;
 }
@@ -70,6 +75,7 @@ export async function fetchBootstrap(
     _ttsBootstrapDefaults = {
       defaultVoice: body.tts.default_voice,
       autoPrefetch: body.tts.auto_prefetch,
+      maxSegmentChars: body.tts.max_segment_chars,
     };
   }
   return body;

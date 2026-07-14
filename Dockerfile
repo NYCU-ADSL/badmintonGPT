@@ -32,6 +32,14 @@ RUN uv pip install --system --no-cache \
     "mcp>=1.0" "pydantic>=2.0" \
     "python-dotenv>=1.0" "websockets>=12.0" "jsonschema>=4.0" "httpx>=0.27"
 
+# --- bubblewrap: backs nanobot's tools.exec.sandbox=bwrap (config.json) ---
+# Separate layer placed before the repo COPYs so config-only edits don't rebust it.
+# The container runs unprivileged (uid 1000), so the compose gateway service also sets
+# seccomp=unconfined + apparmor=unconfined to let bwrap create the user/mount namespaces
+# it needs (mount/pivot_root are otherwise blocked by Docker's default profiles).
+RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap && \
+    rm -rf /var/lib/apt/lists/*
+
 # --- This repo's code + agent config/brain templates ---
 WORKDIR /app
 COPY mcps/util/ mcps/util/

@@ -89,7 +89,7 @@ function isAbort(err: unknown): boolean {
 
 export function useMessageTts(message: UIMessage): MessageTts {
   const { token } = useClient();
-  const { voice, autoPrefetch } = useTtsSettings();
+  const { voice, autoPrefetch, maxSegmentChars } = useTtsSettings();
   const [state, setState] = useState<TtsState>("idle");
 
   const speech = useMemo(
@@ -209,7 +209,7 @@ export function useMessageTts(message: UIMessage): MessageTts {
       return;
     }
 
-    const segments = segmentForTts(speech);
+    const segments = segmentForTts(speech, maxSegmentChars);
     if (!segments.length) return;
 
     const ctrl = new AbortController();
@@ -234,7 +234,7 @@ export function useMessageTts(message: UIMessage): MessageTts {
     };
 
     beginPlayback(segments.length, getBlob, false, onComplete);
-  }, [hasSpeech, message.id, speech, beginPlayback, cleanupPlayback]);
+  }, [hasSpeech, message.id, speech, maxSegmentChars, beginPlayback, cleanupPlayback]);
 
   const toggle = useCallback(() => {
     if (state === "playing" || state === "loading") stop();
@@ -248,7 +248,7 @@ export function useMessageTts(message: UIMessage): MessageTts {
     if (message.role !== "assistant" || message.isStreaming) return;
     const key = `${message.id}::${voiceRef.current}`;
     if (cacheGet(key)) return;
-    const segments = segmentForTts(speech);
+    const segments = segmentForTts(speech, maxSegmentChars);
     if (!segments.length) return;
 
     const ctrl = new AbortController();
@@ -266,7 +266,7 @@ export function useMessageTts(message: UIMessage): MessageTts {
       cancelled = true;
       ctrl.abort();
     };
-  }, [autoPrefetch, hasSpeech, message.role, message.isStreaming, message.id, speech]);
+  }, [autoPrefetch, hasSpeech, message.role, message.isStreaming, message.id, speech, maxSegmentChars]);
 
   // Clean up on unmount.
   useEffect(

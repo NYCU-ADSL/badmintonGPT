@@ -558,10 +558,10 @@
       }
     },
     "exec": {
-      "enable": false,
+      "enable": true,
       "timeout": 60,
       "pathAppend": "",
-      "sandbox": "",
+      "sandbox": "bwrap",
       "allowedEnvKeys": [],
       "allowPatterns": [],
       "denyPatterns": []

@@ -207,6 +207,9 @@ export interface BootstrapResponse {
   tts?: {
     default_voice?: string;
     auto_prefetch?: boolean;
+    /** Server-driven (TTS_SEGMENT_CHARS) max chars per chunked /api/tts request — keeps
+     *  time-to-first-audio low since the proxy is non-streaming. */
+    max_segment_chars?: number;
   };
 }
 
