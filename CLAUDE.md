@@ -26,6 +26,15 @@ repo's own MCPs live under `mcps/`, each self-contained:
   containerize it here (a Dockerfile for self-hosting is being added to the separate
   `badminton-reels` repo; this repo's config keeps pointing at the remote URL); see
   `docs/REELS_MCP_HANDOFF.md` (how it was built) and `docs/reels_mcp_usage.md` (how to connect).
+- **`badminton-video-retrieval`** — a **remote** MCP (deployed at `video-retrieval.nycu-cgvlab.org`,
+  behind Cloudflare Access) that does **natural-language semantic video-clip retrieval** over a
+  Milvus vector DB. Standard async-job contract (`start_video_retrieval(query, return_mode)` →
+  `get_video_retrieval_status` → `get_video_retrieval_result`; plus `get_service_health` /
+  `list_milvus_collections`), so it reuses the generic `long-mcp-job` wait recipe. This repo does not
+  implement or containerize it — config just points at the remote URL with
+  `${VIDEO_RETRIEVAL_CF_CLIENT_ID}`/`${VIDEO_RETRIEVAL_CF_CLIENT_SECRET}` headers. **`query` must be
+  English** (the agent translates the user's request); domain playbook in
+  `skills/badminton-video-retrieval/`.
 - **`mcps/util/server.py`** — local **stdio** MCP `util` with a single `sleep(seconds≤60)` tool;
   exists solely to pace the async-job polling loop (registered with `toolTimeout: 70`). NOT its own
   container — the gateway launches it in-process over stdio.
@@ -44,12 +53,15 @@ Pages at `badmintongpt-docs.nycu-adsl.cc`. `mcp_test/` is a read-only MCP confor
 Config that drives all this is **committed in the repo** under `nanobot/` (the canonical templates)
 and lands in `~/.nanobot/` at runtime — copied in host mode (config copied/pointed at, skills via
 `scripts/sync_skills.sh`), installed by `docker/entrypoint.sh` in the Docker deploy:
-- `nanobot/config.json` — providers, websocket channel (:8765), `tools.mcpServers` (all three MCPs):
+- `nanobot/config.json` — providers, websocket channel (:8765), `tools.mcpServers` (all four MCPs):
   `badminton-db` = `{ "type": "streamableHttp", "url": "http://badminton-db:8801/mcp",
   "enabledTools": [...] }` (no auth); `util` = `{ "type": "stdio", "command": "python3",
   "args": ["/app/mcps/util/server.py"], "enabledTools": ["sleep"], "toolTimeout": 70 }`;
   `badminton-reels` = remote `streamableHttp` at `https://reels-mcp.nycu-adsl.cc/mcp` with
-  `CF-Access-Client-Id`/`-Secret` headers (`${REELS_CF_CLIENT_ID}`/`${REELS_CF_CLIENT_SECRET}`).
+  `CF-Access-Client-Id`/`-Secret` headers (`${REELS_CF_CLIENT_ID}`/`${REELS_CF_CLIENT_SECRET}`);
+  `badminton-video-retrieval` = remote `streamableHttp` at
+  `https://video-retrieval.nycu-cgvlab.org/mcp` with the same CF headers
+  (`${VIDEO_RETRIEVAL_CF_CLIENT_ID}`/`${VIDEO_RETRIEVAL_CF_CLIENT_SECRET}`).
   No secrets in the file (uses `${VAR}`); the committed copy uses **container paths/hosts**
   (`/app/...`, `http://badminton-db:8801`, websocket host `0.0.0.0`). The host-mode
   `~/.nanobot/config.json` instead points `badminton-db` at `http://127.0.0.1:8801/mcp` and uses

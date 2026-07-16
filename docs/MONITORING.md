@@ -24,6 +24,7 @@ badmintongpt-status.<zone>   gatus  ── checks ──┐
    │                     │     │ (alias          └─▶ public targets:
 cloudflared ─────────────┘     │  status-page)       https://badmintongpt.<zone>/      (edge, behind Access)
   → status-page:3000 ──────────┘                     https://reels-mcp.<zone>/healthz   (CF Access token)
+                                                      https://video-retrieval.nycu-cgvlab.org/healthz (public)
                                                       https://badmintongpt-docs.<zone>/ (Pages)
 ```
 
@@ -31,7 +32,8 @@ cloudflared ─────────────┘     │  status-page)    
 
 See [`monitoring/gatus/config/config.yaml`](../monitoring/gatus/config/config.yaml). Six checks:
 `badminton-db` MCP `/healthz` and the agent gateway WebUI (checked **internally** by container name),
-plus the public gateway edge, the remote reels MCP, and the docs site (checked **externally**).
+plus the public gateway edge, the remote reels MCP, the remote video-retrieval MCP, and the docs site
+(checked **externally**).
 
 | target | scope | condition |
 |---|---|---|
@@ -39,6 +41,7 @@ plus the public gateway edge, the remote reels MCP, and the docs site (checked *
 | `http://badmintongpt-gateway:8765/` | internal | `200` |
 | `https://badmintongpt.nycu-adsl.cc/` | public edge | `status < 500` (Access returns 302/403; 5xx = down) |
 | `https://reels-mcp.nycu-adsl.cc/healthz` | public | `200` (with CF-Access headers) |
+| `https://video-retrieval.nycu-cgvlab.org/healthz` | public | `200` + body `ok == true` (no Access) |
 | `https://badmintongpt-docs.nycu-adsl.cc/` | public | `200` |
 
 ## Prerequisites

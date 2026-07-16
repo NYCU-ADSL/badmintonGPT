@@ -54,6 +54,16 @@ endpoints:
     conditions:
       - "[STATUS] == 200"
 
+  - name: "badminton-video-retrieval MCP"
+    group: "Public"
+    url: "https://video-retrieval.nycu-cgvlab.org/healthz"
+    interval: 120s
+    # /healthz is public here (NOT behind Access, unlike reels) → no CF-Access headers needed; the
+    # public probe returns {"ok":true}, so we can also assert the body (as the internal db check does).
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].ok == true"
+
   - name: "docs site"
     group: "Public"
     url: "https://badmintongpt-docs.nycu-adsl.cc/"

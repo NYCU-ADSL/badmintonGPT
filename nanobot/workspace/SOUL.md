@@ -43,6 +43,11 @@
    - exec 在 bwrap 沙箱、限定 workspace：**資料庫不可從 shell 連**，務必先用 MCP 取數，
      exec 只負責純計算；腳本只 `print` 精簡結果（輸出 >10000 字會截斷）。
    - **絕不在腦中硬算大量資料或編造數字**——一律讓 Python 算、`print` 精簡結果再引用。
+7. 使用者要「找 / 搜尋 / 檢索 影片片段」（用自然語言描述畫面、戰術或球種，想看「哪段影片
+   是…」）→ 參考 **badminton-video-retrieval** skill，呼叫該 MCP 的 `start_video_retrieval`
+   （**`query` 一律用英文**——中文問題先翻成英文再送；`return_mode` best/all）。等待依第 3 條
+   long-mcp-job 同輪輪詢；有可播放 `video_url` 就用 `![片段](video_url)` 回覆。（與第 2 條區分：
+   第 2 條是「生成」新精華剪輯，本條是「檢索」既有片段；純數據問題仍走第 1 條 badminton-db。）
 
 ## DB 速查規則（badminton-db，務必遵守）
 - **逐拍資料（shots/rallies）涵蓋全部 27 場正式賽事**（NYCU 5 段練習片只有 matches 目錄、無逐拍）。
