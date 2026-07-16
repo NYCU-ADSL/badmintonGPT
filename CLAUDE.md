@@ -168,13 +168,21 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   503. Server-side only; it never reaches the browser. See "Message TTS" below + `docs/MESSAGE_TTS.md`.
 - Model in config is the **bare** name (not `"openai/gpt-5.1"`) with `provider: "openai"`. It is now
   env-driven: `nanobot/config.json` has `"model": "${NANOBOT_MODEL}"`, set via `.env`
-  (`NANOBOT_MODEL=gpt-5.1`). nanobot **errors on an unset `${VAR}`**, so both modes provide a
-  fallback: `scripts/load_env.sh` exports `NANOBOT_MODEL:-gpt-5.1` (host) and `docker-compose.yml`
-  uses `${NANOBOT_MODEL:-gpt-5.1}` (Docker). The WebUI Settings panel reads config **unresolved**
+  (`NANOBOT_MODEL=gpt-5.5`). nanobot **errors on an unset `${VAR}`**, so both modes provide a
+  fallback: `scripts/load_env.sh` exports `NANOBOT_MODEL:-gpt-5.5` (host) and `docker-compose.yml`
+  uses `${NANOBOT_MODEL:-gpt-5.5}` (Docker). The WebUI Settings panel reads config **unresolved**
   (so it wouldn't expand `${VAR}`); the fork's `settings_api.py` change makes it
   resolve the model for display (like `api_base`) and **not clobber** the `${NANOBOT_MODEL}` ref
   when the WebUI echoes the resolved value back on save. (Bootstrap/header already uses the resolved
   runtime model, so only Settings needed it.)
+- **A second, switchable "Custom" model** rides on nanobot's `model_presets` (the WebUI Settings model
+  picker shows it next to the GPT-5.5 default; default stays GPT-5.5). `nanobot/config.json` wires
+  `providers.custom` = `{apiKey: "${CUSTOM_MODEL_API_KEY}", apiBase: "${CUSTOM_MODEL_API_BASE}"}` (any
+  OpenAI-compatible endpoint) and `model_presets.custom` = `{model: "${CUSTOM_MODEL_API_MODEL}",
+  provider: "custom"}`. All three `CUSTOM_MODEL_API_*` come from `.env`; same unset-`${VAR}`-crash rule
+  applies, so `scripts/load_env.sh` and `docker-compose.yml` export **empty** fallbacks (an empty var
+  is "set" → no crash; an unset one crashes). The preset is inert until all three are filled — selecting
+  it with no `apiKey` raises `No API key configured for provider 'custom'` at turn time (not startup).
 - **Skills must be COPIED into `~/.nanobot/workspace/skills/`, never symlinked.** With
   `restrictToWorkspace: true` (the deployed config), the read_file boundary check
   (`security/workspace_policy.py:is_path_within`) calls `Path.resolve()`, which **follows

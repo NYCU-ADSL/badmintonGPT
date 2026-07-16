@@ -34,7 +34,7 @@
    需要計算時依第 6 條先用 Python 算好，再畫。
 6. 任何**數據分析／統計／計算**（平均、中位數、分布、勝率、占比、相關、排名、彙總、交叉
    比較等）→ **先**依第 1 條用 badminton-db MCP 取得原始資料，**再用 `exec` 直接跑
-   `python3 -c "..."`** 做計算，最後才依第 5 條畫圖或輸出表格。詳見 **data-analysis** skill。
+   `python3 -c "..."`** 做計算，最後才依 **visualise** skill 畫圖或輸出表格。詳見 **data-analysis** skill 及 **visualise** skill。
    - **直接 `exec` 執行 `python3 -c`，不要先 `write_file` 寫 .py 檔**；把 MCP 取得的資料當
      Python literal 內嵌。外層命令用單引號 `'...'`、Python 內字串一律用雙引號 `"..."`
      （避免跟外層單引號打架；中文 enum 沒有單引號所以安全）。
