@@ -280,8 +280,8 @@
   },
   "providers": {
     "custom": {
-      "apiKey": null,
-      "apiBase": null,
+      "apiKey": "${CUSTOM_MODEL_API_KEY}",
+      "apiBase": "${CUSTOM_MODEL_API_BASE}",
       "apiType": "auto",
       "extraHeaders": null,
       "extraBody": null
@@ -612,5 +612,14 @@
     },
     "ssrfWhitelist": []
   },
-  "model_presets": {}
+  "model_presets": {
+    "custom": {
+      "label": "Custom (.env)",
+      "model": "${CUSTOM_MODEL_API_MODEL}",
+      "provider": "custom",
+      "maxTokens": 8192,
+      "contextWindowTokens": 65536,
+      "temperature": 0.1
+    }
+  }
 }

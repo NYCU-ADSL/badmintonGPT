@@ -35,7 +35,14 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}
       # Agent default model — config.json resolves ${NANOBOT_MODEL}; fallback keeps startup safe
       # if it's absent from .env (nanobot errors on an unset ${VAR} reference).
-      NANOBOT_MODEL: ${NANOBOT_MODEL:-gpt-5.1}
+      NANOBOT_MODEL: ${NANOBOT_MODEL:-gpt-5.5}
+      # Optional "Custom" model preset (config.json providers.custom + model_presets.custom; selectable
+      # in the WebUI Settings model picker — the default stays GPT-5.5). Empty fallbacks keep startup
+      # safe when unset (nanobot errors only on an *unset* ${VAR}, not an empty one); the preset works
+      # once all three are filled in .env.
+      CUSTOM_MODEL_API_BASE: ${CUSTOM_MODEL_API_BASE:-}
+      CUSTOM_MODEL_API_KEY: ${CUSTOM_MODEL_API_KEY:-}
+      CUSTOM_MODEL_API_MODEL: ${CUSTOM_MODEL_API_MODEL:-}
       REELS_CF_CLIENT_ID: ${REELS_CF_CLIENT_ID:?set REELS_CF_CLIENT_ID in .env}
       REELS_CF_CLIENT_SECRET: ${REELS_CF_CLIENT_SECRET:?set REELS_CF_CLIENT_SECRET in .env}
       # Message TTS (WebUI speaker button) — server-side only; the gateway proxies /api/tts so the
