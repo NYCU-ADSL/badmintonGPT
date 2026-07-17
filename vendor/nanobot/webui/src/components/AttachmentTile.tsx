@@ -50,7 +50,7 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
     );
   }
 
-  if (attachment.kind === "video" && hasUrl) {
+  if (attachment.kind === "video" && hasUrl && !failed) {
     return (
       <AttachmentFrame
         attachment={attachment}
@@ -62,6 +62,12 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
           src={attachment.url}
           controls
           preload="auto"
+          playsInline
+          // A browser without the needed decoder (e.g. Firefox lacking H.264 support) fires
+          // `error` with MEDIA_ERR_SRC_NOT_SUPPORTED and would show a dead "No video with
+          // supported format and MIME type found." box — degrade to the download-link tile
+          // instead so the user can still open the file in a local player.
+          onError={() => setFailed(true)}
           className={cn(
             "block w-full bg-black",
             variant === "compact" ? "max-h-40" : "max-h-[26rem]",
@@ -84,7 +90,10 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
     </>
   );
 
-  if (hasUrl && !failed) {
+  // Videos keep the download link even after a playback `error`: the file is typically a real,
+  // fetchable video the browser merely cannot decode, so the link stays useful (open/download and
+  // play locally). Failed images keep the old behavior (their URL is usually just broken).
+  if (hasUrl && (!failed || attachment.kind === "video")) {
     return (
       <a
         href={attachment.url}
