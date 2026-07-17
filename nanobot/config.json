@@ -602,6 +602,15 @@
         },
         "enabledTools": ["generate_reel", "get_reel_status", "get_reel_result"]
       },
+      "badminton-video-retrieval": {
+        "type": "streamableHttp",
+        "url": "https://video-retrieval.nycu-cgvlab.org/mcp",
+        "headers": {
+          "CF-Access-Client-Id": "${VIDEO_RETRIEVAL_CF_CLIENT_ID}",
+          "CF-Access-Client-Secret": "${VIDEO_RETRIEVAL_CF_CLIENT_SECRET}"
+        },
+        "enabledTools": ["start_video_retrieval", "get_video_retrieval_status", "get_video_retrieval_result", "get_service_health", "list_milvus_collections"]
+      },
       "util": {
         "type": "stdio",
         "command": "python3",

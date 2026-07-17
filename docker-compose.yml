@@ -45,6 +45,9 @@ services:
       CUSTOM_MODEL_API_MODEL: ${CUSTOM_MODEL_API_MODEL:-}
       REELS_CF_CLIENT_ID: ${REELS_CF_CLIENT_ID:?set REELS_CF_CLIENT_ID in .env}
       REELS_CF_CLIENT_SECRET: ${REELS_CF_CLIENT_SECRET:?set REELS_CF_CLIENT_SECRET in .env}
+      # badminton-video-retrieval (remote MCP, Cloudflare Access) — config.json resolves these ${VAR}s.
+      VIDEO_RETRIEVAL_CF_CLIENT_ID: ${VIDEO_RETRIEVAL_CF_CLIENT_ID:?set VIDEO_RETRIEVAL_CF_CLIENT_ID in .env}
+      VIDEO_RETRIEVAL_CF_CLIENT_SECRET: ${VIDEO_RETRIEVAL_CF_CLIENT_SECRET:?set VIDEO_RETRIEVAL_CF_CLIENT_SECRET in .env}
       # Message TTS (WebUI speaker button) — server-side only; the gateway proxies /api/tts so the
       # key never reaches the browser. Optional: unset → the speaker button returns 503 (feature off).
       TTS_API_KEY: ${TTS_API_KEY:-}
