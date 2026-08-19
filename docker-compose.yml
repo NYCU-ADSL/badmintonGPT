@@ -5,7 +5,9 @@
 #   cloudflared   tunnels ${BADMINTONGPT_HOSTNAME} -> gateway:8765
 #   ingest        one-shot DB build (profile), shares the badminton-db image
 #
-# Required in .env:  OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET, TUNNEL_TOKEN
+# Required in .env:  OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET,
+#                    VIDEO_RETRIEVAL_CF_CLIENT_ID, VIDEO_RETRIEVAL_CF_CLIENT_SECRET,
+#                    ANALYZE_MCP_TOKEN, TUNNEL_TOKEN
 # Build the DB once: docker compose --profile ingest run --rm ingest   (needs HF_TOKEN)
 # Bring it up:       docker compose up -d --build
 
@@ -48,6 +50,8 @@ services:
       # badminton-video-retrieval (remote MCP, Cloudflare Access) — config.json resolves these ${VAR}s.
       VIDEO_RETRIEVAL_CF_CLIENT_ID: ${VIDEO_RETRIEVAL_CF_CLIENT_ID:?set VIDEO_RETRIEVAL_CF_CLIENT_ID in .env}
       VIDEO_RETRIEVAL_CF_CLIENT_SECRET: ${VIDEO_RETRIEVAL_CF_CLIENT_SECRET:?set VIDEO_RETRIEVAL_CF_CLIENT_SECRET in .env}
+      # badminton-analyze (remote MCP, CoachAI) — bearer token, not Cloudflare Access.
+      ANALYZE_MCP_TOKEN: ${ANALYZE_MCP_TOKEN:?set ANALYZE_MCP_TOKEN in .env}
       # Message TTS (WebUI speaker button) — server-side only; the gateway proxies /api/tts so the
       # key never reaches the browser. Optional: unset → the speaker button returns 503 (feature off).
       TTS_API_KEY: ${TTS_API_KEY:-}

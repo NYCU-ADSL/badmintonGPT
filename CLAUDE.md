@@ -35,10 +35,19 @@ repo's own MCPs live under `mcps/`, each self-contained:
   `${VIDEO_RETRIEVAL_CF_CLIENT_ID}`/`${VIDEO_RETRIEVAL_CF_CLIENT_SECRET}` headers. **`query` must be
   English** (the agent translates the user's request); domain playbook in
   `skills/badminton-video-retrieval/`.
+- **`badminton-analyze`** — a **remote** MCP (CoachAI, `coachai.cs.nycu.edu.tw/mcp`, bearer token)
+  giving **per-match advanced analytics**: `get_backcourt_count`, `get_shot_height`,
+  `get_lost_point_distribution`, `get_shot_win_rate`, `get_rally_rest_time`,
+  `get_running_distance`, `get_smash_followup_speed`, `verify_match_statistics`. All **synchronous**
+  (no job polling). Every tool keys off **`match_id`, a numeric CoachAI id — NOT our folder name**
+  (passing a name 400s); it lives in `matches.analyze_match_id` (see Gotchas). This repo neither
+  implements nor containerizes it — config points at the remote URL with an
+  `Authorization: Bearer ${ANALYZE_MCP_TOKEN}` header. Playbook: `skills/badminton-analyze/`.
 - **`mcps/util/server.py`** — local **stdio** MCP `util` with a single `sleep(seconds≤60)` tool;
   exists solely to pace the async-job polling loop (registered with `toolTimeout: 70`). NOT its own
   container — the gateway launches it in-process over stdio.
-- **`skills/badminton-db/`, `skills/badminton-reels/`, `skills/long-mcp-job/`** — `SKILL.md`
+- **`skills/badminton-db/`, `skills/badminton-reels/`, `skills/badminton-analyze/`,
+  `skills/long-mcp-job/`** — `SKILL.md`
   playbooks (enum values, query conventions, and the **generic async-job wait recipe** — any MCP
   returning `{job_id, state}` is polled in-turn with util `sleep`; never cron, never mid-poll text).
   Progressive-disclosure; they do NOT do the access.
@@ -53,7 +62,7 @@ Pages at `badmintongpt-docs.nycu-adsl.cc`. `mcp_test/` is a read-only MCP confor
 Config that drives all this is **committed in the repo** under `nanobot/` (the canonical templates)
 and lands in `~/.nanobot/` at runtime — copied in host mode (config copied/pointed at, skills via
 `scripts/sync_skills.sh`), installed by `docker/entrypoint.sh` in the Docker deploy:
-- `nanobot/config.json` — providers, websocket channel (:8765), `tools.mcpServers` (all four MCPs):
+- `nanobot/config.json` — providers, websocket channel (:8765), `tools.mcpServers` (all five MCPs):
   `badminton-db` = `{ "type": "streamableHttp", "url": "http://badminton-db:8801/mcp",
   "enabledTools": [...] }` (no auth); `util` = `{ "type": "stdio", "command": "python3",
   "args": ["/app/mcps/util/server.py"], "enabledTools": ["sleep"], "toolTimeout": 70 }`;
@@ -61,7 +70,10 @@ and lands in `~/.nanobot/` at runtime — copied in host mode (config copied/poi
   `CF-Access-Client-Id`/`-Secret` headers (`${REELS_CF_CLIENT_ID}`/`${REELS_CF_CLIENT_SECRET}`);
   `badminton-video-retrieval` = remote `streamableHttp` at
   `https://video-retrieval.nycu-cgvlab.org/mcp` with the same CF headers
-  (`${VIDEO_RETRIEVAL_CF_CLIENT_ID}`/`${VIDEO_RETRIEVAL_CF_CLIENT_SECRET}`).
+  (`${VIDEO_RETRIEVAL_CF_CLIENT_ID}`/`${VIDEO_RETRIEVAL_CF_CLIENT_SECRET}`);
+  `badminton-analyze` = remote `streamableHttp` at `https://coachai.cs.nycu.edu.tw/mcp` with
+  `Authorization: Bearer ${ANALYZE_MCP_TOKEN}` (bearer, **not** Cloudflare Access — the only MCP
+  that breaks the `<NAME>_CF_CLIENT_ID/SECRET` convention).
   No secrets in the file (uses `${VAR}`); the committed copy uses **container paths/hosts**
   (`/app/...`, `http://badminton-db:8801`, websocket host `0.0.0.0`). The host-mode
   `~/.nanobot/config.json` instead points `badminton-db` at `http://127.0.0.1:8801/mcp` and uses
@@ -87,20 +99,33 @@ nanobot v0.2.1 facts). Setup walkthrough: `README.md`.
 
 ## Data model & flow
 
-HuggingFace dataset `howard9199/Badminton` → `mcps/badminton-db/ingest.py` → `data/badminton.db`
-(SQLite). Three tables: `matches` (32 folders = 27 official + 5 NYCU practice), `rallies`, `shots`.
+HuggingFace dataset `howard9199/Badminton` **+ any `--local-data DIR`** →
+`mcps/badminton-db/ingest.py` → `data/badminton.db` (SQLite). Three tables: `matches`
+(**194 folders** = 189 official + 5 NYCU practice, 2022–2024), `rallies`, `shots`.
+`matches.source` records which dataset a folder came from (`hf` = 32, `Data-old` = 162) and
+`matches.analyze_match_id` carries the CoachAI id for the `badminton-analyze` MCP (188 mapped).
+The second source is `todo0819/Data-old.zip` (190 folders, a superset of the HF set — its 27
+overlapping folders are byte-identical and deduped away): unpack CSVs + a video manifest with
+`scripts/extract_data_old.py`, then `ingest.py --local-data data/Data-old`. The archive's 39 GB of
+`rally_video/` is **not** kept here — `scripts/extract_data_old.py --videos-to <reels>/data/Data`
+puts the ~26 GB the HF dataset lacks on the badminton-reels host (its `DataLoader` now prefers local
+files over HF, so those matches are renderable). `scripts/upload_data_old_to_hf.py` pushes the new
+CSVs to HF for a from-scratch rebuild — it needs a **write**-scoped `HF_TOKEN` (the current login is
+read-only, so this step is still pending).
 `ingest.py` is now **decoupled from `../badminton-reels`** — it imports from the vendored
 `mcps/badminton-db/ingest_lib/` (`RallySegment`/`ShotLabel` models, `parse.extract_tournament_round`,
 a thin HF `DataLoader`) instead of injecting `$REELS_SRC` or importing `badminton.data_loader` /
 `badminton.models`. The DB build therefore needs **only `HF_TOKEN`** (no `OPENAI`/`FISH`/reels).
-`shots`/`rallies` currently cover **all 27 official matches** (~24k shots); practice clips have
-catalog metadata only.
+`shots` now covers **138 matches** (~117k shots) and `rallies` **169**; the rest (practice clips and
+archive folders shipped without annotation) have catalog metadata only. Since one query can now span
+138 matches, **per-match questions MUST filter by `match_name`**.
 
 Ground truth for verification lives in `mcps/badminton-db/scripts/ground_truth.py` (in-memory oracle)
 and is asserted by `mcps/badminton-db/scripts/verify_db.py`. `scripts/test_decouple_parity.py` (same
 dir) checks
-the vendored `ingest_lib/` parsing still matches the upstream reels parsing. The 9-question
-success-metric bank is in `docs/TASK.md` / `eval/run_eval.py`.
+the vendored `ingest_lib/` parsing still matches the upstream reels parsing. The success-metric bank
+(9 original questions + 2 for the merged data / badminton-analyze) is in `docs/TASK.md` /
+`eval/run_eval.py`.
 
 ## Commands
 
@@ -112,16 +137,20 @@ uv tool install nanobot-ai && nanobot onboard
 cp .env.example .env                      # fill OPENAI_API_KEY + REELS_CF_CLIENT_ID/SECRET
 
 # --- build / verify the DB (all paths under mcps/badminton-db/) ---
-.venv/bin/python mcps/badminton-db/ingest.py                # all 27 official matches (CSVs, not videos; needs HF_TOKEN)
+.venv/bin/python scripts/extract_data_old.py                # unpack todo0819/Data-old.zip: CSVs + video manifest -> data/Data-old/
+.venv/bin/python scripts/extract_data_old.py --videos-to /mnt/ssd1/howchien/badminton-reels/data/Data   # ~26 GB of rally clips -> the reels host
+.venv/bin/python mcps/badminton-db/ingest.py --local-data data/Data-old   # THE build: HF + the merged archive (CSVs only, no videos)
+.venv/bin/python mcps/badminton-db/ingest.py                # HF only (32 folders) — leaves the merged matches out
 .venv/bin/python mcps/badminton-db/ingest.py --catalog-only # only the matches catalog
 .venv/bin/python mcps/badminton-db/ingest.py --only <folder|name> --limit N   # subset (testing)
-.venv/bin/python mcps/badminton-db/scripts/verify_db.py     # 23 assertions vs ground truth
+.venv/bin/python mcps/badminton-db/scripts/verify_db.py     # 30 assertions vs ground truth
+.venv/bin/python scripts/upload_data_old_to_hf.py --dry-run # what the HF push would upload (needs a WRITE HF_TOKEN to run for real)
 .venv/bin/python mcps/badminton-db/scripts/ground_truth.py  # recompute the oracle numbers
 .venv/bin/python mcps/badminton-db/scripts/test_decouple_parity.py  # vendored ingest_lib vs upstream reels parsing
 
 # --- run the db MCP standalone ---
 MCP_TRANSPORT=stdio .venv/bin/python mcps/badminton-db/scripts/test_db_mcp.py   # stdio smoke test, no nanobot
-MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py                 # HTTP server at http://127.0.0.1:8801/mcp (host/dev mode)
+BADMINTON_DB=$PWD/data/badminton.db MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py   # http://127.0.0.1:8801/mcp (host/dev; server.py has NO default DB path)
 
 # --- test any MCP server (conformance probe, used by other sub-projects too) ---
 .venv/bin/python -m mcp_test https://reels-mcp.nycu-adsl.cc/mcp \
@@ -133,7 +162,7 @@ MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py                 
 
 # --- run the agent (host/dev mode) ---
 source scripts/load_env.sh                # exports OPENAI_API_KEY + CF_* from ./.env (no fallback)
-MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py &   # db MCP over HTTP (host config points here)
+BADMINTON_DB=$PWD/data/badminton.db MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py &  # db MCP over HTTP (host config points here)
 nanobot gateway                           # WebUI at http://127.0.0.1:8765 (util stays in-process stdio)
 nanobot agent -m "資料庫裡有哪些 Axelsen 的比賽？"   # one-shot headless
 
@@ -142,8 +171,8 @@ docker compose --profile ingest run --rm ingest   # build ./data/badminton.db on
 docker compose up -d --build                       # gateway (patched WebUI) + badminton-db + cloudflared
 
 # --- success-metric eval (drives `nanobot agent`, parses ↳ tool hints) ---
-.venv/bin/python eval/run_eval.py --skip-reels   # 8 cheap cases
-.venv/bin/python eval/run_eval.py                # all 9 (Q7 triggers a real remote render)
+.venv/bin/python eval/run_eval.py --skip-reels   # 10 cheap cases
+.venv/bin/python eval/run_eval.py                # all 11 (Q7 triggers a real remote render)
 .venv/bin/python eval/run_eval.py --only 4
 ```
 
@@ -157,7 +186,22 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   `command`. Only the stdio `util` server still carries an absolute python path.
 - **`rallies`/`shots` join key is `match_name` = `matches.name` WITHOUT the `.mp4` suffix.**
   Scoping a per-shot query by `matches.folder` (which has `.mp4`) returns 0 rows. Since `shots`
-  now holds 27 matches, **per-match questions MUST filter by `match_name`** or they sum across all.
+  now holds **138** matches, **per-match questions MUST filter by `match_name`** or they sum across
+  all of them — and with 194 folders the same two players now appear in many matches, so narrow with
+  `tournament`/`year`/`round` too.
+- **`analyze_match_id` is CoachAI's numeric id, not anything of ours.** The `badminton-analyze` MCP
+  addresses a match by its position in `https://coachai.cs.nycu.edu.tw:55000/api/db-api/match`
+  **+ 4** (valid range 4–371; verified: our Axelsen–Lee match == 123, whose B 放小球 = 183 matches
+  `verify_db.py` exactly, which also confirms their A/B binding equals ours). `ingest.py` fetches
+  that list and maps it by normalized folder name (fail-soft → NULL; `--no-analyze-ids` skips).
+  Passing a folder/match name to the MCP instead returns `Failed to fetch set data: 400`, and its
+  `players` field is always the literal `"Player A"/"Player B"` — real names must come from
+  `matches.player_a/_b`.
+- **One Data-old label CSV is mojibake upstream** (`AN_Se_Young_CHEN_Yu_Fei_Malaysia_Open_2023_SF`
+  set2): its `type` values arrive as unrecoverable garbage (literal `?` = bytes already lost, so no
+  re-decode helps). `ingest.clean_shot_type` folds those onto the existing `未知球種` enum member so
+  the documented enum stays closed; `verify_db.py` asserts no `?` survives in `shots.type`.
+  Genuinely new labels (`死球`, from the 2023/2024 matches) pass through untouched.
 - **A/B ↔ player name**: do NOT reconstruct it from a rally's up/down court (it flips between games).
   `mcps/badminton-db/ingest.py:derive_ab` binds A = the player whose name appears first in the
   folder, matched case/underscore-insensitively. `matches.player_a/_b` are only filled for matches

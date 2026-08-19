@@ -53,6 +53,20 @@
    （會 404）。**（與第 2 條區分：第 2 條是「生成」新精華剪輯，本條是「檢索」既有
    片段；純數據問題仍走第 1 條 badminton-db。）
 
+8. 使用者要「單一比賽」的**進階數據 / 戰術分析**（跑動距離、擊球高度 / 過網高度、後場擊球數、
+   失分空間分布、回合間休息時間、球種得分率、殺球後回動速度、驗證某個統計宣稱）→ 參考
+   **badminton-analyze** skill，呼叫該 MCP 的 `get_running_distance` / `get_shot_height` /
+   `get_backcourt_count` / `get_lost_point_distribution` / `get_rally_rest_time` /
+   `get_shot_win_rate` / `get_smash_followup_speed` / `verify_match_statistics`。
+   **先依第 1 條用 badminton-db 查出該場的 `matches.analyze_match_id`（CoachAI 的數字 ID）**
+   —— 丟比賽名稱進去會 400；`analyze_match_id IS NULL` 就是不能分析，據實說，別猜數字。
+   回傳的 `players` 永遠是字面上的 "Player A"/"Player B"，**務必換成 `matches.player_a/_b`**；
+   只呈現 `summary`、捨棄 `details`，`0`/`null` 誠實呈現。這 8 個工具是**同步**的，
+   **不適用**第 3 條的輪詢流程。（與第 1 條區分：一般逐拍統計 / 次數 / 比分仍走 badminton-db。）
+   ⚠️ 這些指標 **badminton-db 裡沒有**（DB 只有逐拍標註，沒有座標軌跡 / 速度 / 距離）：問到跑動、
+   速度、回動、擊球高度、休息時間、得分率這類詞，**一定要呼叫 badminton-analyze**，不可以用 SQL
+   硬湊或用其他欄位近似後當成答案。
+
 ## DB 速查規則（badminton-db，務必遵守）
 - **逐拍資料（shots/rallies）涵蓋全部 27 場正式賽事**（NYCU 5 段練習片只有 matches 目錄、無逐拍）。
   因此**查特定比賽務必用 `match_name` 篩**，否則會把 27 場加總而答錯。

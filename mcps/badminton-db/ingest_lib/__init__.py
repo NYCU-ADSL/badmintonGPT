@@ -5,7 +5,7 @@ Vendors the small, stable surface ingest.py needs:
   - DataLoader               (hf_loader.py — minimal HF reader, HF_TOKEN-only)
   - extract_tournament_round (parse.py — verbatim from badminton-reels)
 """
-from .hf_loader import REPO_ID, DataLoader
+from .hf_loader import REPO_ID, DataLoader, parse_rally_seg
 from .models import RallySegment, ShotLabel
 from .parse import extract_tournament_round
 

@@ -20,6 +20,23 @@ from .parse import extract_tournament_round
 REPO_ID = "howard9199/Badminton"
 
 
+def parse_rally_seg(path: Path) -> list[RallySegment]:
+    """RallySeg.csv -> RallySegment list. Source-agnostic (HF download or local file)."""
+    segments: list[RallySegment] = []
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            segments.append(
+                RallySegment(
+                    score=row["Score"].strip(),
+                    up_court=row["UpCourt"].strip(),
+                    down_court=row["DownCourt"].strip(),
+                    start_frame=int(row["Start"]),
+                    end_frame=int(row["End"]),
+                )
+            )
+    return segments
+
+
 class DataLoader:
     """Minimal HF dataset reader for ingest.py (badminton-reels-free).
 
@@ -54,19 +71,7 @@ class DataLoader:
         )
 
     def _parse_rally_seg(self, path: Path) -> list[RallySegment]:
-        segments: list[RallySegment] = []
-        with open(path, encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                segments.append(
-                    RallySegment(
-                        score=row["Score"].strip(),
-                        up_court=row["UpCourt"].strip(),
-                        down_court=row["DownCourt"].strip(),
-                        start_frame=int(row["Start"]),
-                        end_frame=int(row["End"]),
-                    )
-                )
-        return segments
+        return parse_rally_seg(path)
 
     def _extract_tournament_round(self, match_name: str) -> tuple[str, str]:
         return extract_tournament_round(match_name)

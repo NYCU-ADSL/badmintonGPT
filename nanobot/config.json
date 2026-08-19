@@ -611,6 +611,15 @@
         },
         "enabledTools": ["start_video_retrieval", "get_video_retrieval_status", "get_video_retrieval_result", "get_service_health", "list_milvus_collections"]
       },
+      "badminton-analyze": {
+        "type": "streamableHttp",
+        "url": "https://coachai.cs.nycu.edu.tw/mcp",
+        "headers": {
+          "Authorization": "Bearer ${ANALYZE_MCP_TOKEN}"
+        },
+        "toolTimeout": 120,
+        "enabledTools": ["get_backcourt_count", "get_shot_height", "get_lost_point_distribution", "get_shot_win_rate", "get_rally_rest_time", "get_running_distance", "get_smash_followup_speed", "verify_match_statistics"]
+      },
       "util": {
         "type": "stdio",
         "command": "python3",

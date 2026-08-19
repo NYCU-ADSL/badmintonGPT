@@ -25,15 +25,16 @@ badmintongpt-status.<zone>   gatus  ── checks ──┐
 cloudflared ─────────────┘     │  status-page)       https://badmintongpt.<zone>/      (edge, behind Access)
   → status-page:3000 ──────────┘                     https://reels-mcp.<zone>/healthz   (CF Access token)
                                                       https://video-retrieval.nycu-cgvlab.org/healthz (public)
+                                                      https://coachai.cs.nycu.edu.tw/mcp  (POST initialize, bearer)
                                                       https://badmintongpt-docs.<zone>/ (Pages)
 ```
 
 ## What gets monitored
 
-See [`monitoring/gatus/config/config.yaml`](../monitoring/gatus/config/config.yaml). Six checks:
+See [`monitoring/gatus/config/config.yaml`](../monitoring/gatus/config/config.yaml). Seven checks:
 `badminton-db` MCP `/healthz` and the agent gateway WebUI (checked **internally** by container name),
-plus the public gateway edge, the remote reels MCP, the remote video-retrieval MCP, and the docs site
-(checked **externally**).
+plus the public gateway edge, the remote reels MCP, the remote video-retrieval MCP, the remote
+badminton-analyze MCP, and the docs site (checked **externally**).
 
 | target | scope | condition |
 |---|---|---|
@@ -42,6 +43,7 @@ plus the public gateway edge, the remote reels MCP, the remote video-retrieval M
 | `https://badmintongpt.nycu-adsl.cc/` | public edge | `status < 500` (Access returns 302/403; 5xx = down) |
 | `https://reels-mcp.nycu-adsl.cc/healthz` | public | `200` (with CF-Access headers) |
 | `https://video-retrieval.nycu-cgvlab.org/healthz` | public | `200` + body `ok == true` (no Access) |
+| `https://coachai.cs.nycu.edu.tw/mcp` | public | `POST` JSON-RPC `initialize` → `200` + body matches `BadmintonAnalysisServer` (bearer token; this server has **no** `/healthz` — `GET /` and `/healthz` both 500) |
 | `https://badmintongpt-docs.nycu-adsl.cc/` | public | `200` |
 
 ## Prerequisites

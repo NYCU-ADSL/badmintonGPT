@@ -42,16 +42,31 @@ def main() -> None:
     q = lambda sql, p=(): db.execute(sql, p).fetchall()
     one = lambda sql, p=(): db.execute(sql, p).fetchone()[0]
 
-    # catalog
-    check("matches total", one("SELECT COUNT(*) FROM matches"), 32)
-    check("matches official", one("SELECT COUNT(*) FROM matches WHERE is_practice=0"), 27)
+    # catalog — HF (32) + the merged Data-old archive (162 more; the archive's other 28
+    # folders are the HF ones again, deduped on the normalized name)
+    check("matches total", one("SELECT COUNT(*) FROM matches"), 194)
+    check("matches official", one("SELECT COUNT(*) FROM matches WHERE is_practice=0"), 189)
     check("matches practice", one("SELECT COUNT(*) FROM matches WHERE is_practice=1"), 5)
-    check("all year 2022",
-          one("SELECT COUNT(*) FROM matches WHERE year<>2022"), 0)
+    check("matches from hf", one("SELECT COUNT(*) FROM matches WHERE source='hf'"), 32)
+    check("matches from Data-old",
+          one("SELECT COUNT(*) FROM matches WHERE source='Data-old'"), 162)
+    check("every match has a source",
+          one("SELECT COUNT(*) FROM matches WHERE source IS NULL"), 0)
+    check("years within 2022-2024",
+          one("SELECT COUNT(*) FROM matches WHERE year NOT BETWEEN 2022 AND 2024"), 0)
 
     # Q1 Axelsen matches
     check("Q1 Axelsen matches",
-          one("SELECT COUNT(*) FROM matches WHERE name LIKE '%AXELSEN%'"), 6)
+          one("SELECT COUNT(*) FROM matches WHERE name LIKE '%AXELSEN%'"), 18)
+
+    # analyze_match_id (badminton-analyze MCP). The local match is the one we verified by
+    # hand against CoachAI (its per-set shot counts and B 放小球=183 line up exactly).
+    check("local analyze_match_id",
+          one("SELECT analyze_match_id FROM matches WHERE folder=?", (LOCAL,)), 123)
+    mapped = one("SELECT COUNT(*) FROM matches WHERE analyze_match_id IS NOT NULL")
+    total_m = one("SELECT COUNT(*) FROM matches")
+    results.append((mapped >= 180,
+                    f"analyze_match_id mapped: {mapped} of {total_m} matches"))
 
     # A/B mapping for local match
     row = one_row = db.execute(
@@ -109,9 +124,18 @@ def main() -> None:
     check("local match shots", one(
         "SELECT COUNT(*) FROM shots WHERE match_name=?", M), 1213)
 
-    # full ingest: all 27 official matches have per-shot data
+    # full ingest: every folder that ships label CSVs has per-shot data, every folder that
+    # ships RallySeg.csv has rallies (the rest are catalog-only: practice clips + folders
+    # the archive carries with no annotation at all)
     check("matches with per-shot data", one(
-        "SELECT COUNT(DISTINCT match_name) FROM shots"), 27)
+        "SELECT COUNT(DISTINCT match_name) FROM shots"), 138)
+    check("matches with rallies", one(
+        "SELECT COUNT(DISTINCT match_name) FROM rallies"), 169)
+
+    # shot types stay a closed Chinese enum: one Data-old label CSV is mojibake upstream
+    # and ingest.clean_shot_type folds it into 未知球種 (see that helper's comment).
+    check("no mojibake shot types",
+          one("SELECT COUNT(*) FROM shots WHERE type LIKE '%?%'"), 0)
 
     db.close()
 

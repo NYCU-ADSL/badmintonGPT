@@ -224,6 +224,15 @@ if __name__ == "__main__":
 }
 ```
 4. 長任務一律走「**非同步 job**」模式：`start_*` 回 `job_id` → `get_*_status` 輪詢 → `get_*_result`（見 reels）。
+5. **不是每台 remote 都用 Cloudflare Access**：`badminton-analyze`（CoachAI）用自己的 bearer token，
+   所以 headers 是 `{"Authorization": "Bearer ${ANALYZE_MCP_TOKEN}"}`，`.env` 也就不叫
+   `<NAME>_CF_CLIENT_ID/SECRET`。接別人家的 server 之前**務必先用 `python -m mcp_test <url> --header ...`
+   把工具名稱抓下來**：`todo0819/mcpserver.json` 給的 `register_*_tools` 其實不存在（真正是
+   `get_*` / `verify_match_statistics`），照抄會讓 `enabledTools` 篩掉全部工具、agent 一個也看不到。
+6. **健康檢查未必有 `/healthz`**：CoachAI 那台 `GET /` 與 `/healthz` 都回 500，只有 `/mcp` 可用。
+   這種情況在 gatus 用 `method: POST` + JSON-RPC `initialize` 當探針，條件寫
+   `[BODY] == pat(*<serverInfo.name>*)`（注意 gatus 的 pattern 語法是 `== pat(...)`，
+   不是 `pat ...`）。見 `monitoring/gatus/config/config.yaml`。
 
 ---
 

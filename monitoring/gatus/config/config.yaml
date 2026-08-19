@@ -64,6 +64,24 @@ endpoints:
       - "[STATUS] == 200"
       - "[BODY].ok == true"
 
+  - name: "badminton-analyze MCP"
+    group: "Public"
+    # No /healthz on this server (GET / and /healthz both 500), so probe the MCP endpoint
+    # itself with a JSON-RPC initialize — 200 + serverInfo.name proves the MCP handshake,
+    # which is exactly what nanobot needs. Each probe opens a session we never close, so
+    # keep the interval long.
+    url: "https://coachai.cs.nycu.edu.tw/mcp"
+    method: POST
+    interval: 300s
+    headers:
+      Authorization: "Bearer ${ANALYZE_MCP_TOKEN}"
+      Content-Type: "application/json"
+      Accept: "application/json, text/event-stream"
+    body: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gatus","version":"1"}}}'
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*BadmintonAnalysisServer*)"
+
   - name: "docs site"
     group: "Public"
     url: "https://badmintongpt-docs.nycu-adsl.cc/"

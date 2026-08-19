@@ -23,6 +23,7 @@ services:
       # Gatus substitutes ${VAR} in config.yaml from its own env (so no secrets live in the YAML).
       REELS_CF_CLIENT_ID: ${REELS_CF_CLIENT_ID:?set REELS_CF_CLIENT_ID in .env}
       REELS_CF_CLIENT_SECRET: ${REELS_CF_CLIENT_SECRET:?set REELS_CF_CLIENT_SECRET in .env}
+      ANALYZE_MCP_TOKEN: ${ANALYZE_MCP_TOKEN:?set ANALYZE_MCP_TOKEN in .env}
     ports:
       - "127.0.0.1:8095:3000"      # loopback preview/verify only; the world reaches it via cloudflared
     networks:

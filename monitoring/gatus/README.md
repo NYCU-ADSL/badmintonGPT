@@ -18,7 +18,7 @@ A single-container uptime monitor with a public status page at
 
 ```bash
 cd monitoring/gatus
-cp .env.example .env        # fill TUNNEL_TOKEN + REELS_CF_CLIENT_ID/SECRET
+cp .env.example .env        # fill TUNNEL_TOKEN + REELS_CF_CLIENT_ID/SECRET + ANALYZE_MCP_TOKEN
 docker compose up -d
 docker compose logs -f cloudflared    # watch the tunnel register
 ```

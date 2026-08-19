@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Success-metric harness: run the 9-question test bank against the live agent.
+"""Success-metric harness: run the 11-question test bank against the live agent.
 
 Drives `nanobot agent -m "<q>"` as a subprocess (one fresh session per question),
 parses the tool-call hints (lines with "↳") and the final answer, then checks:
@@ -11,6 +11,7 @@ plausible phrasing + correct routing (LLM wording varies).
 
 Env (OPENAI_API_KEY, CF_*) is loaded from the project/reels .env files.
 Usage: python eval/run_eval.py [--skip-reels] [--only N]
+(Q10/Q11 need the merged DB: ingest.py --local-data data/Data-old.)
 """
 from __future__ import annotations
 
@@ -29,20 +30,26 @@ MATCH = "Viktor_AXELSEN_LEE_Zii_Jia_EAST_VENTURES_Indonesia_Open_2022_Semifinals
 
 
 def load_env() -> dict:
+    """Mirror scripts/load_env.sh: export the WHOLE .env, plus the same fallbacks.
+
+    Not just OPENAI_API_KEY: config.json resolves `${VAR}` for every remote MCP's
+    credentials and for the model, and **nanobot aborts on an unset `${VAR}`** — so a
+    partial env makes `nanobot agent` die at startup and every case reports "tools: (none)".
+    """
     env = dict(os.environ)
     env["PATH"] = f"{Path.home()}/.local/bin:" + env.get("PATH", "")
 
-    def grab(path: Path, key: str) -> str | None:
-        if not path.exists():
-            return None
-        for line in path.read_text().splitlines():
-            if line.startswith(key + "="):
-                return line.split("=", 1)[1].strip()
-        return None
-
-    for k in ("OPENAI_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"):
-        if v := grab(GPT_ENV, k):
-            env[k] = v
+    if GPT_ENV.exists():
+        for line in GPT_ENV.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            env[k.strip()] = v.strip().strip('"').strip("'")
+    # An EMPTY var is "set" (no crash); an UNSET one crashes nanobot at startup.
+    env.setdefault("NANOBOT_MODEL", "gpt-5.5")
+    for k in ("CUSTOM_MODEL_API_BASE", "CUSTOM_MODEL_API_KEY", "CUSTOM_MODEL_API_MODEL"):
+        env.setdefault(k, "")
     if not env.get("OPENAI_API_KEY"):
         print(f"⚠️  OPENAI_API_KEY not in {GPT_ENV} — add it (no fallback).", file=sys.stderr)
     return env
@@ -75,7 +82,18 @@ CASES = [
     (8, "Viktor Axelsen 最近的世界排名如何？", "search",
      any_of("排名", "ranking", "BWF", "名"), 180),
     (9, "這個資料庫收錄哪一年、哪些等級的比賽？", "query",
-     lambda a: ("2022" in a and any(x in a for x in ("27", "32", "練習", "正式"))), 180),
+     lambda a: (any(y in a for y in ("2022", "2023", "2024"))
+                and any(x in a for x in ("194", "189", "138", "練習", "正式"))), 180),
+    # 10: the merged Data-old matches (2023/2024) — unreachable from the HF-only DB.
+    (10, "資料庫裡 2024 年的比賽有幾場？", "query", any_of("35"), 180),
+    # 11: badminton-analyze routing — must go through badminton-db for analyze_match_id
+    #     (=123 for this match) and report the real names, not "Player A"/"Player B".
+    (11, "分析 Axelsen 對 Lee Zii Jia 那場（2022 Indonesia Open 準決賽）殺球後的回動速度。",
+     "get_smash_followup_speed",
+     # 0.87 / 1.55 are values only badminton-analyze can produce — a DB-only answer
+     # (which cannot compute movement speed at all) must not pass this.
+     lambda a: (any(n in a for n in ("0.87", "1.55"))
+                and "AXELSEN" in a.upper() and "Player A" not in a), 240),
 ]
 
 

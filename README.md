@@ -3,6 +3,8 @@
 以 **nanobot** 為核心的羽球賽事 Agent。使用者在 web UI 提問，Agent 自主路由到：
 - **badminton-db MCP**（本地賽事 SQLite，唯讀 `query`/`list_tables`/`describe_table`）
 - **badminton-reels MCP**（remote，生成精華短影音）
+- **badminton-video-retrieval MCP**（remote，用自然語言檢索既有影片片段）
+- **badminton-analyze MCP**（remote，單場比賽的進階數據／戰術分析）
 - **web search**（DB 沒有的外部資訊）
 
 每個能力各配一個 **skill playbook**（行為層）；MCP 為存取層。完整設計見 [`docs/DESIGN.md`](./docs/DESIGN.md)，需求脈絡見 [`docs/TASK.md`](./docs/TASK.md)。所有說明文件都收在 [`docs/`](./docs)，repo 根目錄只留 `README.md` 與 `CLAUDE.md`。
@@ -13,17 +15,24 @@
 瀏覽器 ── ws:8765 ── nanobot Agent ──┬─ tools.mcpServers.badminton-db (streamableHttp, SELECT-only) ── badminton-db:8801/mcp ── badminton.db
    (SOUL.md 路由 + skills playbook)  ├─ tools.mcpServers.util (stdio, sleep；in-process)
                                      ├─ tools.mcpServers.badminton-reels (remote streamableHttp + CF Access)
+                                     ├─ tools.mcpServers.badminton-video-retrieval (remote streamableHttp + CF Access)
+                                     ├─ tools.mcpServers.badminton-analyze (remote streamableHttp + Bearer)
                                      └─ tools.web (duckduckgo) + fetch
 ```
 - **badminton-db**：自家 MCP，現以 **streamable-HTTP** 服務在 `/mcp`（port 8801），自成一個 container；僅在 compose 內網可達、無 auth。設 `MCP_TRANSPORT=stdio` 可改走 stdio（smoke test 用）。
 - **util**：sleep MCP，維持 **stdio**，由 gateway in-process 啟動（非獨立 container）。
 - **badminton-reels**：維持遠端 streamableHttp（`https://reels-mcp.nycu-adsl.cc/mcp` + CF Access headers），本 repo 不打包它。
+- **badminton-video-retrieval**：遠端 streamableHttp（`https://video-retrieval.nycu-cgvlab.org/mcp` + CF Access headers）。
+- **badminton-analyze**：遠端 streamableHttp（`https://coachai.cs.nycu.edu.tw/mcp`），**用 bearer token**
+  （`${ANALYZE_MCP_TOKEN}`，不是 CF Access）；比賽以 `matches.analyze_match_id` 這個數字 ID 定位。
 
 ## 先決條件
 - `uv`、Python 3.12、`ffmpeg`（reels 端用，遠端已具備）
-- HuggingFace token（已在 `~/.cache/huggingface/token`，供 `ingest.py` 列出 32 場）
+- HuggingFace token（已在 `~/.cache/huggingface/token`，供 `ingest.py` 列出 HF 上的 32 場；
+  另外 163 場來自 `todo0819/Data-old.zip`，見 `scripts/extract_data_old.py` 與 `CLAUDE.md`）
 - **OpenAI API key**：填在本專案 `./.env` 的 `OPENAI_API_KEY=`（必填；不會退回其他專案）
 - Cloudflare Access service token：**每個 remote MCP 各一組**，命名 `<NAME>_CF_CLIENT_ID/SECRET`（如 reels 用 `REELS_CF_CLIENT_ID/SECRET`），放本專案 `./.env`
+  （例外：`badminton-analyze` 用 bearer token `ANALYZE_MCP_TOKEN`，同樣放 `./.env`）
 
 ## 安裝
 ```bash
@@ -74,7 +83,7 @@ host 的 `~/.nanobot/config.json` 的 `badminton-db` 指向 `http://127.0.0.1:88
 source scripts/load_env.sh      # 匯出 OPENAI_API_KEY / REELS_CF_* 供 ${VAR} 解析
 
 # badminton-db MCP（HTTP，背景）——服務在 http://127.0.0.1:8801/mcp，並有 GET /healthz
-MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py &
+BADMINTON_DB=$PWD/data/badminton.db MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py &
 
 # Web UI
 nanobot gateway                 # 開 http://127.0.0.1:8765

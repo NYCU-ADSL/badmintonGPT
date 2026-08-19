@@ -57,6 +57,7 @@ class ShotLabel(BaseModel):
     landing_area: int | None = None
     landing_x: float | None = None
     landing_y: float | None = None
+    player_location_y: float | None = None
     lose_reason: str | None = None
     win_reason: str | None = None
     getpoint_player: str | None = None
@@ -67,13 +68,17 @@ class ShotLabel(BaseModel):
         if isinstance(data, dict):
             data["score_a"] = _int_or(data.get("roundscore_A"), 0)
             data["score_b"] = _int_or(data.get("roundscore_B"), 0)
+            # frame_num/end_frame_num are int fields (default 0): a blank cell must become
+            # 0, not None, or pydantic rejects the row and the shot is silently dropped.
+            data["frame_num"] = _int_or(data.get("frame_num"), 0)
+            data["end_frame_num"] = _int_or(data.get("end_frame_num"), 0)
             data["shot_type"] = data.get("type", "")
             data["is_aroundhead"] = _is_truthy(data.get("aroundhead"))
             data["is_backhand"] = _is_truthy(data.get("backhand"))
             for field in (
                 "hit_height", "hit_area", "hit_x", "hit_y",
                 "landing_height", "landing_area", "landing_x", "landing_y",
-                "frame_num", "end_frame_num",
+                "player_location_y",
             ):
                 data[field] = _float_or_none(data.get(field))
             for field in ("lose_reason", "win_reason", "getpoint_player"):

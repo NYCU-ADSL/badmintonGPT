@@ -78,8 +78,17 @@ profile runs on the `badmintongpt-db` image (which carries `ingest.py` + the ven
 
 ```bash
 docker compose --profile ingest run --rm ingest           # writes ./data/badminton.db (needs HF_TOKEN)
-docker compose run --rm --entrypoint python3 ingest /app/scripts/verify_db.py   # 23 assertions
+docker compose run --rm --entrypoint python3 ingest /app/scripts/verify_db.py   # 30 assertions
 ```
+
+The DB also merges a **local** dataset dir when one is passed. `todo0819/Data-old.zip` (190 match
+folders, a superset of the HF dataset) is unpacked with `scripts/extract_data_old.py` — CSVs only
+(~22 MB) plus a `rally_video_manifest.txt` that feeds `has_video` — and merged with
+`ingest.py --local-data data/Data-old`. The 39 GB of rally videos are NOT part of this repo's data:
+`scripts/extract_data_old.py --videos-to <badminton-reels>/data/Data` puts them on the reels host,
+which is what renders clips. Until those CSVs are also pushed to HuggingFace
+(`scripts/upload_data_old_to_hf.py`, needs a **write**-scoped `HF_TOKEN`), a container ingest must
+mount/see `data/Data-old` and pass `--local-data`, otherwise it rebuilds the 32-folder HF-only DB.
 
 The `badminton-db` MCP is an HTTP service now, not a stdio subprocess — so verification runs
 against the same `badmintongpt-db` image (via the `ingest` profile, which mounts `./data`).
