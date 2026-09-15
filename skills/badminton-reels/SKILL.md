@@ -1,44 +1,45 @@
 ---
 name: badminton-reels
 description: >-
-  生成比賽精華短影音。當使用者要「做一支精華 / highlight / 剪輯 影片」時，依本 playbook
-  呼叫 badminton-reels MCP（非同步 render，約數分鐘）。等待流程依 long-mcp-job skill
-  在同一輪安靜輪詢到完成，再把 video_url 回給使用者。
+  Generate match highlight videos. When the user wants to make a highlight or edited video,
+  follow this playbook to call badminton-reels MCP (asynchronous rendering, taking a few minutes).
+  Follow the long-mcp-job skill to poll silently within the same turn until completion,
+  then return the video_url to the user.
 ---
 
 # badminton-reels playbook
 
-reels 是 remote MCP：`generate_reel` → `get_reel_status` → `get_reel_result`，render 約數分鐘
-（標準 async-job contract）。
+reels is a remote MCP: `generate_reel` → `get_reel_status` → `get_reel_result`; rendering takes a few minutes
+(standard async-job contract).
 
-## 等待流程 → 依 **long-mcp-job** skill
-最小摘要（細節與鐵則見該 skill）：`generate_reel` 拿到 `job_id` 後**立刻先查一次
-`get_reel_status`（不要先 sleep）**，之後「`sleep`（秒數自行拿捏 10–60）→ 再查」輪詢到 terminal；
-**一次回應只呼叫一個工具（status 和 sleep 絕不並列呼叫，否則進度會被拖延 30 秒）**；
-**期間不輸出任何文字、絕不用 cron、不用 message 工具**——進度條由 WebUI 自動顯示。
-`succeeded` → `get_reel_result`，把 `video_url` 以 **markdown 圖片語法** `![精華](video_url)` 回覆
-（WebUI 會自動內嵌 `<video>` 播放器，見下方慣例）；`failed` → 回報 `error`。
+## Waiting procedure → follow the **long-mcp-job** skill
+Brief summary (see that skill for details and strict rules): after `generate_reel` returns a `job_id`,
+**immediately call `get_reel_status` once (do not sleep first)**, then repeat "sleep (choose 10–60 seconds) → check again" until terminal;
+**call only one tool per response (never call status and sleep in parallel, or progress will be delayed by 30 seconds)**;
+**output no text during polling, never use cron, and do not use the message tool**—the WebUI displays progress automatically.
+`succeeded` → `get_reel_result`, return `video_url` using **Markdown image syntax** `![Highlights](video_url)`
+(the WebUI automatically embeds a `<video>` player; see conventions below); `failed` → report `error`.
 
-## 慣例（reels 領域知識）
-- `match_name` 一律傳 **`matches.name`**（去 .mp4 的資料夾名）。不確定就先用 badminton-db 查：
-  `SELECT name FROM matches WHERE name LIKE '%關鍵字%'`。
-- 可選參數（調整風格與內容）：`style`（humorous/professional/dramatic/educational/concise…）、
-  `duration_target_sec`、`focus_player`、`shot_types`、`sets`、`rally_ids`、`max_highlights`、
-  `narrative_emphasis`、`voice_id`、`enable_anchor`。
-- `state` 列舉：`queued / running / succeeded / failed`。
-- `video_url` 可在瀏覽器直接播放，不需額外處理。
-- **回覆精華時務必用 markdown 圖片語法** `![精華](video_url)`（前面的 `!` 不可省略）——
-  WebUI 會自動把 `.mp4` 連結轉成內嵌 `<video>` 播放器。**不要**用裸 URL 或純連結
-  `[精華](video_url)`，那只會顯示成一條可點擊的連結、不會播放。
-- `enable_anchor` 是主播頭像，預設為開啟，除非 user 要求關閉
+## Conventions (reels domain knowledge)
+- Always pass **`matches.name`** as `match_name` (the folder name without .mp4). If unsure, query badminton-db first:
+  `SELECT name FROM matches WHERE name LIKE '%keyword%'`.
+- Optional parameters (style and content): `style` (humorous/professional/dramatic/educational/concise…),
+  `duration_target_sec`, `focus_player`, `shot_types`, `sets`, `rally_ids`, `max_highlights`,
+  `narrative_emphasis`, `voice_id`, `enable_anchor`.
+- `state` values: `queued / running / succeeded / failed`.
+- `video_url` plays directly in the browser without additional processing.
+- **Always use Markdown image syntax for highlights**: `![Highlights](video_url)` (the leading `!` is required)—
+  the WebUI automatically turns .mp4 links into embedded `<video>` players. **Do not** use a bare URL or a plain link
+  `[Highlights](video_url)`; that displays only a clickable link and does not play the video.
+- `enable_anchor` controls the presenter avatar; it is enabled by default unless the user asks to disable it.
 
-## 範例
+## Example
 ```
 generate_reel(match_name="Viktor_AXELSEN_LEE_Zii_Jia_EAST_VENTURES_Indonesia_Open_2022_Semifinals",
               style="dramatic", duration_target_sec=90, enable_anchor=true)
 → {job_id: "ax-lee-001", state: "queued"}
-# 之後依 long-mcp-job 輪詢：立刻 get_reel_status → sleep(30) → 再查 → … → succeeded
+# Then poll per long-mcp-job: immediately get_reel_status → sleep(30) → check again → … → succeeded
 get_reel_result("ax-lee-001") → {ready: true, video_url: "https://.../files/ax-lee-001.mp4"}
-# → 最終回覆（簡短）：你的精華好了！
-# ![精華](https://.../files/ax-lee-001.mp4)
+# → Final response (brief): Your highlights are ready!
+# ![Highlights](https://.../files/ax-lee-001.mp4)
 ```

@@ -60,7 +60,7 @@ def main() -> None:
           one("SELECT COUNT(*) FROM matches WHERE name LIKE '%AXELSEN%'"), 18)
 
     # analyze_match_id (badminton-analyze MCP). The local match is the one we verified by
-    # hand against CoachAI (its per-set shot counts and B 放小球=183 line up exactly).
+    # hand against CoachAI (its per-set shot counts and B net shots=183 line up exactly).
     check("local analyze_match_id",
           one("SELECT analyze_match_id FROM matches WHERE folder=?", (LOCAL,)), 123)
     mapped = one("SELECT COUNT(*) FROM matches WHERE analyze_match_id IS NOT NULL")
@@ -89,18 +89,18 @@ def main() -> None:
     lr = {r["lose_reason"]: r["n"] for r in q(
         "SELECT lose_reason, COUNT(*) n FROM shots WHERE match_name=? "
         "AND lose_reason IS NOT NULL GROUP BY lose_reason", M)}
-    check("Q3 出界", lr.get("出界"), 50)
-    check("Q3 對手落地致勝", lr.get("對手落地致勝"), 34)
-    check("Q3 未過網", lr.get("未過網"), 21)
-    check("Q3 掛網", lr.get("掛網"), 10)
-    check("Q3 落點判斷失誤", lr.get("落點判斷失誤"), 1)
+    check("Q3 out of bounds", lr.get("出界"), 50)
+    check("Q3 opponent winner landing in court", lr.get("對手落地致勝"), 34)
+    check("Q3 did not clear the net", lr.get("未過網"), 21)
+    check("Q3 into the net", lr.get("掛網"), 10)
+    check("Q3 landing-point misjudgment", lr.get("落點判斷失誤"), 1)
 
-    # Q4 挑球 by player (this match)
+    # Q4 Lifts by player (this match)
     lift = {r["player"]: r["n"] for r in q(
         "SELECT player, COUNT(*) n FROM shots WHERE match_name=? AND type='挑球' "
         "GROUP BY player", M)}
-    check("Q4 挑球 A", lift.get("A"), 116)
-    check("Q4 挑球 B", lift.get("B"), 86)
+    check("Q4 lifts A", lift.get("A"), 116)
+    check("Q4 lifts B", lift.get("B"), 86)
 
     # Q5 set finals (from rallies, this match)
     finals = {r["set_no"]: (r["a"], r["b"]) for r in q(
@@ -110,8 +110,8 @@ def main() -> None:
     check("Q5 set2", finals.get(2), (21, 11))
     check("Q5 set3", finals.get(3), (23, 21))
 
-    # Q6 B 放小球 (this match) + has_video sanity (count comes from HF listing)
-    check("Q6 B 放小球", one(
+    # Q6 B net shots (this match) + has_video sanity (count comes from HF listing)
+    check("Q6 B net shots", one(
         "SELECT COUNT(*) FROM shots WHERE match_name=? AND type='放小球' "
         "AND player='B'", M), 183)
     has_video_db = one(

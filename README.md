@@ -1,160 +1,184 @@
 # BadmintonGPT
 
-以 **nanobot** 為核心的羽球賽事 Agent。使用者在 web UI 提問，Agent 自主路由到：
-- **badminton-db MCP**（本地賽事 SQLite，唯讀 `query`/`list_tables`/`describe_table`）
-- **badminton-reels MCP**（remote，生成精華短影音）
-- **badminton-video-retrieval MCP**（remote，用自然語言檢索既有影片片段）
-- **badminton-analyze MCP**（remote，單場比賽的進階數據／戰術分析）
-- **web search**（DB 沒有的外部資訊）
+A badminton match agent built around **nanobot**. Users ask questions in the web UI, and the agent autonomously routes them to:
 
-每個能力各配一個 **skill playbook**（行為層）；MCP 為存取層。完整設計見 [`docs/DESIGN.md`](./docs/DESIGN.md)，需求脈絡見 [`docs/TASK.md`](./docs/TASK.md)。所有說明文件都收在 [`docs/`](./docs)，repo 根目錄只留 `README.md` 與 `CLAUDE.md`。
+- **badminton-db MCP** (local match SQLite database; read-only `query`/`list_tables`/`describe_table`)
+- **badminton-reels MCP** (remote; generates highlight videos)
+- **badminton-video-retrieval MCP** (remote; retrieves existing video clips using natural language)
+- **badminton-analyze MCP** (remote; advanced statistics / tactical analysis for individual matches)
+- **web search** (external information absent from the DB)
 
-## 架構
-本 repo 自家的 MCP 都收進 `mcps/`，各自獨立、可分開部署；reels 維持遠端。
+Each capability has a **skill playbook** (behavior layer); MCP is the access layer. See [`docs/DESIGN.md`](./docs/DESIGN.md) for the full design and [`docs/TASK.md`](./docs/TASK.md) for requirements context. All documentation is in [`docs/`](./docs); only `README.md` and `CLAUDE.md` remain at the repo root.
+
+## Architecture
+
+This repo's own MCPs live in `mcps/`, each independent and separately deployable; reels remains remote.
+
 ```
-瀏覽器 ── ws:8765 ── nanobot Agent ──┬─ tools.mcpServers.badminton-db (streamableHttp, SELECT-only) ── badminton-db:8801/mcp ── badminton.db
-   (SOUL.md 路由 + skills playbook)  ├─ tools.mcpServers.util (stdio, sleep；in-process)
+Browser ── ws:8765 ── nanobot Agent ──┬─ tools.mcpServers.badminton-db (streamableHttp, SELECT-only) ── badminton-db:8801/mcp ── badminton.db
+   (SOUL.md routing + skills playbook)├─ tools.mcpServers.util (stdio, sleep; in-process)
                                      ├─ tools.mcpServers.badminton-reels (remote streamableHttp + CF Access)
                                      ├─ tools.mcpServers.badminton-video-retrieval (remote streamableHttp + CF Access)
                                      ├─ tools.mcpServers.badminton-analyze (remote streamableHttp + Bearer)
                                      └─ tools.web (duckduckgo) + fetch
 ```
-- **badminton-db**：自家 MCP，現以 **streamable-HTTP** 服務在 `/mcp`（port 8801），自成一個 container；僅在 compose 內網可達、無 auth。設 `MCP_TRANSPORT=stdio` 可改走 stdio（smoke test 用）。
-- **util**：sleep MCP，維持 **stdio**，由 gateway in-process 啟動（非獨立 container）。
-- **badminton-reels**：維持遠端 streamableHttp（`https://reels-mcp.nycu-adsl.cc/mcp` + CF Access headers），本 repo 不打包它。
-- **badminton-video-retrieval**：遠端 streamableHttp（`https://video-retrieval.nycu-cgvlab.org/mcp` + CF Access headers）。
-- **badminton-analyze**：遠端 streamableHttp（`https://coachai.cs.nycu.edu.tw/mcp`），**用 bearer token**
-  （`${ANALYZE_MCP_TOKEN}`，不是 CF Access）；比賽以 `matches.analyze_match_id` 這個數字 ID 定位。
 
-## 先決條件
-- `uv`、Python 3.12、`ffmpeg`（reels 端用，遠端已具備）
-- HuggingFace token（已在 `~/.cache/huggingface/token`，供 `ingest.py` 列出 HF 上的 32 場；
-  另外 163 場來自 `todo0819/Data-old.zip`，見 `scripts/extract_data_old.py` 與 `CLAUDE.md`）
-- **OpenAI API key**：填在本專案 `./.env` 的 `OPENAI_API_KEY=`（必填；不會退回其他專案）
-- Cloudflare Access service token：**每個 remote MCP 各一組**，命名 `<NAME>_CF_CLIENT_ID/SECRET`（如 reels 用 `REELS_CF_CLIENT_ID/SECRET`），放本專案 `./.env`
-  （例外：`badminton-analyze` 用 bearer token `ANALYZE_MCP_TOKEN`，同樣放 `./.env`）
+- **badminton-db**: our own MCP, now serving **streamable HTTP** at `/mcp` (port 8801) in its own container; reachable only on the compose network, without auth. Set `MCP_TRANSPORT=stdio` to use stdio instead (for smoke tests).
+- **util**: sleep MCP, still **stdio**, launched in-process by the gateway (no separate container).
+- **badminton-reels**: remains remote streamableHttp (`https://reels-mcp.nycu-adsl.cc/mcp` + CF Access headers); not packaged by this repo.
+- **badminton-video-retrieval**: remote streamableHttp (`https://video-retrieval.nycu-cgvlab.org/mcp` + CF Access headers).
+- **badminton-analyze**: remote streamableHttp (`https://coachai.cs.nycu.edu.tw/mcp`), **using a bearer token**
+  (`${ANALYZE_MCP_TOKEN}`, not CF Access); matches are identified by the numeric `matches.analyze_match_id`.
 
-## 安裝
+## Prerequisites
+
+- `uv`, Python 3.12, `ffmpeg` (used on the reels side; already available remotely)
+- HuggingFace token (already in `~/.cache/huggingface/token`, used by `ingest.py` to list 32 HF matches;
+  another 163 come from `todo0819/Data-old.zip`; see `scripts/extract_data_old.py` and `CLAUDE.md`)
+- **OpenAI API key**: set `OPENAI_API_KEY=` in this project's `./.env` (required; no fallback to other projects)
+- Cloudflare Access service tokens: **one pair per remote MCP**, named `<NAME>_CF_CLIENT_ID/SECRET` (e.g. `REELS_CF_CLIENT_ID/SECRET` for reels), stored in this project's `./.env`
+  (exception: `badminton-analyze` uses the bearer token `ANALYZE_MCP_TOKEN`, also in `./.env`)
+
+## Installation
+
 ```bash
-# 1) 專案 venv（跑 ingest.py 與 db MCP）
-uv sync                       # 建 .venv，裝 mcp / huggingface_hub / pydantic / ...
+# 1) Project venv (for ingest.py and db MCP)
+uv sync                       # Create .venv and install mcp / huggingface_hub / pydantic / ...
 
 # 2) nanobot
 uv tool install nanobot-ai
-nanobot onboard               # 建 ~/.nanobot/{config.json, workspace/}
+nanobot onboard               # Create ~/.nanobot/{config.json, workspace/}
 
-# 3) 環境變數
-cp .env.example .env          # 填入 OPENAI_API_KEY 與 REELS_CF_CLIENT_ID/SECRET
+# 3) Environment variables
+cp .env.example .env          # Fill in OPENAI_API_KEY and REELS_CF_CLIENT_ID/SECRET
 ```
 
-## 建資料庫
-DB build 已自帶解析（`mcps/badminton-db/ingest_lib/`），只需 HuggingFace token，不再依賴 `badminton-reels` 原始碼。
-```bash
-.venv/bin/python mcps/badminton-db/ingest.py                 # 產出 data/badminton.db
-.venv/bin/python mcps/badminton-db/scripts/verify_db.py      # 對照 ground truth（23 項檢查）
-```
-- `matches`：全 32 場目錄（27 正式 + 5 NYCU 練習）。
-- `rallies`/`shots`：**全部 27 場正式賽事**（從 HF 下載各場標註 CSV，不抓影片；練習片無逐拍）。
-- `has_video` 取自 HF `rally_video/` 列表（標註多、實際有影片的回合少）。
-- **查特定比賽務必用 `match_name` 篩**（= `matches.name`，不含 .mp4），否則會跨 27 場加總。
+## Build the database
 
-## 設定 nanobot
-本 repo 已對 `~/.nanobot/config.json` 做的調整：
-- `agents.defaults.model="gpt-5.1"`、`provider="openai"`；`providers.openai.apiKey="${OPENAI_API_KEY}"`
-- `channels.websocket.enabled=true`（port 8765, `websocketRequiresToken=false`）、`channels.sendToolHints=true`
-- `tools.mcpServers`：`badminton-db`（`streamableHttp`，`url` 指向本地 db HTTP server `http://127.0.0.1:8801/mcp`）；`util`（stdio，`command` = `python`、`args` = `mcps/util/server.py`）；`badminton-reels`（遠端 `streamableHttp` + CF Access headers）
-- 路由與 DB 速查規則寫在 `~/.nanobot/workspace/SOUL.md`
+The DB build includes its own parser (`mcps/badminton-db/ingest_lib/`), needs only a HuggingFace token, and no longer depends on badminton-reels source.
 
-把 skills **複製**到 nanobot workspace（playbook 漸進揭露）。注意是 `cp` 不是 `ln -s`：
-nanobot 的 `restrictToWorkspace` 邊界會先 resolve symlink 再做 containment 檢查，symlink 進來的
-skill dir 會 resolve 到 workspace 外的真實路徑，agent 讀 `SKILL.md` 會被擋
-（`Path .../SKILL.md is outside allowed directory`）；複製進來才在邊界內。
-編輯 `skills/*` 後重跑此 script 再重啟 gateway 即可更新：
 ```bash
-./scripts/sync_skills.sh   # cp -r skills/* → ~/.nanobot/workspace/skills/（會先清掉舊 symlink）
+.venv/bin/python mcps/badminton-db/ingest.py                 # Produce data/badminton.db
+.venv/bin/python mcps/badminton-db/scripts/verify_db.py      # Compare against ground truth (23 checks)
 ```
 
-## 執行
+- `matches`: catalog of all 32 matches (27 official + 5 NYCU practice).
+- `rallies`/`shots`: **all 27 official matches** (downloads annotation CSVs for each match from HF, not videos; practice clips have no shot-by-shot data).
+- `has_video` comes from the HF `rally_video/` listing (many annotations, few rallies with actual videos).
+- **Always filter by `match_name` for a specific match** (= `matches.name`, without .mp4), or you will sum all 27 matches.
 
-### 本機 host 模式（開發用）
-db MCP 現在是本地 HTTP server，需先在背景跑起來（util 仍由 gateway in-process 啟動，不用手動跑）；
-host 的 `~/.nanobot/config.json` 的 `badminton-db` 指向 `http://127.0.0.1:8801/mcp`。
+## Configure nanobot
+
+Adjustments already made by this repo to `~/.nanobot/config.json`:
+
+- `agents.defaults.model="gpt-5.1"`, `provider="openai"`; `providers.openai.apiKey="${OPENAI_API_KEY}"`
+- `channels.websocket.enabled=true` (port 8765, `websocketRequiresToken=false`), `channels.sendToolHints=true`
+- `tools.mcpServers`: `badminton-db` (`streamableHttp`, `url` points to the local db HTTP server `http://127.0.0.1:8801/mcp`); `util` (stdio, `command` = `python`, `args` = `mcps/util/server.py`); `badminton-reels` (remote `streamableHttp` + CF Access headers)
+- Routing and DB quick-reference rules live in `~/.nanobot/workspace/SOUL.md`
+
+**Copy** skills into the nanobot workspace (progressive disclosure of playbooks). Use `cp`, not `ln -s`:
+nanobot's `restrictToWorkspace` boundary resolves symlinks before checking containment. A symlinked
+skill directory resolves to a real path outside the workspace, blocking the agent from reading `SKILL.md`
+(`Path .../SKILL.md is outside allowed directory`). Copying keeps it within the boundary.
+After editing `skills/*`, rerun this script and restart the gateway:
+
 ```bash
-source scripts/load_env.sh      # 匯出 OPENAI_API_KEY / REELS_CF_* 供 ${VAR} 解析
+./scripts/sync_skills.sh   # cp -r skills/* → ~/.nanobot/workspace/skills/ (removes old symlinks first)
+```
 
-# badminton-db MCP（HTTP，背景）——服務在 http://127.0.0.1:8801/mcp，並有 GET /healthz
+## Run
+
+### Local host mode (development)
+
+The db MCP is now a local HTTP server and must be started in the background first (util is still launched
+in-process by the gateway; no manual start needed). In the host's `~/.nanobot/config.json`,
+`badminton-db` points to `http://127.0.0.1:8801/mcp`.
+
+```bash
+source scripts/load_env.sh      # Export OPENAI_API_KEY / REELS_CF_* for ${VAR} resolution
+
+# badminton-db MCP (HTTP, background) — serves http://127.0.0.1:8801/mcp and GET /healthz
 BADMINTON_DB=$PWD/data/badminton.db MCP_HOST=127.0.0.1 .venv/bin/python mcps/badminton-db/server.py &
 
 # Web UI
-nanobot gateway                 # 開 http://127.0.0.1:8765
+nanobot gateway                 # Open http://127.0.0.1:8765
 
-# 或單題（headless）
-nanobot agent -m "資料庫裡有哪些 Axelsen 的比賽？"
+# Or a single question (headless)
+nanobot agent -m "Which Axelsen matches are in the database?"
 ```
 
-> **host vs container 設定差異**：committed 的 `nanobot/config.json`（template）用的是**容器**的 host/路徑
-> （`http://badminton-db:8801/mcp`、stdio util 的 `/app/mcps/util/server.py`）。host 模式的
-> `~/.nanobot/config.json` 只需改兩處：`badminton-db` 的 `url` → `http://127.0.0.1:8801/mcp`；`util`
-> stdio 的 `args` → 本機絕對路徑的 `mcps/util/server.py`。其餘（model、websocket、reels）兩種模式相同。
+> **Host vs container configuration**: the committed `nanobot/config.json` template uses **container**
+> hosts/paths (`http://badminton-db:8801/mcp`, `/app/mcps/util/server.py` for stdio util).
+> For host mode, change only two entries in `~/.nanobot/config.json`: `badminton-db.url` →
+> `http://127.0.0.1:8801/mcp`; stdio `util.args` → the local absolute path to `mcps/util/server.py`.
+> Everything else (model, websocket, reels) is the same in both modes.
 >
-> **host 模式常見問題**
-> - 一律用 `.venv/bin/python`（py3.12，含 `mcp`）；系統 `python3` 是 3.8、沒有 `mcp`。
-> - 先把 db MCP（`MCP_HOST=127.0.0.1 … server.py &`）跑起來再 `nanobot gateway`，否則 agent 連不到 DB。
-> - `nanobot gateway` 是 in-session 背景程序，session 結束就會死（對外 502/530）——要長駐請走 Docker 部署。
-> - 更深入的排錯與 runtime 細節見 `CLAUDE.md`（gotchas / runtime facts）與 `docs/DEPLOY.md`（Docker 排錯）。
+> **Common host-mode issues**
+>
+> - Always use `.venv/bin/python` (Python 3.12 with `mcp`); system `python3` is 3.8 without `mcp`.
+> - Start db MCP (`MCP_HOST=127.0.0.1 … server.py &`) before `nanobot gateway`, or the agent cannot reach the DB.
+> - `nanobot gateway` is an in-session background process and dies when the session ends (public 502/530 errors); use Docker for persistent deployment.
+> - See `CLAUDE.md` (gotchas / runtime facts) and `docs/DEPLOY.md` (Docker troubleshooting) for deeper troubleshooting and runtime details.
 
-### 正式部署（Docker Compose + Cloudflare Tunnel）
-對外掛在 `badmintongpt.<zone>` 的可重現部署——`docker compose up` 起三個 service：`gateway`（含自家 fork
-的 WebUI，由 `vendor/nanobot/` 建出，內嵌 util stdio MCP）＋ `badminton-db`（自家 HTTP MCP，僅內網
-`:8801`）＋ `cloudflared` tunnel；另有 `ingest`（profile）一次性建 DB。`gateway` 經
-`depends_on: badminton-db (healthy)` 等 DB 先就緒，agent 的 config/brain 都收進 repo 當 template。
-完整步驟（含 Cloudflare 一次性設定、建 DB、驗收）見 **`docs/DEPLOY.md`**。
+### Production deployment (Docker Compose + Cloudflare Tunnel)
+
+A reproducible deployment at `badmintongpt.<zone>`: `docker compose up` starts three services:
+`gateway` (including our forked WebUI built from `vendor/nanobot/` and embedded util stdio MCP),
+`badminton-db` (our HTTP MCP, internal-only `:8801`), and the `cloudflared` tunnel.
+A separate `ingest` profile builds the DB once. The gateway waits for the DB through
+`depends_on: badminton-db (healthy)`; agent configuration and instructions are committed as templates.
+See **`docs/DEPLOY.md`** for full steps, including one-time Cloudflare setup, DB building, and acceptance checks.
+
 ```bash
-cp .env.example .env            # 填 OPENAI_API_KEY / REELS_CF_* / TUNNEL_TOKEN
-docker compose --profile ingest run --rm ingest   # 建 ./data/badminton.db（只需 HF_TOKEN）
+cp .env.example .env            # Fill in OPENAI_API_KEY / REELS_CF_* / TUNNEL_TOKEN
+docker compose --profile ingest run --rm ingest   # Build ./data/badminton.db (requires only HF_TOKEN)
 docker compose up -d --build
 docker compose up -d --force-recreate gateway
 ```
 
-## 驗收（Success Metric）
-9 題題庫（對照 `docs/TASK.md` ground truth），檢查工具路由 + 回應：
+## Acceptance checks (Success Metric)
+
+Nine questions (ground truth in `docs/TASK.md`) check tool routing and responses:
+
 ```bash
-.venv/bin/python eval/run_eval.py            # 全 9 題（Q7 會觸發一次遠端剪輯 job）
-.venv/bin/python eval/run_eval.py --skip-reels   # 跳過 Q7（不觸發遠端 render）
+.venv/bin/python eval/run_eval.py            # All 9 questions (Q7 starts a remote editing job)
+.venv/bin/python eval/run_eval.py --skip-reels   # Skip Q7 (no remote render)
 ```
 
-## 檔案
+## Files
+
 ```
-mcps/badminton-db/                 # 自家 badminton-db MCP（自成 container，HTTP）
-  server.py                        #   FastMCP streamable-http MCP：list_tables/describe_table/query(SELECT-only)，GET /healthz
-  ingest.py                        #   HF + 本地 CSV → badminton.db（自帶解析，不再 import badminton-reels）
-  ingest_lib/                      #   vendored RallySegment/ShotLabel + parse + 精簡 HF DataLoader（只需 HF_TOKEN）
-  scripts/ground_truth.py          #   ground-truth oracle（in-memory）
-  scripts/verify_db.py             #   對 badminton.db 斷言 23 項
-  scripts/test_db_mcp.py           #   db MCP 獨立 smoke test（MCP_TRANSPORT=stdio）
-  scripts/test_decouple_parity.py  #   解耦後與 badminton-reels 解析的 parity 檢查
+mcps/badminton-db/                 # Our badminton-db MCP (own container, HTTP)
+  server.py                        #   FastMCP streamable-http MCP: list_tables/describe_table/query(SELECT-only), GET /healthz
+  ingest.py                        #   HF + local CSV → badminton.db (includes parser; no badminton-reels import)
+  ingest_lib/                      #   Vendored RallySegment/ShotLabel + parse + thin HF DataLoader (HF_TOKEN only)
+  scripts/ground_truth.py          #   Ground-truth oracle (in-memory)
+  scripts/verify_db.py             #   23 assertions against badminton.db
+  scripts/test_db_mcp.py           #   Standalone db MCP smoke test (MCP_TRANSPORT=stdio)
+  scripts/test_decouple_parity.py  #   Parsing parity against badminton-reels after decoupling
   Dockerfile / pyproject.toml / README.md
-mcps/util/server.py        # util sleep MCP（stdio，gateway in-process 啟動）
-skills/badminton-db/       # SKILL.md + references/schema.md（DB playbook）
-skills/badminton-reels/    # SKILL.md（reels 非同步編排 playbook）
-eval/run_eval.py           # 9 題驗收 harness
-scripts/load_env.sh        # 匯出執行所需環境變數
-example-mcp-server/        # docs/REMOTE_MCP_SERVER_GUIDE.md 的範例（獨立文件 deliverable，不在 mcps/）
-monitoring/gatus/          # Gatus 監控 + 公開狀態頁（單一容器，monitors 用 YAML；見 docs/MONITORING.md）
-docs/                      # 所有說明文件（見下）
-  DESIGN.md  TASK.md       #   完整設計 / 需求脈絡
-  DEPLOY.md                #   Docker Compose + Cloudflare 部署
-  MONITORING.md            #   Gatus uptime 監控 + badmintongpt-status.<zone> 公開狀態頁
-  ADD_NEW_MCP.md           #   如何新增 MCP（own container HTTP / stdio / skill / 測試）
-  MCP_TEST.md              #   mcp_test 用法
-  REMOTE_MCP_SERVER_GUIDE.md  #   建 remote MCP 教學（發佈成 docs site）
-  REELS_MCP_HANDOFF.md  reels_mcp_usage.md   #   reels 改造規格 / 連線方式
+mcps/util/server.py        # util sleep MCP (stdio, launched in-process by gateway)
+skills/badminton-db/       # SKILL.md + references/schema.md (DB playbook)
+skills/badminton-reels/    # SKILL.md (reels asynchronous orchestration playbook)
+eval/run_eval.py           # Nine-question acceptance harness
+scripts/load_env.sh        # Export runtime environment variables
+example-mcp-server/        # Example for docs/REMOTE_MCP_SERVER_GUIDE.md (standalone documentation deliverable, outside mcps/)
+monitoring/gatus/          # Gatus monitoring + public status page (single container, YAML monitors; see docs/MONITORING.md)
+docs/                      # All documentation (see below)
+  DESIGN.md  TASK.md       #   Full design / requirements context
+  DEPLOY.md                #   Docker Compose + Cloudflare deployment
+  MONITORING.md            #   Gatus uptime monitoring + badmintongpt-status.<zone> public status page
+  ADD_NEW_MCP.md           #   Adding MCPs (own-container HTTP / stdio / skill / tests)
+  MCP_TEST.md              #   mcp_test usage
+  REMOTE_MCP_SERVER_GUIDE.md  #   Remote MCP tutorial (published as a docs site)
+  REELS_MCP_HANDOFF.md  reels_mcp_usage.md   #   reels refactoring specification / connection instructions
 ```
 
-新增 MCP 的步驟見 **`docs/ADD_NEW_MCP.md`**（own-container HTTP / stdio / skill playbook / 測試）。
-建 remote MCP 給其他子計畫見 **`docs/REMOTE_MCP_SERVER_GUIDE.md`**；驗收任何 MCP server 用 **`docs/MCP_TEST.md`**（`python -m mcp_test <url>`）。
+See **`docs/ADD_NEW_MCP.md`** for adding MCPs (own-container HTTP / stdio / skill playbook / tests).
+See **`docs/REMOTE_MCP_SERVER_GUIDE.md`** for building remote MCPs for other subprojects; use **`docs/MCP_TEST.md`** to check any MCP server (`python -m mcp_test <url>`).
 
-## 已知問題
-- `round` 欄位：`Semifinals` 可能被解析成 `Finals`（沿用 reels 的 `_extract_tournament_round`，"Finals" 為 "Semifinals" 子字串）。屬顯示層、不影響 9 題。
-- `model="gpt-5.1"` 依 OpenAI 帳號實際可用版本調整。
-- 逐拍資料涵蓋 27 場正式賽事；NYCU 5 段練習片只有 `matches` 目錄、無逐拍。查單場數據務必用 `match_name` 篩。
+## Known issues
+
+- `round`: `Semifinals` may be parsed as `Finals` (inherited from reels' `_extract_tournament_round`; "Finals" is a substring of "Semifinals"). This affects display only, not the nine questions.
+- Adjust `model="gpt-5.1"` to a version available to your OpenAI account.
+- Shot-by-shot data covers 27 official matches; the five NYCU practice clips have only `matches` catalog entries. Always filter by `match_name` for single-match statistics.

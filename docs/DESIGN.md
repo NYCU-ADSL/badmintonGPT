@@ -1,110 +1,110 @@
-# BadmintonGPT — 系統設計 (DESIGN)
+# BadmintonGPT — System design (DESIGN)
 
-> 本文件描述 BadmintonGPT 的**詳細架構**與**實作方式（how to write it）**。
-> 需求脈絡見 [`TASK.md`](./TASK.md)。
-> **reels MCP server 已完成並上線**（remote，`https://reels-mcp.nycu-adsl.cc`，CF Access 保護）；本文件把它當成**外部既有服務**，連線方式見 [`reels_mcp_usage.md`](./reels_mcp_usage.md)，其內部改造規格見 [`REELS_MCP_HANDOFF.md`](./REELS_MCP_HANDOFF.md)。
+> This document describes BadmintonGPT's **detailed architecture** and **implementation approach (how to write it)**.
+> See [`TASK.md`](./TASK.md) for requirements context.
+> **reels MCP server is complete and deployed** (remote, `https://reels-mcp.nycu-adsl.cc`, CF Access protected). This document treats it as an **existing external service**; see [`reels_mcp_usage.md`](./reels_mcp_usage.md) for connection instructions and [`REELS_MCP_HANDOFF.md`](./REELS_MCP_HANDOFF.md) for its internal refactoring specification.
 
-> 📌 **想知道「實際做出來、已驗證」的現況**（而非提案）？直接看文末
-> [已實作並驗證（nanobot v0.2.1）](#已實作並驗證nanobot-v0212026-06-06)。
+> 📌 Looking for the **implemented and verified current state**, rather than the proposal? Jump to
+> [Implemented and verified (nanobot v0.2.1)](#implemented-and-verified-nanobot-v021-2026-06-06) at the end.
 
-## 目錄
+## Contents
 
-1. [目的與範圍](#1-目的與範圍)
-2. [系統總覽](#2-系統總覽)
-3. [元件詳細設計](#3-元件詳細設計)
-4. [關鍵資料流（Sequence）](#4-關鍵資料流sequence)
-5. [安全與部署](#5-安全與部署)
-6. [實作步驟（how to write it）](#6-實作步驟how-to-write-it建議順序)
-7. [測試與驗收（Success Metric）](#7-測試與驗收success-metric)
-8. [已確認的決策](#8-已確認的決策前述問題已拍板)
-9. [已實作並驗證（nanobot v0.2.1）](#已實作並驗證nanobot-v0212026-06-06)
+1. [Purpose and scope](#1-purpose-and-scope)
+2. [System overview](#2-system-overview)
+3. [Detailed component design](#3-detailed-component-design)
+4. [Key data flows (sequence)](#4-key-data-flows-sequence)
+5. [Security and deployment](#5-security-and-deployment)
+6. [Implementation steps (how to write it)](#6-implementation-steps-how-to-write-it-recommended-order)
+7. [Testing and acceptance (Success Metric)](#7-testing-and-acceptance-success-metric)
+8. [Confirmed decisions](#8-confirmed-decisions-previous-questions-resolved)
+9. [Implemented and verified (nanobot v0.2.1)](#implemented-and-verified-nanobot-v021-2026-06-06)
 
 ---
 
-## 1. 目的與範圍
+## 1. Purpose and scope
 
-打造一個以 **nanobot** 為核心的羽球 Agent，使用者在 web UI 提問後，Agent 自行決定呼叫：
-- **SQLite 賽事 DB**（text-to-SQL，查選手/比賽/逐拍統計、找戰術回合片段）
-- **reels MCP**（生成精華短影音，非同步）
-- **web search**（DB 沒有的外部資訊）
+Build a badminton agent around **nanobot** that autonomously chooses among the following when a user asks a question in the web UI:
+- **SQLite match DB** (text-to-SQL for players/matches/shot-by-shot statistics and tactical rally clips)
+- **reels MCP** (asynchronous highlight video generation)
+- **web search** (external information absent from the DB)
 
-本文件涵蓋四個**仍需實作**的部分（reels MCP 不在內，已完成）：
-1. nanobot Agent 設定與工具路由策略
-2. SQLite DB schema 與 ingestion
-3. DB 存取機制（**本地 `badminton-db` MCP**：`list_tables`/`describe_table`/`query`(SELECT-only) ＋ **`badminton-db` skill**：playbook）
-4. Web UI 與 Success-Metric 驗收 harness
+This document covers four parts **still to be implemented** (excluding the completed reels MCP):
+1. nanobot agent configuration and tool-routing strategy
+2. SQLite DB schema and ingestion
+3. DB access (**local badminton-db MCP**: `list_tables`/`describe_table`/`query` (SELECT-only) + **badminton-db skill** playbook)
+4. Web UI and Success-Metric acceptance harness
 
-| 元件 | 狀態 | 本文件章節 |
+| Component | Status | Section |
 |------|------|-----------|
-| reels MCP server | ✅ 已完成、已部署 | §3.4（契約/整合） |
-| reels skill playbook | ⬜ 待做 | §3.4.1 |
-| nanobot Agent 設定 | ⬜ 待做 | §3.1 |
-| SQLite DB + ingestion | ⬜ 待做（matches=全32、shots=本地1場） | §3.2 |
-| DB 存取（本地 `badminton-db` MCP + skill playbook） | ⬜ 待做 | §3.3 |
-| web search | ⬜ 待做（開設定即可） | §3.5 |
-| Web UI（nanobot 內建） | ⬜ 待做（開設定即可） | §3.6 |
-| 驗收 harness | ⬜ 待做 | §7 |
+| reels MCP server | ✅ Complete and deployed | §3.4 (contract/integration) |
+| reels skill playbook | ⬜ To do | §3.4.1 |
+| nanobot agent configuration | ⬜ To do | §3.1 |
+| SQLite DB + ingestion | ⬜ To do (matches=all 32, shots=1 local match) | §3.2 |
+| DB access (local badminton-db MCP + skill playbook) | ⬜ To do | §3.3 |
+| web search | ⬜ To do (enable in configuration) | §3.5 |
+| Web UI (built into nanobot) | ⬜ To do (enable in configuration) | §3.6 |
+| Acceptance harness | ⬜ To do | §7 |
 
 ---
 
-## 2. 系統總覽
+## 2. System overview
 
 ```
                                   ┌──────────────────────────────────────┐
-                                  │            使用者 (瀏覽器)             │
+                                  │            User (browser)                │
                                   └───────────────────┬──────────────────┘
-                                  WebSocket (ws://127.0.0.1:8765, 經 cloudflared tunnel)
+                                  WebSocket (ws://127.0.0.1:8765, through cloudflared tunnel)
                                                       │
                           ┌───────────────────────────▼───────────────────────────┐
-                          │      nanobot Agent loop（gateway 容器：純 host）         │
-                          │  providers(可切換) · SOUL.md(精簡路由)                   │
+                          │      nanobot Agent loop (gateway container: pure host)    │
+                          │  providers (switchable) · SOUL.md (brief routing)           │
                           │  skills(playbooks)：badminton-db/badminton-reels/        │
                           │                     long-mcp-job                          │
                           │  util MCP (stdio, in-process：sleep)                      │
                           └──────┬───────────────┬──────────────────┬──────────────┘
                        streamableHttp        streamableHttp        tools.web
-                       (compose 內網)         (CF Access)           │ (search+fetch)
+                       (compose network)      (CF Access)           │ (search+fetch)
                 ┌──────────┴───────────┐  ┌──────┴──────────────┐  ┌──┴───────────┐
                 ▼                      │  ▼                     │  ▼              │
    ┌───────────────────────────────┐  │ ┌──────────────────────┴┐ ┌─────────────┐
-   │ badminton-db MCP（自有容器）   │  │ │ reels MCP (remote,已做)│ │ Web Search  │
+   │ badminton-db MCP (own container) │ │ │ reels MCP (remote, done)│ │ Web Search  │
    │ FastMCP streamable-http       │  │ │ generate_reel /        │ │ (duckduckgo)│
    │ http://badminton-db:8801/mcp  │  │ │ get_reel_status /      │ └─────────────┘
    │  list_tables / describe_table │  │ │ get_reel_result /      │
    │  / query (SELECT-only)        │  │ │ GET /files/{id}.mp4    │
    │  + GET /healthz               │  │ └──────────▲─────────────┘
-   └────────────▲──────────────────┘  │            │ 共用同一份資料來源
+   └────────────▲──────────────────┘  │            │ Shared data source
                 │                      │            │
-   ┌────────────┴──────────────┐  ingest 容器  ┌───┴────────────────────────┐
+   ┌────────────┴──────────────┐ ingest container ┌─┴──────────────────────────┐
    │  badminton.db (SQLite)    │◀─(profile)────│  HuggingFace dataset        │
    │  matches/rallies/shots    │  ingest_lib   │  howard9199/Badminton       │
-   └───────────────────────────┘  (reels-解耦) └─────────────────────────────┘
+   └───────────────────────────┘ (reels-decoupled)└─────────────────────────────┘
 ```
 
-> 部署形態：每支「本 repo 自有」MCP 各自為政——`badminton-db` 是**獨立容器**，以
-> streamable-HTTP 對 compose 內網提供 `http://badminton-db:8801/mcp`（無 auth，永不對外）；
-> `util` 仍是 **stdio**、由 gateway in-process 啟動（非獨立容器）；`reels` 維持 **remote**
-> （`https://reels-mcp.nycu-adsl.cc/mcp`，CF Access）。DB 建置（ingest 容器，profile）已與
-> badminton-reels **解耦**，解析/模型 vendored 在 `mcps/badminton-db/ingest_lib/`，只需 `HF_TOKEN`。
+> Deployment: each MCP owned by this repo is independent. badminton-db runs in a **separate container**,
+> serving streamable HTTP at `http://badminton-db:8801/mcp` on the compose network (no auth, never public).
+> util remains **stdio**, launched in-process by gateway (no separate container); reels remains **remote**
+> (`https://reels-mcp.nycu-adsl.cc/mcp`, CF Access). DB building (ingest container/profile) is
+> **decoupled** from badminton-reels, with parser/models vendored in `mcps/badminton-db/ingest_lib/`; only HF_TOKEN is required.
 
-**設計原則**
-- **單一資料真相**：DB ingestion 與 reels 都源自同一個 HF dataset。解析邏輯（選手 A/B、rally_id 格式）原本重用 badminton-reels，**現已 vendored 進 `mcps/badminton-db/ingest_lib/`**（與 reels 解析行為一致，parity 測試把關），ingest 不再 import badminton-reels。
-- **MCP 連接層 + skill playbook 層（2026 主流 hybrid）**：所有資料/工具存取走 **MCP**——`badminton-db`（自有容器、streamable-HTTP `:8801/mcp`）與 `badminton-reels`（remote）；**每個能力各配一個 skill playbook**（`badminton-db`、`badminton-reels`），只放「何時用、慣例、要呼叫哪個 MCP 工具、怎麼編排」，不負責存取本身。「MCP scale 系統、skill scale 行為」。
-- **DB 存取確定路由**：DB 查詢是 MCP `query` 工具（typed、可稽核），不靠 exec 跑 CLI；安全（SELECT-only + `mode=ro`）由 MCP server 內建。
-- **Agent 自主路由**：system prompt 留精簡路由提示；DB playbook（skill）提供細節，實際存取由 MCP 工具確定執行。
+**Design principles**
+- **Single source of truth**: DB ingestion and reels share the HF dataset. Parsing logic (players A/B, rally_id format) originally reused badminton-reels and is **now vendored in `mcps/badminton-db/ingest_lib/`** (same parsing behavior as reels, guarded by parity tests); ingest no longer imports badminton-reels.
+- **MCP connection layer + skill playbook layer (the mainstream 2026 hybrid)**: all data/tool access goes through **MCP**—badminton-db (own container, streamable HTTP `:8801/mcp`) and badminton-reels (remote). **Each capability has a skill playbook** (badminton-db, badminton-reels) containing only triggers, conventions, MCP tool selection, and orchestration, not access itself. "MCP scales systems; skills scale behavior."
+- **Deterministic DB access**: queries use the typed, auditable MCP query tool, not CLI execution through exec. The MCP server enforces SELECT-only + mode=ro.
+- **Autonomous agent routing**: keep brief routing hints in the system prompt; the DB skill playbook supplies details, while MCP tools perform actual access.
 
 ---
 
-## 3. 元件詳細設計
+## 3. Detailed component design
 
 ### 3.1 nanobot Agent
 
-#### 3.1.1 `~/.nanobot/config.json`（完整範例）
+#### 3.1.1 ~/.nanobot/config.json (complete example)
 
 ```jsonc
 {
   "providers": {
-    // 預設 OpenAI；apiKey 用 ${ENV} 注入。要切其他家再加（仍可切換）。
+    // OpenAI by default; inject apiKey through ${ENV}. Add other providers when switching.
     "openai": { "apiKey": "${OPENAI_API_KEY}" }
   },
 
@@ -112,31 +112,31 @@
     "defaults": {
       "modelPreset": "deep",
       "fallbackModels": ["fast"],
-      "temperature": 0.1,           // text-to-SQL 要穩定，低溫
+      "temperature": 0.1,           // Low temperature for stable text-to-SQL
       "reasoningEffort": "medium",
       "timezone": "Asia/Taipei"
     }
   },
   "modelPresets": {
-    // 皆 OpenAI；model 名稱依實際可用版本調整（badminton-reels 目前用 gpt-5.1）
+    // All OpenAI; adjust model names to available versions (badminton-reels currently uses gpt-5.1)
     "deep": { "provider": "openai", "model": "gpt-5.1",      "reasoningEffort": "high" },
     "fast": { "provider": "openai", "model": "gpt-5.1-mini", "temperature": 0.2 }
   },
 
   "channels": {
     "sendProgress": true,
-    "sendToolHints": true,          // 驗收 harness 需要看到工具呼叫
+    "sendToolHints": true,          // Acceptance harness needs visible tool calls
     "websocket": { "enabled": true, "port": 8765 }
   },
 
-  // mcpServers（頂層）：DB MCP（自有容器、streamable-HTTP）+ remote reels MCP（streamableHttp，usage.md 已實測）
+  // mcpServers (top-level): DB MCP (own container, streamable HTTP) + remote reels MCP (streamableHttp, tested in usage.md)
   "mcpServers": {
     "badminton-db": {
       "type": "streamableHttp",
       "url": "http://badminton-db:8801/mcp",
       "enabledTools": ["list_tables", "describe_table", "query"]
-      // 獨立容器、streamable-HTTP；無 auth（僅 compose 內網，永不對外）；
-      // 曝露 list_tables / describe_table / query(SELECT-only) + GET /healthz（見 §3.3）
+      // Separate container, streamable HTTP; no auth (compose network only, never public)
+      // Exposes list_tables / describe_table / query(SELECT-only) + GET /healthz (see §3.3)
     },
     "util": {
       "type": "stdio",
@@ -144,7 +144,7 @@
       "args": ["/app/mcps/util/server.py"],
       "enabledTools": ["sleep"],
       "toolTimeout": 70
-      // stdio、由 gateway in-process 啟動（非獨立容器）；單一 sleep(seconds≤60) 工具，供 async-job 輪詢節流
+      // stdio, launched in-process by gateway (no separate container); sleep(seconds≤60) paces async-job polling
     },
     "badminton-reels": {
       "type": "streamableHttp",
@@ -161,89 +161,89 @@
   "tools": {
     "web": {
       "enable": true,
-      "search": { "provider": "duckduckgo" },   // 免金鑰，開箱即用
+      "search": { "provider": "duckduckgo" },   // No API key; works out of the box
       "fetch":  { "useJinaReader": true }
     }
-    // 不需 exec：DB 走 badminton-db MCP；skill 僅為 playbook（無腳本要跑）
+    // No exec needed: DB uses badminton-db MCP; skills are playbooks only (no scripts to execute)
   }
 }
 ```
 
-> reels 用 `type:streamableHttp`（remote，CF Access，已實測）；`badminton-db` 同樣是 `type:streamableHttp`，但指向 compose 內網的自有容器 `http://badminton-db:8801/mcp`（無 auth、永不對外）；`util` 是 in-process stdio。**host/dev 模式**：DB MCP 改以 `MCP_HOST=127.0.0.1 python mcps/badminton-db/server.py` 在本機跑 HTTP，host 的 `~/.nanobot/config.json` 把 `badminton-db` 指向 `http://127.0.0.1:8801/mcp`，util 維持 stdio（`python mcps/util/server.py`）。
-> **skill 探索路徑**：nanobot 從 workspace 的 `skills/`（DeepWiki 記載）或 `~/.nanobot/skills/` 自動發現 `badminton-db` playbook skill；實際探索位置需依 nanobot 版本確認（見 §8）。
+> reels uses type:streamableHttp (remote, CF Access, verified); badminton-db also uses type:streamableHttp but points to its own compose-network container at `http://badminton-db:8801/mcp` (no auth, never public); util is in-process stdio. **Host/dev mode**: run DB MCP locally over HTTP with `MCP_HOST=127.0.0.1 python mcps/badminton-db/server.py`, point badminton-db in the host's `~/.nanobot/config.json` to `http://127.0.0.1:8801/mcp`, and keep util as stdio (`python mcps/util/server.py`).
+> **Skill discovery path**: nanobot automatically discovers the badminton-db playbook in workspace `skills/` (documented by DeepWiki) or `~/.nanobot/skills/`; verify the actual path for the nanobot version (see §8).
 
-#### 3.1.2 環境變數（`.env` / systemd EnvironmentFile）
+#### 3.1.2 Environment variables (.env / systemd EnvironmentFile)
 ```
 OPENAI_API_KEY=...
-REELS_CF_CLIENT_ID=...           # reels MCP 的 Cloudflare Access service token
+REELS_CF_CLIENT_ID=...           # Cloudflare Access service token for reels MCP
 REELS_CF_CLIENT_SECRET=...
-HF_TOKEN=...                     # 僅 ingest 容器需要（DB 建置）
-BADMINTONGPT_HOME=/mnt/ssd1/howchien/badmintonGPT   # 專案根目錄
+HF_TOKEN=...                     # Required only by the ingest container (DB build)
+BADMINTONGPT_HOME=/mnt/ssd1/howchien/badmintonGPT   # Project root
 ```
-- gateway 容器**不再**設 `BADMINTON_DB`——DB 已搬進 `badminton-db` 容器（由該容器自帶 `BADMINTON_DB` 指向掛載的 `data/badminton.db`），gateway 只透過 HTTP 連它。
-- ingest 容器（DB 建置）**只需 `HF_TOKEN`**；不再需要 `REELS_SRC` / `REELS_SRC_HOST`（已從 `.env.example`/compose 移除，見 §3.2.2 解耦）。
-- nanobot 啟動前需先載入這些變數（systemd `EnvironmentFile=`、direnv、或 `--env-file`）。
+- The gateway container **no longer** sets BADMINTON_DB: the DB moved into the badminton-db container (which sets BADMINTON_DB to the mounted data/badminton.db); gateway connects only over HTTP.
+- The ingest container (DB build) **requires only HF_TOKEN**; REELS_SRC / REELS_SRC_HOST are no longer needed (removed from .env.example/compose; see decoupling in §3.2.2).
+- Load these variables before starting nanobot (systemd EnvironmentFile=, direnv, or --env-file).
 
-#### 3.1.3 System Prompt（精簡路由）
-**細節都放進對應的 skill playbook**——DB schema/enum → `badminton-db` skill（§3.3）；reels 非同步編排/慣例 → `badminton-reels` skill（§3.4.1）。system prompt 只留**人設 + 路由提示**（省 context）：
+#### 3.1.3 System prompt (brief routing)
+**Put details in the corresponding skill playbooks**: DB schema/enums → badminton-db (§3.3); reels async orchestration/conventions → badminton-reels (§3.4.1). Keep only **persona + routing hints** in the system prompt to save context:
 
 ```
-你是 BadmintonGPT，服務對象：一般觀眾、教練、選手。
+You are BadmintonGPT, serving general audiences, coaches, and players.
 
-路由原則：
-1) 任何牽涉「資料庫內既有賽事數據」的問題（選手有哪些比賽、球種次數、得失分原因、
-   比分、含特定戰術/球種的回合片段）—— 參考 badminton-db skill（playbook：enum 值、
-   A/B 對照、範例），再呼叫 badminton-db MCP 的 query/list_tables/describe_table 工具
-   （query 只接受單句 SELECT；回合片段須過濾 has_video=1）。
-2) 使用者要「做一支精華/highlight 影片」—— 參考 badminton-reels skill（playbook：非同步
-   編排、match_name 慣例、video_url 呈現），再呼叫 reels MCP 的 generate_reel /
+Routing principles:
+1) Any question about existing match data in the database (a player's matches, shot-type counts, reasons
+   for winning/losing points, scores, rally clips featuring specific tactics/shot types): consult the
+   badminton-db skill (enum values, A/B mappings, examples), then call badminton-db MCP query/list_tables/describe_table
+   (query accepts only a single SELECT; rally clips require has_video=1).
+2) User wants a highlight video: consult the badminton-reels skill (asynchronous orchestration,
+   match_name conventions, video_url presentation), then call reels MCP generate_reel /
    get_reel_status / get_reel_result。
-3) DB 沒有的外部資訊（最新世界排名、選手近況、賽事新聞）—— 用 web search。
+3) External information absent from the DB (latest world rankings, player updates, match news): use web search.
 
-回答原則：先說結論，附上關鍵數字；需要時列出依據的 SQL 或來源連結。
+Response principles: lead with conclusions and key numbers; include supporting SQL or source links when needed.
 ```
 
-> 設計重點：schema/enum 這類「只有 DB 問題才需要」的內容放在 skill playbook（漸進揭露），不常駐 system prompt；實際存取則由 `badminton-db` MCP 工具確定執行（不靠 skill 觸發成敗）。
+> Design focus: details needed only for DB questions (schema/enums) belong in the progressively disclosed skill playbook, not the permanent system prompt. Actual access is performed deterministically by badminton-db MCP tools, regardless of whether a skill triggers.
 
 ---
 
-### 3.2 SQLite 賽事 DB
+### 3.2 SQLite match DB
 
 #### 3.2.1 Schema（DDL）
 
 ```sql
 CREATE TABLE matches (
-  folder       TEXT PRIMARY KEY,   -- HF 資料夾名（含 .mp4 後綴）
-  name         TEXT,               -- 去後綴的可讀名
-  tournament   TEXT,               -- 由名稱解析（可空）
-  round        TEXT,               -- Finals/Semifinals…（可空）
-  player_a     TEXT,               -- 對應 shots.player='A'
-  player_b     TEXT,               -- 對應 shots.player='B'
-  year         INTEGER,            -- 皆 2022
+  folder       TEXT PRIMARY KEY,   -- HF folder name (including .mp4 suffix)
+  name         TEXT,               -- Readable name without suffix
+  tournament   TEXT,               -- Parsed from name (nullable)
+  round        TEXT,               -- Finals/Semifinals… (nullable)
+  player_a     TEXT,               -- Corresponds to shots.player='A'
+  player_b     TEXT,               -- Corresponds to shots.player='B'
+  year         INTEGER,            -- All 2022
   is_practice  INTEGER DEFAULT 0   -- NYCU_Other_practice* = 1
 );
 
 CREATE TABLE rallies (
   match_folder   TEXT REFERENCES matches(folder),
-  rally_id       TEXT,             -- "set_scoreA_scoreB"，如 1_05_04
+  rally_id       TEXT,             -- "set_scoreA_scoreB", e.g. 1_05_04
   set_no         INTEGER,
   score_a        INTEGER,
   score_b        INTEGER,
   start_frame    INTEGER,
   end_frame      INTEGER,
-  has_video      INTEGER DEFAULT 0,-- rally_video/ 是否真有此檔（關鍵！）
-  video_filename TEXT,             -- 例 1_05_04.mp4（has_video=1 時）
+  has_video      INTEGER DEFAULT 0,-- Whether the file actually exists in rally_video/ (critical!)
+  video_filename TEXT,             -- E.g. 1_05_04.mp4 (when has_video=1)
   PRIMARY KEY (match_folder, rally_id)
 );
 
 CREATE TABLE shots (
   match_folder    TEXT REFERENCES matches(folder),
   set_no          INTEGER,
-  rally           INTEGER,         -- 該 set 內第幾個 rally
+  rally           INTEGER,         -- Rally number within the game
   ball_round      INTEGER,
   player          TEXT,            -- 'A'|'B'
   server          TEXT,
-  type            TEXT,            -- 球種（中文 enum）
+  type            TEXT,            -- Shot type (Chinese enum)
   aroundhead      INTEGER,
   backhand        INTEGER,
   hit_area        INTEGER,
@@ -253,63 +253,63 @@ CREATE TABLE shots (
   getpoint_player TEXT,            -- 'A'|'B'
   roundscore_a    INTEGER,
   roundscore_b    INTEGER
-  -- 其餘座標欄（hit_x/y, landing_x/y, location_*）按需再加
+  -- Add other coordinate columns (hit_x/y, landing_x/y, location_*) as needed
 );
 
--- 建議索引
+-- Recommended indexes
 CREATE INDEX idx_shots_match_type    ON shots(match_folder, type);
 CREATE INDEX idx_shots_match_player  ON shots(match_folder, player);
 CREATE INDEX idx_rallies_match_video ON rallies(match_folder, has_video);
 ```
 
-#### 3.2.2 Ingestion（`mcps/badminton-db/ingest.py`）設計
+#### 3.2.2 Ingestion design (mcps/badminton-db/ingest.py)
 
-職責：把 HF dataset → `badminton.db`。**已與 badminton-reels 解耦**：原本靠 `sys.path` 注入
-`$REELS_SRC` 並 `import badminton.data_loader / badminton.models` 的作法已移除；解析邏輯與資料模型
-（`RallySegment`/`ShotLabel`、`parse.extract_tournament_round`、薄薄一層 HF `DataLoader`）**vendored
-在 `mcps/badminton-db/ingest_lib/`**，`ingest.py` 改 `from ingest_lib import ...`。因此 DB 建置**只需
-`HF_TOKEN`**，不需要 `OPENAI_API_KEY` / Fish 等 reels 相依，也不需要 badminton-reels 原始碼在機器上。
-`REELS_SRC` / `REELS_SRC_HOST` 已從 `.env.example` 與 compose ingest service 移除。一次性建置：
-`docker compose --profile ingest run --rm ingest`（跑在 `badmintongpt-db` 映像上，產出 `./data/badminton.db`）。
+Responsibility: HF dataset → badminton.db. **Decoupled from badminton-reels**: the former sys.path injection
+of $REELS_SRC and imports of badminton.data_loader / badminton.models have been removed. Parsing logic and models
+(RallySegment/ShotLabel, parse.extract_tournament_round, a thin HF DataLoader) are **vendored
+in mcps/badminton-db/ingest_lib/**; ingest.py now uses from ingest_lib import .... Thus DB building **requires
+only HF_TOKEN**, without OPENAI_API_KEY / Fish dependencies or badminton-reels source on the machine.
+REELS_SRC / REELS_SRC_HOST were removed from .env.example and the compose ingest service. One-time build:
+`docker compose --profile ingest run --rm ingest` (runs on the badmintongpt-db image and produces ./data/badminton.db).
 
-**本階段範圍（已確認）**：逐拍重資料（`rallies` + `shots`）**只先做本地已下載的那 1 場**（Axelsen vs Lee）。但 `matches` 目錄表用**完整 32 場名稱**填（只需 HF 檔案清單、不必下載），這樣測試題庫的 Q1（Axelsen 有哪些比賽）、Q9（年份/等級）仍可正確回答。
+**Scope for this phase (confirmed)**: initially load heavy shot-by-shot data (rallies + shots) **only for the one locally downloaded match** (Axelsen vs Lee). Populate the matches catalog with **all 32 match names** (HF file listing only, no downloads) so Q1 (Axelsen's matches) and Q9 (years/levels) remain answerable.
 
-步驟：
-1. `matches` 目錄（全 32）：用 `huggingface_hub.HfApi().list_repo_files("howard9199/Badminton")` 取得 32 個資料夾名（**不下載內容**），逐筆寫入 `matches`：
-   - `folder`（含 .mp4）、`name`（去 .mp4，**即傳給 reels 的 `match_name`**）；
-   - `tournament`/`round`：用 vendored `ingest_lib.parse.extract_tournament_round()`；
+Steps:
+1. matches catalog (all 32): use `huggingface_hub.HfApi().list_repo_files("howard9199/Badminton")` to obtain 32 folder names (**without downloading contents**) and insert each into matches:
+   - folder (with .mp4), name (without .mp4, **the match_name passed to reels**);
+   - tournament/round: use vendored `ingest_lib.parse.extract_tournament_round()`;
    - `is_practice = name.startswith("NYCU_Other_practice")`、`year=2022`；
-   - 選手姓名：能從名稱解析者填 `player_a/player_b`，practice 片可留空。
-2. 逐拍資料（本地有下載者，目前 1 場）：對每個**本地存在**的 match 資料夾：
-   - 用 vendored `ingest_lib` 的 HF `DataLoader` + `RallySegment`/`ShotLabel` 模型取得該場
-     `rally_segments` 與逐 set `labels`，回填該場 `matches.player_a/b` 並確保 A/B↔姓名、rally_id
-     格式與既有 reels 慣例一致（模型本身即由 reels 那份 vendored 過來，故維持一致）。
-   - 寫 `rallies`：來自 `RallySeg.csv`；`has_video`/`video_filename` 由掃 `rally_video/*.mp4` 判定（**只有部分回合有檔**）。
-   - 寫 `shots`：攤平 `label/set{1,2,3}.csv`，欄位對映見 DDL。
-3. 用 transaction、`INSERT OR REPLACE`，可重跑（idempotent）；自動偵測哪些 match 有本地資料。
-4. CLI：`python mcps/badminton-db/ingest.py --db $BADMINTON_DB [--catalog-only] [--only <folder>]`。日後要擴到全 27/32 場，加 HF 下載即可（只需 `HF_TOKEN`）。
+   - player names: fill player_a/player_b when parseable from the name; practice clips may leave them empty.
+2. Shot-by-shot data (locally downloaded matches, currently one): for each **locally existing** match folder:
+   - use the HF DataLoader and RallySegment/ShotLabel models from vendored ingest_lib to obtain
+     rally_segments and per-game labels, populate matches.player_a/b, and ensure A/B↔names and rally_id
+     formats match existing reels conventions (the models are vendored from reels, preserving consistency).
+   - Write rallies from RallySeg.csv; determine has_video/video_filename by scanning rally_video/*.mp4 (**only some rallies have files**).
+   - Write shots by flattening label/set{1,2,3}.csv; see the DDL for column mapping.
+3. Use transactions and INSERT OR REPLACE for idempotent reruns; detect matches with local data automatically.
+4. CLI: `python mcps/badminton-db/ingest.py --db $BADMINTON_DB [--catalog-only] [--only <folder>]`. To expand to all 27/32 matches later, add HF downloading (requires only HF_TOKEN).
 
-**A/B ↔ 姓名映射**：用 `ingest.py:derive_ab`（A = 資料夾名最先出現的選手名，case/underscore-insensitive 比對），不要用 `DataLoader._extract_players`（它回傳第一個 rally 的上/下半場，會隨局數翻面）。
+**A/B ↔ name mapping**: use ingest.py:derive_ab (A = the first player name in the folder name, matched case/underscore-insensitively), not DataLoader._extract_players (which returns top/bottom court players for the first rally and flips across games).
 
-> 已用本地唯一完整下載的 Axelsen vs Lee 驗證過欄位與值（1213 筆 shots，A=Viktor AXELSEN、B=LEE Zii Jia）；ground truth 重跑見 `mcps/badminton-db/scripts/ground_truth.py`（其作法正是「matches=全32、shots=本地1場」）。解耦後另有 `mcps/badminton-db/scripts/test_decouple_parity.py` 比對 vendored 解析與原 reels 解析輸出一致（parity OK）。
+> Columns and values were verified against the one fully downloaded local Axelsen vs Lee match (1,213 shots, A=Viktor AXELSEN, B=LEE Zii Jia). Recompute ground truth with mcps/badminton-db/scripts/ground_truth.py (using exactly matches=all 32, shots=1 local match). After decoupling, mcps/badminton-db/scripts/test_decouple_parity.py also verifies that vendored and original reels parsers agree (parity OK).
 
 ---
 
-### 3.3 DB 存取（本地 `badminton-db` MCP + `badminton-db` skill playbook）
+### 3.3 DB access (local badminton-db MCP + badminton-db skill playbook)
 
-決策（2026 主流 hybrid）：DB 存取做成**自有容器的 streamable-HTTP MCP**（typed/有護欄的工具 → 確定路由、可稽核；nanobot 以 `http://badminton-db:8801/mcp` 連接）；**skill 只當 playbook**（何時用、enum、A/B、範例、要呼叫哪個工具），不負責存取本身。reels 也走 MCP——兩者都在連接層，skill 在行為層。
+Decision (the mainstream 2026 hybrid): expose DB access as a **streamable HTTP MCP in its own container** (typed tools with safeguards → deterministic, auditable access; nanobot connects to http://badminton-db:8801/mcp). **Skills are playbooks only** (triggers, enums, A/B, examples, tool selection), not access mechanisms. reels also uses MCP: both are in the connection layer; skills are in the behavior layer.
 
-#### 3.3.1 `badminton-db` MCP server（自有容器、streamable-HTTP）
-曝露三個工具：
+#### 3.3.1 badminton-db MCP server (own container, streamable HTTP)
+Expose three tools:
 
-| 工具 | 輸入 | 輸出 | 用途 |
+| Tool | Input | Output | Purpose |
 |------|------|------|------|
-| `list_tables` | — | 表名清單 | 讓 agent 探索結構 |
-| `describe_table` | `table` | 欄位/型別 | 取代把整份 schema 塞 prompt |
-| `query` | `sql`（單句 SELECT） | `{rows, row_count}` | 實際查詢；SELECT-only + `mode=ro` |
+| list_tables | — | Table names | Let the agent explore structure |
+| describe_table | table | Columns/types | Avoid putting the entire schema in the prompt |
+| query | sql (single SELECT) | {rows, row_count} | Actual queries; SELECT-only + mode=ro |
 
-server 骨架（FastMCP，預設以 streamable-HTTP 在 `:8801/mcp` 對外，外加 `GET /healthz`；
-內建 SELECT-only 護欄）。設 `MCP_TRANSPORT=stdio` 可改跑 stdio（smoke test 用）：
+Server skeleton (FastMCP, serving streamable HTTP at :8801/mcp by default, plus GET /healthz;
+built-in SELECT-only safeguards). Set MCP_TRANSPORT=stdio to use stdio for smoke tests:
 ```python
 #!/usr/bin/env python3
 # mcps/badminton-db/server.py —— streamable-HTTP MCP：list_tables / describe_table / query(SELECT-only)
@@ -317,7 +317,7 @@ import os, re, sqlite3
 from starlette.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
 
-# host/port 由 env 注入（容器內 0.0.0.0:8801；host/dev 用 MCP_HOST=127.0.0.1）
+# Host/port injected through env (0.0.0.0:8801 in containers; MCP_HOST=127.0.0.1 for host/dev)
 mcp = FastMCP("badminton-db",
               host=os.environ.get("MCP_HOST", "0.0.0.0"),
               port=int(os.environ.get("MCP_PORT", "8801")))
@@ -342,7 +342,7 @@ def describe_table(table: str) -> list[dict]:
 
 @mcp.tool()
 def query(sql: str) -> dict:
-    """只接受單句 SELECT，回 {rows, row_count}（上限 200 列）。"""
+    """Accept only a single SELECT; return {rows, row_count} (up to 200 rows)."""
     if not re.match(r"^\s*select\b", sql, re.I) or ";" in sql.rstrip().rstrip(";"):
         return {"error": "only a single SELECT is allowed"}
     with _ro() as db:
@@ -352,7 +352,7 @@ def query(sql: str) -> dict:
         except Exception as e:
             return {"error": str(e)}
 
-# 給 compose healthcheck / depends_on: service_healthy 用
+# For compose healthcheck / depends_on: service_healthy
 @mcp.custom_route("/healthz", methods=["GET"])
 async def healthz(_req):
     return JSONResponse({"ok": True})
@@ -361,83 +361,83 @@ if __name__ == "__main__":
     if os.environ.get("MCP_TRANSPORT") == "stdio":
         mcp.run()                              # stdio（smoke test）
     else:
-        mcp.run(transport="streamable-http")   # 預設：HTTP 在 :8801/mcp
+        mcp.run(transport="streamable-http")   # Default: HTTP at :8801/mcp
 ```
-- 安全：`mode=ro` + `query` SELECT-only 雙重保險；**MCP server 即安全邊界**（不靠 exec/CLI）。
-  端點**只在 compose 內網**（`http://badminton-db:8801/mcp`），無 auth、永不對外發佈 port、永不過 tunnel。
-- 容器：`mcps/badminton-db/Dockerfile`（映像 `badmintongpt-db:0.1.0`，compose service `badminton-db`），
-  `data/badminton.db` 以 volume 掛入；`/healthz` 餵 compose healthcheck，gateway 以
-  `depends_on: { badminton-db: { condition: service_healthy } }` 等它就緒。
-- 註冊：見 §3.1.1 `mcpServers.badminton-db`（`type:streamableHttp` + `url`）。
+- Security: mode=ro + SELECT-only query provide two layers; **the MCP server is the security boundary**, not exec/CLI.
+  The endpoint is **compose-network-only** (http://badminton-db:8801/mcp), without auth; never publish its port or tunnel it.
+- Container: mcps/badminton-db/Dockerfile (image badmintongpt-db:0.1.0, compose service badminton-db),
+  with data/badminton.db mounted as a volume; /healthz feeds the compose healthcheck, and gateway uses
+  `depends_on: { badminton-db: { condition: service_healthy } }` to wait for readiness.
+- Registration: see mcpServers.badminton-db in §3.1.1 (type:streamableHttp + url).
 
-#### 3.3.2 `badminton-db` skill（playbook，非存取手段）
-skill 只放「怎麼用得好」的領域知識，觸發後引導 agent 呼叫上面的 MCP 工具。
+#### 3.3.2 badminton-db skill (playbook, not access mechanism)
+The skill contains only domain knowledge on effective use, directing the agent to the MCP tools above when triggered.
 
 ```
 ${BADMINTONGPT_HOME}/skills/badminton-db/
 ├── SKILL.md
 └── references/
-    └── schema.md     # enum 值、A/B↔姓名、rally_id/has_video 規則、範例 SQL
+    └── schema.md     # Enum values, A/B↔names, rally_id/has_video rules, example SQL
 ```
 
 `SKILL.md`：
 ```markdown
 ---
 name: badminton-db
-description: 查羽球賽事資料庫（選手有哪些比賽、逐拍統計如球種次數/得失分原因、比分、
-  含特定戰術球種的回合片段）。當問題牽涉資料庫內既有賽事數據時，參考本 playbook 後呼叫
-  badminton-db MCP 工具。
+description: Query the badminton match database (a player's matches, shot-by-shot counts and reasons
+  for winning/losing points, scores, and tactical rally clips). For existing match data questions,
+  consult this playbook before calling badminton-db MCP tools.
 ---
 
-# 怎麼查
-1. 需要時先用 describe_table 看欄位；用 query 下**單句 SELECT** 取數。
-2. 回合片段：query 時務必 `WHERE has_video=1`，只回實際有影片的 rally。
-3. 球種/得失分原因為中文 enum、A/B↔姓名對照、rally_id 格式 → 見 references/schema.md。
+# How to query
+1. Use describe_table to inspect columns when needed; fetch data with a **single SELECT** through query.
+2. Rally clips: always use `WHERE has_video=1` in query and return only rallies with actual videos.
+3. Chinese enums for shot types/reasons for winning or losing points, A/B↔names, and rally_id format → see references/schema.md.
 
-# 常見查詢
-- 某選手有哪些比賽：query("SELECT name FROM matches WHERE name LIKE '%AXELSEN%'")
-- 球種得分數：     query("SELECT COUNT(*) FROM shots WHERE type='殺球' AND player='A' AND win_reason<>''")
-- 失分原因分布：   query("SELECT lose_reason, COUNT(*) n FROM shots WHERE lose_reason<>'' GROUP BY 1 ORDER BY n DESC")
+# Common queries
+- A player's matches: query("SELECT name FROM matches WHERE name LIKE '%AXELSEN%'")
+- Shot-type points: query("SELECT COUNT(*) FROM shots WHERE type='殺球' AND player='A' AND win_reason<>''")
+- Lost-point reasons: query("SELECT lose_reason, COUNT(*) n FROM shots WHERE lose_reason<>'' GROUP BY 1 ORDER BY n DESC")
 ```
 
-`references/schema.md`（enum/對照卡，觸發後才載入）：
+`references/schema.md` (enum/mapping reference, loaded only after triggering):
 ```
 matches(folder, name, tournament, round, player_a, player_b, year, is_practice)
 rallies(match_folder, rally_id, set_no, score_a, score_b, start_frame, end_frame, has_video, video_filename)
-shots(match_folder, set_no, rally, ball_round, player /*A|B*/, server, type /*球種*/,
+shots(match_folder, set_no, rally, ball_round, player /*A|B*/, server, type /*shot type*/,
       aroundhead, backhand, hit_area, landing_area, lose_reason, win_reason,
       getpoint_player /*A|B*/, roundscore_a, roundscore_b, ...)
 
-球種(type)：放小球,挑球,擋小球,殺球,點扣,發短球,推球,切球,過度切球,勾球,
-           長球,發長球,平球,撲球,後場抽平球,防守回抽,防守回挑,未知球種
-lose_reason：出界,對手落地致勝,未過網,掛網,落點判斷失誤
-win_reason ：對手出界,落地致勝,對手未過網,對手掛網,對手落點判斷失誤
-player/getpoint_player：A / B（姓名見 matches.player_a/player_b）
-rally_id：set_scoreA_scoreB（如 1_05_04），對應 rally_video 檔名；查片段務必 has_video=1。
+Shot type (type): 放小球,挑球,擋小球,殺球,點扣,發短球,推球,切球,過度切球,勾球,
+                 長球,發長球,平球,撲球,後場抽平球,防守回抽,防守回挑,未知球種
+lose_reason: 出界,對手落地致勝,未過網,掛網,落點判斷失誤
+win_reason: 對手出界,落地致勝,對手未過網,對手掛網,對手落點判斷失誤
+player/getpoint_player: A / B (names in matches.player_a/player_b)
+rally_id: set_scoreA_scoreB (e.g. 1_05_04), corresponding to rally_video filenames; clip queries require has_video=1.
 ```
 
-#### 3.3.3 為什麼這樣分
-- **存取走 MCP**：`query`/`list_tables`/`describe_table` 是 typed 工具 → **確定路由、可稽核**，harness 直接看到工具名（§7）。
-- **skill 當 playbook**：enum、範例、has_video 規則等領域知識漸進揭露，省 context、模組化（未來 charts/tactic-clips 同模式）。
-- **不需要 exec**：DB 不再靠 CLI；skill 無腳本要跑。**即使 skill 沒被觸發，agent 仍可直接呼叫 badminton-db MCP 工具**（工具恆在）→ 比純 skill 方案穩健。
+#### 3.3.3 Why this separation
+- **Access through MCP**: query/list_tables/describe_table are typed tools → **deterministic, auditable access**; the harness sees tool names directly (§7).
+- **Skills as playbooks**: progressively disclose domain knowledge such as enums, examples, and has_video rules, saving context and supporting modularity (future charts/tactic-clips use the same pattern).
+- **No exec needed**: DB access no longer uses a CLI; skills have no scripts to run. **Even if a skill does not trigger, the agent can call badminton-db MCP tools directly** (always available), making this more robust than a skills-only approach.
 
-#### 3.3.4 注意事項
-- `query` 僅單句 SELECT + `mode=ro`；`describe_table` 對表名做白名單正則。
-- skill discovery 路徑（workspace `skills/` vs `~/.nanobot/skills/`）需依 nanobot 版本確認，見 §8。
+#### 3.3.4 Notes
+- query accepts only a single SELECT with mode=ro; describe_table validates table names against an allowlist regex.
+- Verify skill discovery paths (workspace skills/ vs ~/.nanobot/skills/) for the nanobot version; see §8.
 
-#### 3.3.5 選項
-- **typed-only（更嚴格）**：拿掉 `query`，只留 `list_matches(player?)`、`shot_stats(match, group_by)`、`find_rallies(match, type, has_video)` 等預設 typed 工具，完全不讓 agent 寫 SQL（最 deterministic，但統計彈性低、要先設計工具）。
-- **hybrid**：typed 工具涵蓋常見題 + 保留 `query` 當 fallback。
+#### 3.3.5 Alternatives
+- **Typed-only (stricter)**: remove query and expose only predefined typed tools such as list_matches(player?), shot_stats(match, group_by), and find_rallies(match, type, has_video), preventing agent-written SQL entirely (most deterministic, but less flexible for statistics and requires tool design in advance).
+- **Hybrid**: typed tools cover common questions, with query retained as fallback.
 
 ---
 
 ### 3.4 reels（remote MCP + `badminton-reels` skill playbook）
 
-reels MCP 是 **remote 既有服務（不改）**；另配一個本地 **`badminton-reels` skill** 當 playbook，與 `badminton-db` 對稱。
+reels MCP is an **existing remote service (unchanged)**, paired with a local **badminton-reels skill** playbook, symmetrically with badminton-db.
 
-連線：見 `reels_mcp_usage.md`（remote HTTP，CF Access service token）。工具契約（摘自 `REELS_MCP_HANDOFF.md`）：
+Connection: see reels_mcp_usage.md (remote HTTP, CF Access service token). Tool contract (from REELS_MCP_HANDOFF.md):
 
-| 工具 | 輸入 | 輸出 |
+| Tool | Input | Output |
 |------|------|------|
 | `generate_reel` | `match_name` (+ `style/duration_target_sec/focus_player/shot_types/sets/rally_ids/max_highlights/narrative_emphasis/voice_id`) | `{job_id, state}` |
 | `get_reel_status` | `job_id` | `{state, stage, total_stages, message, error}` |
@@ -445,15 +445,15 @@ reels MCP 是 **remote 既有服務（不改）**；另配一個本地 **`badmin
 
 `state ∈ {queued, running, succeeded, failed}`。
 
-**非同步互動模式**（封裝在 `badminton-reels` skill playbook，見 §3.4.1）：
-1. `generate_reel(...)` → 拿到 `job_id`，立即回覆使用者「影片生成中（約數分鐘）」。
-2. 每隔一段時間 `get_reel_status(job_id)`，直到 `succeeded`/`failed`。
-3. 成功 → `get_reel_result(job_id)` 取 `video_url` 呈現；失敗 → 回報 `error`。
+**Asynchronous interaction** (encapsulated in the badminton-reels playbook; see §3.4.1):
+1. `generate_reel(...)` → obtain job_id and immediately tell the user "Generating the video (a few minutes)."
+2. Call `get_reel_status(job_id)` periodically until succeeded/failed.
+3. Success → obtain and present video_url with get_reel_result(job_id); failure → report error.
 
-**影片播放**：✅ 已確認 `video_url` **可直接於瀏覽器播放**（不需 service token）。因此 Agent 拿到 `video_url` 後，直接以連結/`<video>` 內嵌回給使用者即可，**不需要後端代理或簽章 URL**。
+**Video playback**: ✅ video_url is confirmed to be **directly playable in browsers** without a service token. After obtaining it, the agent can return a link or embedded video; **no backend proxy or signed URL is needed**.
 
 #### 3.4.1 `badminton-reels` skill（playbook）
-不改 reels MCP；只新增本地 skill 把「非同步編排 + 慣例」漸進揭露。
+Do not change reels MCP; only add a local skill to progressively disclose asynchronous orchestration and conventions.
 
 ```
 ${BADMINTONGPT_HOME}/skills/badminton-reels/
@@ -464,191 +464,191 @@ ${BADMINTONGPT_HOME}/skills/badminton-reels/
 ```markdown
 ---
 name: badminton-reels
-description: 生成比賽精華短影音。當使用者要「做一支精華/highlight 影片」時，依本 playbook
-  呼叫 badminton-reels MCP 工具（非同步，約數分鐘）。
+description: Generate match highlight videos. When the user wants to make a highlight video,
+  follow this playbook to call badminton-reels MCP tools (asynchronous, taking a few minutes).
 ---
 
-# 流程（非同步）
-1. generate_reel(match_name, style?, ...) → {job_id, state}；立即回覆使用者「生成中（約數分鐘）」。
-2. 每隔一段時間 get_reel_status(job_id)，直到 state=succeeded / failed。
-3. succeeded → get_reel_result(job_id) 取 video_url，直接內嵌/連結；failed → 回報 error。
+# Procedure (asynchronous)
+1. generate_reel(match_name, style?, ...) → {job_id, state}; immediately tell the user "Generating (a few minutes)."
+2. Call get_reel_status(job_id) periodically until state=succeeded / failed.
+3. succeeded → get_reel_result(job_id) for video_url, embed/link directly; failed → report error.
 
-# 慣例
-- match_name 一律傳 matches.name（去 .mp4 的資料夾名；可先用 badminton-db 查/確認名稱）。
-- video_url 可直接於瀏覽器播放，無需額外處理。
-- 可選參數：style / duration_target_sec / focus_player / shot_types / sets / rally_ids /
-  max_highlights / narrative_emphasis / voice_id（見上方契約表）。
+# Conventions
+- Always pass matches.name as match_name (folder name without .mp4; use badminton-db to look up/confirm it first).
+- video_url plays directly in the browser without additional processing.
+- Optional parameters: style / duration_target_sec / focus_player / shot_types / sets / rally_ids /
+  max_highlights / narrative_emphasis / voice_id (see contract table above).
 ```
 
-> reels 工具是 typed MCP（確定路由）；skill 只補「怎麼編排這三個工具」。即使 skill 沒被觸發，agent 仍能直接呼叫 MCP 工具。
+> reels tools are typed MCP tools with deterministic routing; the skill only explains their orchestration. Even if the skill does not trigger, the agent can call MCP tools directly.
 
 ---
 
 ### 3.5 Web Search
-開 `tools.web.enable=true` 即可，預設 `duckduckgo`（免金鑰）。需更高品質可換 `tavily`/`brave`（加 `apiKey`）。用於：選手最新排名、近況、賽事新聞等 DB 沒有的資訊。
+Enable tools.web.enable=true; duckduckgo is the default and needs no key. For higher quality, switch to tavily/brave with apiKey. Use for information absent from the DB: latest player rankings, updates, match news, etc.
 
 ### 3.6 Web UI
-- 啟用 `channels.websocket {enabled:true, port:8765}`，以 `nanobot gateway` 啟動，瀏覽器開 `http://127.0.0.1:8765`。
-- 先用內建 UI 驗證「對話 + 工具呼叫」；影片以 `video_url` 連結/內嵌呈現（依 §3.4 整合決策）。
+- Enable channels.websocket {enabled:true, port:8765}, start with nanobot gateway, and open http://127.0.0.1:8765.
+- First verify conversation and tool calls using the built-in UI; present videos as video_url links/embeds per §3.4.
 
 ---
 
-## 4. 關鍵資料流（Sequence）
+## 4. Key data flows (sequence)
 
-**Flow A — 統計查詢（text-to-SQL）**
+**Flow A — Statistical query (text-to-SQL)**
 ```
-User → Agent: 「Axelsen 用殺球得了幾分？」
-Agent: (參考 badminton-db skill playbook：enum/A-B/範例)
+User → Agent: "How many points did Axelsen win with smashes?"
+Agent: (consult badminton-db skill playbook: enums/A-B/examples)
 Agent → badminton-db MCP: query("SELECT COUNT(*) ... WHERE type='殺球' AND player='A' AND win_reason<>''")
 MCP → Agent: {"rows":[{"n":10}], "row_count":1}
-Agent → User: 「殺球致勝 10 分。」(可附 SQL)
+Agent → User: "10 smash winners." (optionally include SQL)
 ```
 
-**Flow B — 戰術片段**
+**Flow B — Tactical clips**
 ```
-User → Agent: 「找這場 Lee 放小球的回合片段」
+User → Agent: "Find rally clips of Lee's net shots in this match"
 Agent → badminton-db MCP: query("SELECT DISTINCT rally_id, video_filename FROM rallies r JOIN shots s …
               WHERE s.type='放小球' AND s.player='B' AND r.has_video=1")
-MCP → Agent: rows(有影片者)
-Agent → User: 列出回合 + 片段（提醒：標註多但實際有檔者少）
+MCP → Agent: rows (with video)
+Agent → User: list rallies + clips (note: many annotations, few actual files)
 ```
 
-**Flow C — 生成精華影片（非同步，跨 MCP）**
+**Flow C — Highlight generation (asynchronous, across MCPs)**
 ```
-User → Agent: 「做一支這場精華」
+User → Agent: "Make highlights of this match"
 Agent → reels.generate_reel(match_name, style=…) → {job_id, queued}
-Agent → User: 「生成中…」
+Agent → User: "Generating…"
 loop: Agent → reels.get_reel_status(job_id) → running/…/succeeded
 Agent → reels.get_reel_result(job_id) → {video_url}
-Agent → User: 影片連結/內嵌
+Agent → User: video link/embed
 ```
 
-**Flow D — 外部資訊**
+**Flow D — External information**
 ```
-User → Agent: 「Axelsen 最近世界排名？」
-Agent → web.search(...) → web.fetch(...) → Agent → User（附來源）
+User → Agent: "What is Axelsen's latest world ranking?"
+Agent → web.search(...) → web.fetch(...) → Agent → User (with sources)
 ```
 
 ---
 
-## 5. 安全與部署
-- **reels MCP**：經 Cloudflare Tunnel + Access service token（憑證放 env，不入庫）。
-- **DB（badminton-db MCP）**：`query` 僅單句 SELECT + `mode=ro`；Agent 永遠無法寫入。自有容器、streamable-HTTP **只開在 compose 內網**（`badminton-db:8801`，不對 host 發佈、不進 tunnel）。
-- **secrets**：全用 `${ENV}` 注入（OpenAI key、CF Access token）；以 systemd `EnvironmentFile=` 或 direnv 載入。
-- **部署形態**：每個 MCP 各一個容器——`gateway`（nanobot + 內嵌 stdio `util`）、`badminton-db`（HTTP，掛載唯讀 `badminton.db`）、`cloudflared`；reels 為 remote。skill playbook 仍隨 gateway。
-- 註：DB 改走 MCP 後**不再需要 exec**（少一個攻擊面）。
+## 5. Security and deployment
+- **reels MCP**: Cloudflare Tunnel + Access service token (credentials in env, not committed).
+- **DB (badminton-db MCP)**: single-SELECT query + mode=ro; the agent can never write. Own container, streamable HTTP **on the compose network only** (badminton-db:8801, no host publishing or tunnel).
+- **Secrets**: inject all through `${ENV}` (OpenAI key, CF Access token); load through systemd EnvironmentFile= or direnv.
+- **Deployment**: one container per MCP—gateway (nanobot + embedded stdio util), badminton-db (HTTP, mounted read-only badminton.db), cloudflared; reels is remote. Skill playbooks remain with gateway.
+- Note: moving DB access to MCP **removes the need for exec**, reducing the attack surface.
 
 ---
 
-## 6. 實作步驟（how to write it，建議順序）
+## 6. Implementation steps (how to write it, recommended order)
 
 1. **DB ingestion**（§3.2）
-   - 寫 `mcps/badminton-db/ingest.py`，解析用 vendored `ingest_lib/`（不依賴 badminton-reels；只需 `HF_TOKEN`）。
-   - 範圍：`matches`=全 32 場目錄（不下載）、`rallies`/`shots`=本地 1 場。
-   - 產出 `badminton.db`；用 `mcps/badminton-db/scripts/ground_truth.py` 的查詢核對數字（殺球致勝=10、出界=50、挑球 116/86…）。
+   - Write mcps/badminton-db/ingest.py using vendored ingest_lib/ (no badminton-reels dependency; only HF_TOKEN).
+   - Scope: matches=all 32 catalog entries (no downloads), rallies/shots=1 local match.
+   - Produce badminton.db; verify values with queries from mcps/badminton-db/scripts/ground_truth.py (smash winners=10, out of bounds=50, lifts 116/86…).
 2. **`badminton-db` MCP + skill playbook**（§3.3）
-   - 寫 `mcps/badminton-db/server.py`（FastMCP streamable-http，`:8801/mcp` + `/healthz`：`list_tables`/`describe_table`/`query` SELECT-only）；設 `BADMINTON_DB`，本機手測（`MCP_TRANSPORT=stdio .venv/bin/python mcps/badminton-db/scripts/test_db_mcp.py`）。
-   - 建 `skills/badminton-db/`：`SKILL.md` + `references/schema.md`（playbook，無腳本）。
-3. **nanobot 設定**（§3.1）
-   - 填 `~/.nanobot/config.json`（providers、websocket、tools.web、頂層 mcpServers：`badminton-db` 本地 stdio + `badminton-reels` remote）。
-   - 確認兩支 MCP 的工具都列得出來、nanobot 能 discover 到 `badminton-db` skill。
-   - 載入 env，`nanobot gateway`，確認 WebUI 起得來、web.search 可用。
-4. **System prompt（精簡路由）**（§3.1.3）
-   - 只寫人設 + 路由提示（DB→badminton-db MCP/skill、影片→reels、外部→web）；schema/enum 在 skill。
-   - 用 Flow A/B 幾個問題手測：確認 DB 問題會呼叫 `query` 並寫對 SQL。
-5. **reels 整合 + skill playbook**（§3.4 / §3.4.1）
-   - 建 `skills/badminton-reels/SKILL.md`（playbook：非同步編排 + 慣例）。
-   - 跑一次 Flow C（generate→status→result）；確認 `video_url` 可直接於瀏覽器播放。
-6. **驗收 harness**（§7）
-   - 寫 `eval/run_eval.py` 跑 9 題，比對工具呼叫與 ground truth。
-7. **文件**：更新 README（啟動方式、env、ingest 指令）。
+   - Write mcps/badminton-db/server.py (FastMCP streamable-http, :8801/mcp + /healthz; list_tables/describe_table/query SELECT-only); set BADMINTON_DB and test locally (`MCP_TRANSPORT=stdio .venv/bin/python mcps/badminton-db/scripts/test_db_mcp.py`).
+   - Create skills/badminton-db/: SKILL.md + references/schema.md (playbook, no scripts).
+3. **nanobot configuration** (§3.1)
+   - Fill ~/.nanobot/config.json (providers, websocket, tools.web, top-level mcpServers: local stdio badminton-db + remote badminton-reels).
+   - Confirm tools from both MCPs are listed and nanobot discovers the badminton-db skill.
+   - Load env, run nanobot gateway, and verify WebUI startup and web.search.
+4. **System prompt (brief routing)** (§3.1.3)
+   - Write only persona + routing hints (DB→badminton-db MCP/skill, video→reels, external→web); keep schema/enums in the skill.
+   - Manually test a few Flow A/B questions: confirm DB questions call query with correct SQL.
+5. **reels integration + skill playbook** (§3.4 / §3.4.1)
+   - Create skills/badminton-reels/SKILL.md (asynchronous orchestration + conventions).
+   - Run Flow C once (generate→status→result); confirm video_url plays directly in the browser.
+6. **Acceptance harness** (§7)
+   - Write eval/run_eval.py to run nine questions and compare tool calls and ground truth.
+7. **Documentation**: update README (startup, env, ingest commands).
 
 ---
 
-## 7. 測試與驗收（Success Metric）
+## 7. Testing and acceptance (Success Metric)
 
-沿用 `TASK.md` 的 9 題題庫（已含 ground truth）。harness 需檢查兩件事：**(1) 呼叫的工具是否符合預期**、**(2) 回應內容是否正確**。
+Use the nine questions in TASK.md (including ground truth). The harness checks **(1) expected tool calls** and **(2) correct response content**.
 
-#### 7.1 預期工具對照（節錄，完整見 TASK.md）
-| # | 問題 | 預期工具 | Ground truth |
+#### 7.1 Expected tool mapping (excerpt; full table in TASK.md)
+| # | Question | Expected tool | Ground truth |
 |---|------|---------|--------------|
-| 1 | Axelsen 有哪些比賽 | badminton-db `query`(matches) | 6 場 |
-| 2 | 殺球得幾分 | badminton-db `query`(shots) | 10 |
-| 3 | 最常見失分原因 | badminton-db `query`(shots) | 出界 50 |
-| 4 | 挑球次數比較 | badminton-db `query`(shots) | A116 / B86 |
-| 5 | 三局比分 | badminton-db `query` | 19–21,21–11,23–21 |
-| 6 | 放小球片段 | badminton-db `query`(rallies has_video) | 183 次標註，僅 8 檔 |
-| 7 | 做 Axelsen vs Lee 這場精華 | reels.generate_reel→status→result | 產出可播放 video_url |
-| 8 | 世界排名走勢 | web.search | 外部 |
-| 9 | 年份/等級 | badminton-db `query`(matches) | 全 2022；27+5 |
+| 1 | Axelsen's matches | badminton-db query(matches) | 6 matches |
+| 2 | Points won with smashes | badminton-db query(shots) | 10 |
+| 3 | Most common reason for losing points | badminton-db query(shots) | Out of bounds 50 |
+| 4 | Compare lift counts | badminton-db query(shots) | A116 / B86 |
+| 5 | Scores for three games | badminton-db query | 19–21,21–11,23–21 |
+| 6 | Net-shot clips | badminton-db query(rallies has_video) | 183 annotations, only 8 files |
+| 7 | Make Axelsen vs Lee highlights | reels.generate_reel→status→result | Playable video_url |
+| 8 | World ranking trend | web.search | External |
+| 9 | Years/levels | badminton-db query(matches) | All 2022; 27+5 |
 
-> Q1/Q9 依賴 `matches` 已填滿全 32 場目錄（見 §3.2.2）；Q2–Q6 為本地那 1 場的逐拍資料。
+> Q1/Q9 require all 32 matches catalog entries (§3.2.2); Q2–Q6 use shot-by-shot data for the one local match.
 
-#### 7.2 harness 設計（`eval/run_eval.py`）
-- **驅動**：透過 nanobot websocket channel（`ws://127.0.0.1:8765`）逐題送出 prompt，收事件流。
-- **抓工具呼叫**：開 `channels.sendToolHints=true`，從事件流解析「呼叫了哪個工具/MCP」；判斷是否命中「預期工具」。
-  - 註：DB 題會呈現為 **badminton-db MCP 的 `query`**（typed 工具，確定路由、易比對）；reels 題看 `generate_reel` 等。比 exec/CLI 方案更容易抓。
-- **驗答案**：對 SQL 題，另外直接跑對應 SQL 取 ground truth，比對 Agent 回答中的關鍵數字；reels 題檢查最終有 `video_url`；web 題檢查有呼叫 search。
-- **輸出**：每題 `tool_match: pass/fail`、`answer_match: pass/fail`，總結通過率。
+#### 7.2 Harness design (eval/run_eval.py)
+- **Driver**: send prompts one by one through nanobot's websocket channel (ws://127.0.0.1:8765) and collect the event stream.
+- **Capture tool calls**: enable channels.sendToolHints=true, parse tool/MCP names from events, and check against expected tools.
+  - DB questions appear as **badminton-db MCP query** (typed, deterministic, easy to compare); reels questions use generate_reel, etc. Easier to capture than exec/CLI calls.
+- **Check answers**: for SQL questions, independently run the corresponding SQL for ground truth and compare key numbers in the agent's answer; reels questions require a final video_url; web questions require search.
+- **Output**: per-question tool_match: pass/fail and answer_match: pass/fail, plus overall pass rates.
 
 ```python
-# 骨架（事件協定需依實際 nanobot WS 格式調整）
+# Skeleton (adapt event protocol to actual nanobot WS format)
 CASES = [
-  {"q": "資料庫裡有哪些 Axelsen 的比賽？", "expect_tool": "query",   # badminton-db MCP
+  {"q": "Which Axelsen matches are in the database?", "expect_tool": "query",   # badminton-db MCP
    "check": lambda ans: "6" in ans or ans.count("AXELSEN") >= 6},
-  {"q": "做一支 Axelsen vs Lee 這場的精華", "expect_tool": "generate_reel",
-   "check": lambda ans: "http" in ans},   # 可播放 video_url
-  # …其餘 7 題
+  {"q": "Make a highlight video of the Axelsen vs Lee match", "expect_tool": "generate_reel",
+   "check": lambda ans: "http" in ans},   # Playable video_url
+  # …remaining seven questions
 ]
 # for c in CASES: send(c["q"]); ev = collect(); assert c["expect_tool"] in tools(ev); assert c["check"](final_text(ev))
 ```
 
-> ⚠️ nanobot WS 事件格式需先實測確認（哪個欄位帶 tool 名稱）。若 WS 解析困難，退路：用 `nanobot agent` headless 跑單題、解析 stdout/log 的 tool hint。
+> ⚠️ Verify the nanobot WS event format first, including the tool-name field. If WS parsing is difficult, fall back to headless nanobot agent for individual questions and parse stdout/log tool hints.
 
 ---
 
-## 8. 已確認的決策（前述問題已拍板）
-1. ✅ **mcpServers 格式**：頂層 `mcpServers` + `type:http`（reels_mcp_usage.md 已實測可連，§3.1.1）。
-2. ✅ **影片播放**：`video_url` 可在瀏覽器直接播放，直接內嵌/連結（§3.4）。
-3. ✅ **LLM 預設**：OpenAI（deep/fast 皆 OpenAI；仍可切換，§3.1.1）。
-4. ✅ **DB 範圍**：`matches`=全 32 場目錄、`rallies`/`shots`=本地 1 場（§3.2.2）。
-5. ✅ **存取走 MCP、行為走 skill playbook（每能力各一）**：
-   - DB＝本地 `badminton-db` MCP（`query`/`list_tables`/`describe_table`，SELECT-only）+ `badminton-db` skill（§3.3）；**不再用 exec**。
-   - reels＝remote `badminton-reels` MCP + `badminton-reels` skill（非同步編排/慣例，§3.4.1）。
-   - 細節（schema/enum、reels 編排）都從 system prompt 搬進各自 skill。
+## 8. Confirmed decisions (previous questions resolved)
+1. ✅ **mcpServers format**: top-level mcpServers + type:http (connection verified in reels_mcp_usage.md, §3.1.1).
+2. ✅ **Video playback**: video_url plays directly in the browser; embed/link it (§3.4).
+3. ✅ **Default LLM**: OpenAI (both deep/fast; still switchable, §3.1.1).
+4. ✅ **DB scope**: matches=all 32 catalog entries, rallies/shots=1 local match (§3.2.2).
+5. ✅ **Access through MCP, behavior through one skill playbook per capability**:
+   - DB = local badminton-db MCP (query/list_tables/describe_table, SELECT-only) + badminton-db skill (§3.3); **no more exec**.
+   - reels = remote badminton-reels MCP + badminton-reels skill (async orchestration/conventions, §3.4.1).
+   - Move details (schema/enums, reels orchestration) from the system prompt to the respective skills.
 
-## 已實作並驗證（nanobot v0.2.1，2026-06-06）
-實作後對若干「待實測」項的**實際結論**（與本文上方範例若有出入，以下為準）：
-- **mcpServers 位置**：實際在 **`tools.mcpServers`**（非頂層）。遠端用 `type:"streamableHttp"` + `url` + `headers`；本地用 `type:"stdio"` + `command/args/env`。
-- **skill 探索路徑**：**`~/.nanobot/workspace/skills/`**（已用 symlink 指向本專案 `skills/`）。
-- **system prompt 位置**：寫在 **`~/.nanobot/workspace/SOUL.md`**（無 `systemPrompt` 設定鍵）；路由提示 + DB 速查規則放這裡。
-- **model 設定**：`agents.defaults.model="gpt-5.1"`（**bare 名稱**，不要 `openai/` 前綴）、`provider="openai"`、`providers.openai.apiKey="${OPENAI_API_KEY}"`（nanobot 支援 `${VAR}`）。
-- **WS / WebUI**：`channels.websocket{enabled:true,port:8765,websocketRequiresToken:false}`；`nanobot gateway` 後 WebUI 在 `ws://127.0.0.1:8765`（health 在 :18790）。
-- **驗收驅動**：用 headless `nanobot agent -m` 解析 `↳` 工具提示（`sendToolHints:true`）即可，未走 WS。
-- **重要 schema 修正**：`rallies`/`shots` 的 join key 改為 **`match_name`（= `matches.name`，不含 .mp4）**；原本含 .mp4 會讓 Agent 以可讀名 scope 查詢時得 0 筆。
-- **結果**：`mcps/badminton-db/scripts/verify_db.py` 23/23；9 題 e2e 工具路由 8/8、答案 8/8（DB/web），reels `generate_reel` 路由正常並回 `job_id`。
-- **每支 MCP 各自為政（容器化重構，已驗證）**：本 repo 自有 MCP 搬到 `mcps/`，各自獨立。
-  - `badminton-db`＝**獨立容器**（`mcps/badminton-db/Dockerfile`，映像 `badmintongpt-db:0.1.0`，
-    compose service `badminton-db`），改以 **streamable-HTTP** 對 compose 內網提供
-    `http://badminton-db:8801/mcp`（無 auth、永不對外）＋ `GET /healthz`；nanobot config 用
-    `{"type":"streamableHttp","url":"http://badminton-db:8801/mcp","enabledTools":[...]}` 連它。設
-    `MCP_TRANSPORT=stdio` 才走 stdio（smoke test）。host/dev：`MCP_HOST=127.0.0.1 python mcps/badminton-db/server.py`。
-  - `util`（sleep）＝**transport 不變**，仍是 **stdio**、由 gateway in-process 啟動（`{"type":"stdio",
+## Implemented and verified (nanobot v0.2.1, 2026-06-06)
+**Actual findings** for previously unverified items after implementation (these take precedence over conflicting examples above):
+- **mcpServers location**: actually **tools.mcpServers**, not top-level. Remote uses type:"streamableHttp" + url + headers; local uses type:"stdio" + command/args/env.
+- **Skill discovery path**: **~/.nanobot/workspace/skills/** (symlinked to this project's skills/).
+- **System prompt location**: **~/.nanobot/workspace/SOUL.md** (no systemPrompt configuration key); routing hints and DB quick-reference rules go here.
+- **Model settings**: agents.defaults.model="gpt-5.1" (**bare name**, no openai/ prefix), provider="openai", providers.openai.apiKey="${OPENAI_API_KEY}" (nanobot supports ${VAR}).
+- **WS / WebUI**: channels.websocket{enabled:true,port:8765,websocketRequiresToken:false}; after nanobot gateway, WebUI is at ws://127.0.0.1:8765 (health at :18790).
+- **Acceptance driver**: headless nanobot agent -m with parsed ↳ tool hints (sendToolHints:true); WS is not used.
+- **Important schema correction**: rallies/shots join key changed to **match_name (= matches.name, without .mp4)**; including .mp4 previously returned zero rows when the agent scoped by readable names.
+- **Results**: mcps/badminton-db/scripts/verify_db.py 23/23; nine-question e2e tool routing 8/8 and answers 8/8 (DB/web); reels generate_reel routes correctly and returns job_id.
+- **Independent MCPs (container refactoring, verified)**: this repo's own MCPs moved into mcps/, each independent.
+  - badminton-db = **separate container** (mcps/badminton-db/Dockerfile, image badmintongpt-db:0.1.0,
+    compose service badminton-db), now serving **streamable HTTP** on the compose network at
+    http://badminton-db:8801/mcp (no auth, never public) + GET /healthz; nanobot connects with
+    `{"type":"streamableHttp","url":"http://badminton-db:8801/mcp","enabledTools":[...]}`. Only
+    MCP_TRANSPORT=stdio selects stdio (smoke tests). Host/dev: `MCP_HOST=127.0.0.1 python mcps/badminton-db/server.py`.
+  - util (sleep) = **unchanged transport**, still **stdio**, launched in-process by gateway (`{"type":"stdio",
     "command":"python3","args":["/app/mcps/util/server.py"],"enabledTools":["sleep"],"toolTimeout":70}`），
-    **非獨立容器**。
-  - `reels`＝**不變**，仍是 remote streamableHttp（`https://reels-mcp.nycu-adsl.cc/mcp`，
-    `CF-Access-Client-Id/Secret` = `${REELS_CF_CLIENT_ID}/${REELS_CF_CLIENT_SECRET}`），本 repo 不容器化它。
-  - **gateway 變純 host**：Dockerfile 不再 COPY `db_mcp/` / `ingest.py` / `scripts/`，改 COPY `mcps/util/`；
-    gateway service 不再設 `BADMINTON_DB`，並 `depends_on: { badminton-db: { condition: service_healthy } }`；
-    entrypoint 不再警告缺 DB 檔。cloudflared/tunnel 不變（只 tunnel gateway，db 純內網）。
-  - **ingest reels-解耦**：`ingest.py` 不再注入 `$REELS_SRC` / `import badminton.*`，改用 vendored
-    `mcps/badminton-db/ingest_lib/`（`RallySegment`/`ShotLabel` + `parse.extract_tournament_round` + 薄 HF
-    `DataLoader`）；DB 建置只需 `HF_TOKEN`。`REELS_SRC`/`REELS_SRC_HOST` 已自 `.env.example`、compose ingest
-    移除。一次性建置 `docker compose --profile ingest run --rm ingest`（跑 `badmintongpt-db` 映像）。
-  - compose services 現為：`gateway`、`badminton-db`、`cloudflared`、`ingest`(profile)。
-  - **驗證**：`depends_on` 健康序啟動 OK；gateway log 出現 `MCP server 'badminton-db': connected`（HTTP）、
-    `util` connected（stdio）；HTTP 上 `list_tables`/`query` 正常、`DELETE` 被拒；`verify_db` 23/23、
-    parity OK、解耦 ingest Axelsen vs Lee = **1213 shots**（A=Viktor AXELSEN、B=LEE Zii Jia）。
-  - `example-mcp-server/`＝**獨立 docs 交付物**（`REMOTE_MCP_SERVER_GUIDE.md` 的範例），**不搬入** `mcps/`；
-    其 `server.py` 本就跑 streamable-http（env `MCP_HOST/MCP_PORT/PUBLIC_BASE_URL/OUTPUT_DIR`），容器化無需改 code。
+    **not a separate container**.
+  - reels = **unchanged**, still remote streamableHttp (https://reels-mcp.nycu-adsl.cc/mcp,
+    CF-Access-Client-Id/Secret = `${REELS_CF_CLIENT_ID}/${REELS_CF_CLIENT_SECRET}`); this repo does not containerize it.
+  - **Gateway becomes a pure host**: Dockerfile no longer copies db_mcp/ / ingest.py / scripts/; it copies mcps/util/ instead.
+    Gateway no longer sets BADMINTON_DB and uses `depends_on: { badminton-db: { condition: service_healthy } }`;
+    entrypoint no longer warns about missing DB files. cloudflared/tunnel is unchanged (gateway only; DB stays internal).
+  - **Ingest decoupled from reels**: ingest.py no longer injects $REELS_SRC or imports badminton.*; it uses vendored
+    mcps/badminton-db/ingest_lib/ (RallySegment/ShotLabel + parse.extract_tournament_round + thin HF
+    DataLoader). DB building requires only HF_TOKEN. REELS_SRC/REELS_SRC_HOST were removed from .env.example and
+    compose ingest. One-time build: `docker compose --profile ingest run --rm ingest` (badmintongpt-db image).
+  - Compose services are now gateway, badminton-db, cloudflared, and ingest (profile).
+  - **Verification**: health-ordered depends_on startup works; gateway logs show MCP server 'badminton-db': connected (HTTP)
+    and util connected (stdio); list_tables/query work over HTTP and DELETE is rejected; verify_db 23/23,
+    parity OK; decoupled ingest for Axelsen vs Lee yields **1,213 shots** (A=Viktor AXELSEN, B=LEE Zii Jia).
+  - example-mcp-server/ is a **standalone documentation deliverable** (REMOTE_MCP_SERVER_GUIDE.md example), **not moved into mcps/**;
+    server.py already runs streamable-http (env MCP_HOST/MCP_PORT/PUBLIC_BASE_URL/OUTPUT_DIR); containerization needs no code changes.
 ```

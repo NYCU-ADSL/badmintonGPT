@@ -65,30 +65,30 @@ def any_of(*subs):
 
 # (id, question, expected tool substring (in ↳ lines), answer check, timeout)
 CASES = [
-    (1, "資料庫裡有哪些 Axelsen 的比賽？", "query",
+    (1, "Which Axelsen matches are in the database?", "query",
      lambda a: sum(x in a for x in ("GINTING", "CHOU", "MOMOTA", "NARAOKA", "LEE")) >= 4, 180),
-    (2, "Axelsen vs Lee 那場，Axelsen 用殺球得了幾分？", "query",
+    (2, "In the Axelsen vs Lee match, how many points did Axelsen win with smashes?", "query",
      any_of("10"), 180),
-    (3, "Axelsen vs Lee 那場最常見的失分原因是什麼？", "query",
-     any_of("出界"), 180),
-    (4, "Axelsen vs Lee 那場，比較兩位選手挑球的使用次數。", "query",
+    (3, "What was the most common reason for losing points in the Axelsen vs Lee match?", "query",
+     any_of("out of bounds", "out-of-bounds", "Out of bounds", "Out-of-bounds", "出界"), 180),
+    (4, "Compare the two players' lift counts in the Axelsen vs Lee match.", "query",
      has("116", "86"), 180),
-    (5, "Axelsen vs Lee 那場三局比分各是多少？", "query",
+    (5, "What were the scores in each of the three games in the Axelsen vs Lee match?", "query",
      lambda a: ("11" in a and "23" in a), 180),
-    (6, "幫我找 Axelsen vs Lee 那場 Lee 放小球、而且有影片的回合。", "query",
-     any_of("放小球", "has_video", "影片"), 180),
-    (7, f"幫我做一支 Axelsen vs Lee 這場的精華短影音。", "generate_reel",
-     any_of("http", "生成", "job", "queued", "running"), 200),
-    (8, "Viktor Axelsen 最近的世界排名如何？", "search",
-     any_of("排名", "ranking", "BWF", "名"), 180),
-    (9, "這個資料庫收錄哪一年、哪些等級的比賽？", "query",
+    (6, "Find rallies with video where Lee played net shots in the Axelsen vs Lee match.", "query",
+     any_of("net shot", "Net shot", "has_video", "video", "Video", "放小球"), 180),
+    (7, f"Make a highlight video of the Axelsen vs Lee match.", "generate_reel",
+     any_of("http", "generat", "Generat", "job", "queued", "running"), 200),
+    (8, "What is Viktor Axelsen's latest world ranking?", "search",
+     any_of("ranking", "Ranking", "BWF", "ranked", "Ranked"), 180),
+    (9, "Which years and competition levels does this database cover?", "query",
      lambda a: (any(y in a for y in ("2022", "2023", "2024"))
-                and any(x in a for x in ("194", "189", "138", "練習", "正式"))), 180),
+                and any(x in a for x in ("194", "189", "138", "practice", "official"))), 180),
     # 10: the merged Data-old matches (2023/2024) — unreachable from the HF-only DB.
-    (10, "資料庫裡 2024 年的比賽有幾場？", "query", any_of("35"), 180),
+    (10, "How many matches from 2024 are in the database?", "query", any_of("35"), 180),
     # 11: badminton-analyze routing — must go through badminton-db for analyze_match_id
     #     (=123 for this match) and report the real names, not "Player A"/"Player B".
-    (11, "分析 Axelsen 對 Lee Zii Jia 那場（2022 Indonesia Open 準決賽）殺球後的回動速度。",
+    (11, "Analyze post-smash recovery speed in the Axelsen vs Lee Zii Jia match (2022 Indonesia Open semifinals).",
      "get_smash_followup_speed",
      # 0.87 / 1.55 are values only badminton-analyze can produce — a DB-only answer
      # (which cannot compute movement speed at all) must not pass this.

@@ -20,35 +20,35 @@ class CheckResult:
 
 def _valid_schema(schema) -> tuple[str, str]:
     if not isinstance(schema, dict):
-        return FAIL, "inputSchema 不是物件(dict)"
+        return FAIL, "inputSchema is not an object (dict)"
     try:
         validator_for(schema).check_schema(schema)
         return PASS, ""
     except Exception as e:  # noqa: BLE001
-        return FAIL, f"非合法 JSON Schema: {e}"
+        return FAIL, f"Invalid JSON Schema: {e}"
 
 
 def check_tools(tools) -> list[CheckResult]:
     out: list[CheckResult] = []
     if not tools:
-        return [CheckResult("protocol", "tools/list 至少 1 個工具", FAIL, "沒有任何工具")]
-    out.append(CheckResult("protocol", "tools/list 至少 1 個工具", PASS, f"{len(tools)} 個: " + ", ".join(t.name for t in tools)))
+        return [CheckResult("protocol", "tools/list has at least 1 tool", FAIL, "No tools available")]
+    out.append(CheckResult("protocol", "tools/list has at least 1 tool", PASS, f"{len(tools)} tools: " + ", ".join(t.name for t in tools)))
 
     names = [t.name for t in tools]
     dups = sorted({n for n in names if names.count(n) > 1})
-    out.append(CheckResult("protocol", "工具名稱唯一",
+    out.append(CheckResult("protocol", "Tool names are unique",
                            PASS if not dups else FAIL,
-                           "" if not dups else f"重複: {dups}"))
+                           "" if not dups else f"Duplicates: {dups}"))
 
     for t in tools:
         if not _NAME.match(t.name or ""):
-            out.append(CheckResult("protocol", f"工具 {t.name!r} 名稱格式", WARN,
-                                   "建議只用 [A-Za-z0-9_-]"))
+            out.append(CheckResult("protocol", f"Tool {t.name!r} name format", WARN,
+                                   "Use only [A-Za-z0-9_-] (recommended)"))
         if not (t.description or "").strip():
-            out.append(CheckResult("protocol", f"工具 {t.name} 有 description", FAIL,
-                                   "description 空白：agent 無法判斷何時呼叫"))
+            out.append(CheckResult("protocol", f"Tool {t.name} has a description", FAIL,
+                                   "Empty description: the agent cannot determine when to call the tool"))
         st, det = _valid_schema(getattr(t, "inputSchema", None))
-        out.append(CheckResult("protocol", f"工具 {t.name} inputSchema 合法", st, det))
+        out.append(CheckResult("protocol", f"Tool {t.name} has a valid inputSchema", st, det))
     return out
 
 
@@ -59,6 +59,6 @@ def detect_async_job(tools) -> CheckResult:
     has_status = any("status" in n for n in names)
     has_result = any("result" in n for n in names)
     if starters and has_status and has_result:
-        return CheckResult("convention", "非同步 job 慣例", INFO,
-                           f"偵測到 {starters} + *status* + *result*（符合指南）")
-    return CheckResult("convention", "非同步 job 慣例", SKIP, "未偵測到（非必要）")
+        return CheckResult("convention", "Asynchronous job convention", INFO,
+                           f"Detected {starters} + *status* + *result* (follows the guide)")
+    return CheckResult("convention", "Asynchronous job convention", SKIP, "Not detected (optional)")
