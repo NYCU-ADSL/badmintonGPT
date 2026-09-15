@@ -272,6 +272,20 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   (`cd /mnt/ssd1/howchien/badminton-reels && uv run badminton-mcp`; `curl 127.0.0.1:8900/healthz`),
   but the gateway is no longer coupled to it. Rebuild after editing nanobot source:
   `docker compose up -d --build`.
+- **A remote MCP's session expiring used to kill that MCP until a gateway restart — now self-heals.**
+  Streamable-HTTP servers issue an `Mcp-Session-Id` at `initialize` and answer **404
+  `Session not found`** once they forget it (restart / idle GC); the SDK raises
+  `McpError: Session terminated` and nanobot surfaces the useless `MCP tool call failed: McpError`.
+  Upstream never recovered — the session object stays dead and `connect_missing_servers` only
+  connects servers *missing* from `_mcp_stacks`, so the still-present dead connection is never
+  re-initialized (hit 2026-09-04: `badminton-analyze` fine at 06:55, then 19 straight failures from
+  08:12; the remote itself was healthy — a fresh `initialize` + `tools/call` returned data). Fixed
+  in the fork (`vendor/nanobot/nanobot/agent/tools/mcp.py`): the wrappers detect that error,
+  reconnect just that server in place and retry once, serialized per server so a parallel tool batch
+  reconnects once. Verified live by restarting `badminton-db` mid-call. **Diagnosing this class of
+  bug**: `docker compose logs gateway | grep -B2 McpError` shows the real `ErrorData(...)`, then
+  probe the remote directly — a fresh `initialize` that works while the gateway keeps failing means
+  a stale session, not a bad token/param.
 - **Per-MCP containers + health-ordered startup.** Compose services are `gateway`, `badminton-db`,
   `cloudflared`, and `ingest` (profile). The gateway is now a pure nanobot host: its Dockerfile COPYs
   `mcps/util/` (not `db_mcp/`/`ingest.py`/`scripts/`), it no longer sets `BADMINTON_DB`, and it has

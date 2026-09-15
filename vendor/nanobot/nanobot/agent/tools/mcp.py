@@ -41,6 +41,7 @@ _WINDOWS_SHELL_LAUNCHERS: frozenset[str] = frozenset(("npx", "npm", "pnpm", "yar
 # Replace anything outside [a-zA-Z0-9_-] with underscore and collapse runs.
 _SANITIZE_RE = re.compile(r"_+")
 _RELOAD_LOCKS: WeakKeyDictionary[Any, asyncio.Lock] = WeakKeyDictionary()
+_RECONNECT_LOCKS: WeakKeyDictionary[Any, dict[str, asyncio.Lock]] = WeakKeyDictionary()
 
 
 def _sanitize_name(name: str) -> str:
@@ -51,6 +52,25 @@ def _sanitize_name(name: str) -> str:
 def _is_transient(exc: BaseException) -> bool:
     """Check if an exception looks like a transient connection error."""
     return type(exc).__name__ in _TRANSIENT_EXC_NAMES
+
+
+# A streamable-HTTP MCP server hands out a session id at ``initialize`` and
+# answers 404 to every later request carrying an id it no longer knows (it
+# restarted, or garbage-collected an idle session). The MCP SDK turns that 404
+# into an ``McpError`` carrying one of these messages.
+_SESSION_EXPIRED_MARKERS: tuple[str, ...] = (
+    "session terminated",
+    "session not found",
+)
+
+
+def _is_session_expired(exc: BaseException) -> bool:
+    """Check if an exception means the server dropped our MCP session."""
+    if type(exc).__name__ != "McpError":
+        return False
+    error = getattr(exc, "error", None)
+    message = str(getattr(error, "message", "") or exc).lower()
+    return any(marker in message for marker in _SESSION_EXPIRED_MARKERS)
 
 
 async def _probe_http_url(
@@ -185,13 +205,76 @@ def _normalize_schema_for_openai(schema: Any) -> dict[str, Any]:
     return normalized
 
 
-class MCPToolWrapper(Tool):
+class _ServerLink:
+    """Reconnect context for one live MCP server, handed to its wrappers.
+
+    ``stack`` is the ``AsyncExitStack`` the wrapper was built under; it
+    identifies the connection *generation*, so parallel calls that all hit the
+    same dead session reconnect the server once instead of once each.
+    """
+
+    __slots__ = ("state", "registry", "name", "stack")
+
+    def __init__(
+        self, state: Any, registry: ToolRegistry, name: str, stack: AsyncExitStack
+    ) -> None:
+        self.state = state
+        self.registry = registry
+        self.name = name
+        self.stack = stack
+
+
+class _SessionHealer:
+    """Mixin: recover from an MCP session the remote end dropped.
+
+    Without this a session expiry (see ``_is_session_expired``) breaks the
+    server until nanobot restarts: the session object stays dead, every later
+    call 404s the same way, and nanobot's own reconnect never fires because
+    ``connect_missing_servers`` only connects servers *missing* from
+    ``state._mcp_stacks`` — and the dead connection is still in there.
+    """
+
+    _session: Any
+    _name: str
+    _link: "_ServerLink | None"
+
+    async def _heal_session(self) -> bool:
+        """Re-initialize this wrapper's server and adopt the fresh session."""
+        link = self._link
+        if link is None:
+            return False
+        if await _reconnect_server(link) is None:
+            return False
+        replacement = link.registry.get(self._name)
+        if replacement is None or not hasattr(replacement, "_session"):
+            logger.warning(
+                "MCP capability '{}' is gone from server '{}' after reconnect",
+                self._name,
+                link.name,
+            )
+            return False
+        # Adopt the reconnected session: this object is the wrapper the
+        # in-flight call holds, while the registry now points at a fresh twin.
+        self._session = replacement._session
+        self._link = replacement._link
+        return True
+
+
+class MCPToolWrapper(_SessionHealer, Tool):
     """Wraps a single MCP server tool as a nanobot Tool."""
 
     _plugin_discoverable = False
 
-    def __init__(self, session, server_name: str, tool_def, tool_timeout: int = 30):
+    def __init__(
+        self,
+        session,
+        server_name: str,
+        tool_def,
+        tool_timeout: int = 30,
+        link: "_ServerLink | None" = None,
+    ):
         self._session = session
+        self._link = link
         self._original_name = tool_def.name
         self._name = _sanitize_name(f"mcp_{server_name}_{tool_def.name}")
         self._description = tool_def.description or tool_def.name
@@ -234,6 +317,12 @@ class MCPToolWrapper(Tool):
                 logger.warning("MCP tool '{}' was cancelled by server/SDK", self._name)
                 return "(MCP tool call was cancelled)"
             except Exception as exc:
+                if attempt == 0 and _is_session_expired(exc) and await self._heal_session():
+                    logger.warning(
+                        "MCP tool '{}' hit an expired session, reconnected — retrying once...",
+                        self._name,
+                    )
+                    continue
                 if _is_transient(exc):
                     if attempt == 0:
                         logger.warning(
@@ -270,13 +359,21 @@ class MCPToolWrapper(Tool):
         return "(MCP tool call failed)"  # Unreachable, but satisfies type checkers
 
 
-class MCPResourceWrapper(Tool):
+class MCPResourceWrapper(_SessionHealer, Tool):
     """Wraps an MCP resource URI as a read-only nanobot Tool."""
 
     _plugin_discoverable = False
 
-    def __init__(self, session, server_name: str, resource_def, resource_timeout: int = 30):
+    def __init__(
+        self,
+        session,
+        server_name: str,
+        resource_def,
+        resource_timeout: int = 30,
+        link: "_ServerLink | None" = None,
+    ):
         self._session = session
+        self._link = link
         self._uri = resource_def.uri
         self._name = _sanitize_name(f"mcp_{server_name}_resource_{resource_def.name}")
         desc = resource_def.description or resource_def.name
@@ -325,6 +422,12 @@ class MCPResourceWrapper(Tool):
                 logger.warning("MCP resource '{}' was cancelled by server/SDK", self._name)
                 return "(MCP resource read was cancelled)"
             except Exception as exc:
+                if attempt == 0 and _is_session_expired(exc) and await self._heal_session():
+                    logger.warning(
+                        "MCP resource '{}' hit an expired session, reconnected — retrying once...",
+                        self._name,
+                    )
+                    continue
                 if _is_transient(exc):
                     if attempt == 0:
                         logger.warning(
@@ -361,13 +464,21 @@ class MCPResourceWrapper(Tool):
         return "(MCP resource read failed)"  # Unreachable
 
 
-class MCPPromptWrapper(Tool):
+class MCPPromptWrapper(_SessionHealer, Tool):
     """Wraps an MCP prompt as a read-only nanobot Tool."""
 
     _plugin_discoverable = False
 
-    def __init__(self, session, server_name: str, prompt_def, prompt_timeout: int = 30):
+    def __init__(
+        self,
+        session,
+        server_name: str,
+        prompt_def,
+        prompt_timeout: int = 30,
+        link: "_ServerLink | None" = None,
+    ):
         self._session = session
+        self._link = link
         self._prompt_name = prompt_def.name
         self._name = _sanitize_name(f"mcp_{server_name}_prompt_{prompt_def.name}")
         desc = prompt_def.description or prompt_def.name
@@ -431,6 +542,12 @@ class MCPPromptWrapper(Tool):
                 logger.warning("MCP prompt '{}' was cancelled by server/SDK", self._name)
                 return "(MCP prompt call was cancelled)"
             except McpError as exc:
+                if attempt == 0 and _is_session_expired(exc) and await self._heal_session():
+                    logger.warning(
+                        "MCP prompt '{}' hit an expired session, reconnected — retrying once...",
+                        self._name,
+                    )
+                    continue
                 logger.exception(
                     "MCP prompt '{}' failed: code={} message={}",
                     self._name,
@@ -481,13 +598,17 @@ class MCPPromptWrapper(Tool):
 
 
 async def connect_mcp_servers(
-    mcp_servers: dict, registry: ToolRegistry
+    mcp_servers: dict, registry: ToolRegistry, *, state: Any = None
 ) -> dict[str, AsyncExitStack]:
     """Connect to configured MCP servers and register their tools, resources, prompts.
 
     Returns a dict mapping server name -> its dedicated AsyncExitStack.
     Each server gets its own stack to prevent cancel scope conflicts
     when multiple MCP servers are configured.
+
+    Pass ``state`` (the agent loop owning ``_mcp_stacks``/``_mcp_servers``) to
+    let the registered wrappers reconnect their server on their own when the
+    remote end drops the session; without it they simply fail on expiry.
     """
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.sse import sse_client
@@ -575,6 +696,8 @@ async def connect_mcp_servers(
             session = await server_stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
 
+            link = _ServerLink(state, registry, name, server_stack) if state is not None else None
+
             tools = await session.list_tools()
             enabled_tools = set(cfg.enabled_tools)
             allow_all_tools = "*" in enabled_tools
@@ -595,7 +718,9 @@ async def connect_mcp_servers(
                         name,
                     )
                     continue
-                wrapper = MCPToolWrapper(session, name, tool_def, tool_timeout=cfg.tool_timeout)
+                wrapper = MCPToolWrapper(
+                    session, name, tool_def, tool_timeout=cfg.tool_timeout, link=link
+                )
                 registry.register(wrapper)
                 logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
                 registered_count += 1
@@ -621,7 +746,7 @@ async def connect_mcp_servers(
                 resources_result = await session.list_resources()
                 for resource in resources_result.resources:
                     wrapper = MCPResourceWrapper(
-                        session, name, resource, resource_timeout=cfg.tool_timeout
+                        session, name, resource, resource_timeout=cfg.tool_timeout, link=link
                     )
                     registry.register(wrapper)
                     registered_count += 1
@@ -635,7 +760,7 @@ async def connect_mcp_servers(
                 prompts_result = await session.list_prompts()
                 for prompt in prompts_result.prompts:
                     wrapper = MCPPromptWrapper(
-                        session, name, prompt, prompt_timeout=cfg.tool_timeout
+                        session, name, prompt, prompt_timeout=cfg.tool_timeout, link=link
                     )
                     registry.register(wrapper)
                     registered_count += 1
@@ -756,7 +881,7 @@ async def connect_missing_servers(state: Any, registry: ToolRegistry) -> None:
         return
     state._mcp_connecting = True
     try:
-        connected = await connect_mcp_servers(missing_servers, registry)
+        connected = await connect_mcp_servers(missing_servers, registry, state=state)
         state._mcp_stacks.update(connected)
         state._mcp_connected = bool(state._mcp_stacks)
         if connected:
@@ -817,7 +942,7 @@ async def reload_servers(state: Any, registry: ToolRegistry) -> dict[str, Any]:
         to_connect = {name: next_servers[name] for name in to_connect_names}
         connected: dict[str, AsyncExitStack] = {}
         if to_connect:
-            connected = await connect_mcp_servers(to_connect, registry)
+            connected = await connect_mcp_servers(to_connect, registry, state=state)
             state._mcp_stacks.update(connected)
 
         state._mcp_connected = bool(state._mcp_stacks)
@@ -941,6 +1066,49 @@ def _unregister_server_tools(state: Any, registry: ToolRegistry, server_name: st
             registry.unregister(tool_name)
             removed += 1
     return removed
+
+
+def _reconnect_lock(state: Any, server_name: str) -> asyncio.Lock:
+    locks = _RECONNECT_LOCKS.setdefault(state, {})
+    lock = locks.get(server_name)
+    if lock is None:
+        lock = asyncio.Lock()
+        locks[server_name] = lock
+    return lock
+
+
+async def _reconnect_server(link: _ServerLink) -> AsyncExitStack | None:
+    """Re-initialize one MCP server whose session the remote end dropped.
+
+    Returns the live stack (the fresh one, or the one a parallel call just
+    made), or ``None`` if reconnecting failed — the caller then reports the
+    original error and the next call tries again.
+    """
+    state, registry, name = link.state, link.registry, link.name
+    async with _reconnect_lock(state, name):
+        live = state._mcp_stacks.get(name)
+        if live is not None and live is not link.stack:
+            # A parallel call already reconnected this server; reuse its session.
+            return live
+        cfg = state._mcp_servers.get(name)
+        if cfg is None:
+            return None
+        logger.warning("MCP server '{}': session expired, reconnecting", name)
+        _unregister_server_tools(state, registry, name)
+        # Closing a stack entered by another task can raise out of anyio's
+        # cancel scopes; the connection is dropped either way.
+        with suppress(Exception):
+            await _close_server(state, name)
+        state._mcp_stacks.pop(name, None)
+        connected = await connect_mcp_servers({name: cfg}, registry, state=state)
+        state._mcp_stacks.update(connected)
+        state._mcp_connected = bool(state._mcp_stacks)
+        stack = connected.get(name)
+        if stack is None:
+            logger.warning("MCP server '{}': reconnect failed (will retry on the next call)", name)
+        else:
+            logger.info("MCP server '{}': reconnected after session expiry", name)
+        return stack
 
 
 async def _close_server(state: Any, server_name: str) -> None:

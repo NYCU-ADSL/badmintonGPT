@@ -113,6 +113,7 @@ nanobot agent -m "資料庫裡有哪些 Axelsen 的比賽？"
 cp .env.example .env            # 填 OPENAI_API_KEY / REELS_CF_* / TUNNEL_TOKEN
 docker compose --profile ingest run --rm ingest   # 建 ./data/badminton.db（只需 HF_TOKEN）
 docker compose up -d --build
+docker compose up -d --force-recreate gateway
 ```
 
 ## 驗收（Success Metric）

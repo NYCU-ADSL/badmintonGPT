@@ -30,6 +30,21 @@ Backend (Python):
   wrong/expired Cloudflare Access service token), or any connection/timeout error as "skip", so a
   down **or mis-credentialed** remote MCP no longer takes the gateway down — it is skipped and
   reconnected on a later turn.
+- **self-healing MCP sessions** (`nanobot/agent/tools/mcp.py`: `_is_session_expired`, `_ServerLink`,
+  `_SessionHealer`, `_reconnect_server`; `connect_mcp_servers(..., state=...)`) — a streamable-HTTP
+  MCP server hands out a session id at `initialize` and answers **404 `Session not found`** to every
+  later request carrying an id it no longer knows (it restarted, or GC'd an idle session); the SDK
+  turns that into `McpError: Session terminated`. Upstream never recovers: the session object stays
+  dead so every later call 404s the same way, and `connect_missing_servers` only connects servers
+  *missing* from `state._mcp_stacks` — the dead connection is still in there. The server was
+  therefore broken until the gateway restarted (observed 2026-09-04: `badminton-analyze` worked at
+  06:55 and every call from 08:12 on failed with `MCP tool call failed: McpError`). The fork detects
+  that specific error in the tool/resource/prompt wrappers, re-initializes just that server in place
+  (unregister → close → `connect_mcp_servers` → re-register) and retries the call once. Reconnects
+  are serialized per server by `_RECONNECT_LOCKS` and keyed on the wrapper's `AsyncExitStack`, so a
+  batch of parallel calls onto the same dead session reconnects **once**, not once each; a failed
+  reconnect returns the original error and is retried on the next call. Transport-level errors
+  (`ClosedResourceError` & co.) still take the old retry-once-on-the-same-session path.
 - **trust-proxy WebUI auth** (`nanobot/channels/websocket.py`, opt-in `NANOBOT_WEBUI_TRUST_PROXY=1`)
   — delegates WebUI/API auth to an external authenticating proxy. Upstream refuses to bind `0.0.0.0`
   without a `token`/`tokenIssueSecret` (`WebSocketConfig.wildcard_host_requires_auth`) **and** gates

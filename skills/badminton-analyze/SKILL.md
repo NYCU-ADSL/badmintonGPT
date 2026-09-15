@@ -1,93 +1,140 @@
 ---
 name: badminton-analyze
 description: >-
-  單一羽球比賽的進階數據與戰術分析（跑動距離、擊球高度/過網高度、後場擊球數、失分空間分布、
-  回合間休息時間、球種得分率、殺球後回動速度、統計宣稱驗證）。當使用者針對「某一場比賽」問這類
-  進階指標時，依本 playbook 先用 badminton-db 取得該場的 analyze_match_id，再呼叫
-  badminton-analyze MCP。計算邏輯全部封裝在 MCP 裡，絕對不可自行心算或編造數字。
+  使用 badminton-analyze MCP 工具分析羽球單打比賽。當使用者提供 match_id，
+  並要求球種成效、失分落點、回合休息時間、跑動距離、後場使用、擊球高度、
+  殺球後移動或數據驗證時使用。
 ---
 
-# badminton-analyze 戰術與數據分析 playbook
+# 羽球單打比賽分析
 
-remote MCP（CoachAI）。8 個**同步**工具，每個都吃 `match_id`（必填）+ `match_type`
-（預設 `"single"`，目前資料都是單打）。因為是同步的，**不適用** long-mcp-job 的輪詢流程。
+根據 MCP Server 回傳的比賽資料產生可核對的戰術分析。現在的正式分析範圍以單打為主，呼叫工具時使用：
 
-任何針對「單一比賽」的進階數據提問，順序固定：
-**確認 match_id → 判斷分析意圖選工具 → 換上真實姓名、只呈現 summary**。
-
-## 流程一：先拿到 `match_id`（不是比賽名稱！）
-
-`match_id` 是 CoachAI 端的**數字 ID**，存在 badminton-db 的 `matches.analyze_match_id`。
-**直接把資料夾名稱／比賽名稱丟進去一定失敗**（伺服器回 `Failed to fetch set data: 400`）。
-
-```sql
--- 使用者只給選手/賽事名稱時，先問 badminton-db
-SELECT name, player_a, player_b, tournament, round, year, analyze_match_id
-FROM matches
-WHERE name LIKE '%AXELSEN%' AND analyze_match_id IS NOT NULL
-ORDER BY year DESC;
+```json
+{
+  "match_id": "200",
+  "match_type": "single"
+}
 ```
-- 對話脈絡中已鎖定某一場且已有 `analyze_match_id` → 直接進流程二。
-- 查到多場 → 先請使用者選一場（或依賽事/年份/輪次挑最相符的那場），**不要**把多場的數字混在一起。
-- `analyze_match_id IS NULL`（例如 NYCU 練習片段）→ **這場無法做進階分析**，據實告知，
-  改用 badminton-db 的逐拍統計；**絕不可以猜一個數字**。
-- 順手把同一列的 `player_a` / `player_b` 記下來，流程三要用。
 
-## 流程二：選對應的分析工具
+## 開始分析前
 
-| 使用者想知道的 | 工具 |
-| :--- | :--- |
-| 後場擊球數量 | `get_backcourt_count` |
-| 擊球高度分布 / 過網高度 | `get_shot_height` |
-| 失分空間分布 / 失誤位置 | `get_lost_point_distribution` |
-| 回合間休息時間（秒） | `get_rally_rest_time` |
-| 跑動距離（總距離／每回合／每拍平均） | `get_running_distance` |
-| 球路得分率 / 各球種效益 | `get_shot_win_rate` |
-| 殺球後的回動速度（回中線 center／發球線 service_line） | `get_smash_followup_speed` |
-| 驗證某個統計宣稱 | `verify_match_statistics` |
+- 使用者已提供 `match_id` 時直接使用，不要再次詢問。
+- 缺少 `match_id` 時，先請使用者提供。
+- `match_id` 保持字串形式，不要猜測或自行替換。
+- 除非使用者明確要求其他範圍，`match_type` 一律使用 `"single"`。
+- 工具回傳 `error` 時，不要補造數值；說明失敗原因及缺少的資料。
 
-參數：`{"match_id": "123", "match_type": "single"}`。
-`verify_match_statistics` 另外必填 `metric`（如 `"shot_win_rate"`）與 `condition`
-（如 `"highest"` / `"lowest"`）。
+## 可用工具
 
-## 流程三：結果解析與呈現規則（重點）
+| MCP tool | 用途 |
+| --- | --- |
+| `get_backcourt_count` | 計算每位球員在後場擊球的次數及相關 rally 明細 |
+| `get_shot_height` | 統計每位球員高於與低於網高的擊球次數 |
+| `get_lost_point_distribution` | 統計每位球員在 1–16 區的失分分布 |
+| `get_rally_rest_time` | 計算同一局相鄰 rallies 之間的休息秒數 |
+| `get_running_distance` | 計算總跑動距離、每 rally 平均距離與每球平均距離 |
+| `get_shot_win_rate` | 計算各球種的 attempts、winners 與 win_rate |
+| `get_smash_followup_speed` | 計算殺球後往發球線或中心區域移動的速度 |
+| `verify_match_statistics` | 從原始比賽資料重新計算並驗證最高或最低的統計結果 |
 
-回傳是 `{players, summary, details}`（部分工具沒有 `details`）。
+以上是 MCP 對外公開的名稱。不要使用 `register_*_tools`；那些是 Python 內部註冊函式。
 
-1. **姓名一定要自己換**：MCP 的 `players` 永遠回字面上的 `"Player A"` / `"Player B"`，
-   **不是**真實姓名。用流程一查到的 `matches.player_a` / `player_b` 替換
-   （A/B 綁定與 badminton-db 一致，已實測對得上）。查不到姓名就寫 A/B，不要亂猜。
-2. **優先輸出 summary**：只取 `summary` 的數字，轉成好讀的 Markdown 表格或條列。
-3. **捨棄 details**：除非使用者明講「列出每回合細節」「看第幾拍」，否則**不要**把 `details`
-   的長陣列印出來（動輒上百筆，會洗版）。
-4. **數據為王**：`0` 或 `null` 就誠實呈現（某些比賽確實沒有該項標註），不要腦補、不要改寫。
-5. 回傳若是 `{"error": ...}`，把原因說出來（通常是 `match_id` 不對），不要假裝有數字。
+## 工具選擇
 
-## 與其他工具的分工
-- **一般逐拍統計 / 球種次數 / 比分 / 找比賽** → `badminton-db`（SQL，資料在本地）。
-- **單場的進階指標（跑動、速度、空間分布、得分率）** → 本 skill。
-- **生成精華影片** → badminton-reels；**檢索既有片段** → badminton-video-retrieval。
+使用者指定分析項目時，只呼叫相關工具。使用者要求完整比賽分析時，呼叫前七個分析工具，並依下方規則使用 `verify_match_statistics` 核對重要的極值結論。
 
-## 範例：「Axelsen 對 Lee Zii Jia 那場，殺球後的回動速度？」
+### 球種致勝率
+
+呼叫：
+
+```json
+{
+  "match_id": "200",
+  "match_type": "single"
+}
 ```
--- 1) badminton-db
-SELECT name, player_a, player_b, analyze_match_id FROM matches
-WHERE name LIKE '%AXELSEN%LEE_Zii_Jia%' AND analyze_match_id IS NOT NULL;
-→ Viktor_AXELSEN_LEE_Zii_Jia_EAST_VENTURES_Indonesia_Open_2022_Semifinals |
-  Viktor AXELSEN | LEE Zii Jia | 123
 
--- 2) badminton-analyze
-get_smash_followup_speed({"match_id": "123", "match_type": "single"})
-→ players: {A: "Player A", B: "Player B"}   # ← 換成 Viktor AXELSEN / LEE Zii Jia
-  summary: {A: {service_line: {…count: 0}, center: {average_speed: 0.87, max_speed: 1.55, count: 19}}, …}
+使用 `get_shot_win_rate` 的：
+
+- `players`：A、B 與實際球員姓名的對照。
+- `summary`：依球員及球種列出 `attempts`、`winners`、`win_rate`。
+- `data_quality`：總 rally、有效 rally、總球數、有效球數及略過數量。
+
+`win_rate` 是 0–1 的比例。向使用者呈現時可以轉成百分比，但保留原始 attempts 和 winners，避免只比較小樣本比例。
+
+### 失分區域分布
+
+`get_lost_point_distribution` 回傳：
+
+- `summary`：每位球員在各區域的失分比例。
+- `details`：各 rally 的 `lose zone`。
+- `data_quality`：有效與略過的 rally 數量。
+
+區域代碼的合法範圍是字串 `"1"` 到 `"16"`。沒有完整區域對照資料時保留數字代碼，不要自行創造區域名稱。
+
+### Rally 休息時間
+
+`get_rally_rest_time` 的時間單位是秒。摘要包含：
+
+- `average_rest_time`
+- `max_rest_time`
+- `min_rest_time`
+
+`details` 包含相鄰 rally 的 `rally` 與 `rest_time`；`data_quality.rest_intervals` 表示實際建立的休息區間數。
+
+### 其他動作與移動指標
+
+- 後場次數使用 `get_backcourt_count`。
+- 擊球高度使用 `get_shot_height`。
+- 跑動距離使用 `get_running_distance`，距離以工具回傳單位為準，報告中清楚標示。
+- 殺球後移動使用 `get_smash_followup_speed`，速度單位為 m/s。
+
+## 驗證數值結論
+
+當報告要聲稱某項統計是「最高」或「最低」時，用 `verify_match_statistics` 驗證。它目前支援單打及以下三種 metric：
+
+| metric | 驗證內容 |
+| --- | --- |
+| `shot_win_rate` | 球員與球種的最高或最低致勝率 |
+| `lost_point_distribution` | 球員與區域的最高或最低失分比例 |
+| `rally_rest_time` | 最長或最短 rally 休息時間 |
+
+呼叫範例：
+
+```json
+{
+  "match_id": "200",
+  "match_type": "single",
+  "metric": "shot_win_rate",
+  "condition": "highest"
+}
 ```
-> 以下是本場殺球後回動速度分析：
->
-> | 選手 | 回動目標 | 平均速度 (m/s) | 最高速度 (m/s) | 次數 |
-> | :--- | :--- | :--- | :--- | :--- |
-> | Viktor AXELSEN | 中線 (center) | 0.87 | 1.55 | 19 |
-> | Viktor AXELSEN | 發球線 (service_line) | 0.0 | 0.0 | 0 |
-> | LEE Zii Jia | 中線 (center) | 0.67 | 0.95 | 10 |
-> | LEE Zii Jia | 發球線 (service_line) | 0.0 | 0.0 | 0 |
->
-> *註：已省略單一回合的細節數據 (details)。*
+
+`condition` 只能是 `"highest"` 或 `"lowest"`。驗證結果的 `summary` 會包含 `metric`、`condition` 與該 metric 對應的欄位：
+
+- `shot_win_rate`：`player`、`shot_type`、`attempts`、`winners`、`win_rate`。
+- `lost_point_distribution`：`player`、`zone`、`lost_points`、`total_lost_points`、`rate`。
+- `rally_rest_time`：`set`、`rally`、`rest_time`。
+
+若來源工具與驗證工具結果不同，以 `verify_match_statistics` 的重新計算結果為準，並指出兩者不一致，不要隱藏差異。
+
+## 解讀資料品質
+
+正式統計工具可能回傳 `data_quality`。分析時：
+
+- 說明 `verified_rallies`、`valid_shots` 或 `rest_intervals` 等有效樣本數。
+- `skipped_rallies` 或 `skipped_shots` 大於 0 時，提醒結論只涵蓋可驗證資料。
+- 數值 `0` 代表已計算且結果為零；`null`、缺少欄位或 `error` 代表無法取得或計算，兩者不可混用。
+- 不要從缺少的 details 推論球員表現。
+
+## 回覆方式
+
+先用 `players` 將 A、B 換成實際姓名，再整理重點：
+
+1. 先回答使用者指定的問題。
+2. 用少量關鍵數字支持結論，附上次數、比例及單位。
+3. 比較球員時使用相同指標與相同資料範圍。
+4. details 很長時只摘錄支持結論的 rally，不要完整傾倒原始 JSON。
+5. 清楚區分工具直接回傳的結果與根據結果做出的戰術解讀。
+6. 對 `verify_match_statistics` 支援的三種 metric，任何「最高」或「最低」的正式結論都應附上驗證結果；其他指標則附上來源工具的數值與有效樣本。
