@@ -1,0 +1,12 @@
+.venv/
+node_modules/
+web/node_modules/
+web/dist/
+runtime/
+data/
+__pycache__/
+.pytest_cache/
+test-results/
+*.log
+.env
+
