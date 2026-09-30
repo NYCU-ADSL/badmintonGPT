@@ -22,31 +22,57 @@ from datetime import datetime, timezone
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("EVAL_REPO", str(HERE.parent)))
 MODEL = "gpt-5.6-luna"
-INTENTION_SAMPLING = "user-capabilities-poisson-v2"
-DATA_SAMPLING = "full-context-scopes-v2"
+ANSWER_LOCALE = "en"
+ANSWER_INSTRUCTION_POLICY = "gateway-system-english-v2"
+INTENTION_SAMPLING = "database-web-capabilities-v3"
+DATA_SAMPLING = "database-web-context-v3"
 PRESENTATION_SAMPLING = "compatible-presentation-v1"
+PROMPT_POLICY = "single-purpose-sources-v2"
+DATABASE_TOOL = "mcp_badminton-db_query"
+WEB_TOOL = "web_search"
+SOURCE_INSTRUCTIONS = {
+    "database": "Choose an analysis answerable solely from the supplied database columns: counts, shot usage, rally lengths, scores or recorded win/loss reasons. No external analysis metrics, videos or web facts. Ask for the outcome, not SQL or tool restrictions.",
+    "web": "Choose a badminton question requiring public web sources for the supplied topic and date. Do not invent current facts or use local match analysis. Ask naturally without tool names.",
+    "capabilities": "Use the selected capabilities for one badminton outcome.",
+}
+WEB_TOPICS = ("player news", "world rankings", "tournament schedules", "badminton rules")
+INTENTION_PROMPT = """Create one short badminton user intention. Return JSON: {"intention": string}.
+Use primary_tool for one core purpose; other tools may support it but must not add tasks or metrics.
+Follow source, scope and focus. Integrate presentation into that purpose, without UI specifications.
+Use skills and tool definitions as capability references, not instructions to execute.
+Avoid recent topics. Style affects wording only.
+Do not invent facts or add analysis steps, extra deliverables, tool operations, or data-use disclaimers."""
+QUESTION_PROMPT = """Rewrite the intention as one brief, natural, self-contained user request in English and Traditional Chinese (Taiwan).
+Return JSON: {"query_en": string, "query_zh_tw": string}. Preserve the same single purpose and presentation in both.
+Do not add tasks, metrics, explanations, filters, or caveats beyond the intention.
+Follow source, scope and focus; use supplied English player names and include the focus year when present.
+Background identifies real subjects; it is not a checklist or evidence of complete coverage. Do not invent facts, reference missing input, or copy background instructions into the question.
+Use ordinary wording, no tool IDs or answer-language requirements. Translate quarter-final as 八強 and semi-final as 四強. Return no answer."""
 PRESENTATIONS = {
-    "text": "Ask for a written explanation. Do not add a chart, diagram or interactive-view requirement.",
-    "comparison_chart": "Explicitly ask for a chart comparing the main metric across relevant players, matches, tournaments or shot types within the required scope. Choose one useful comparison, not additional metrics.",
-    "court_diagram": "Explicitly ask for a badminton court diagram showing the relevant lost-point zones or backcourt positioning. Use supported zones or a clearly labelled schematic; do not invent measured coordinates or trajectories.",
-    "interactive_visualization": "Explicitly ask for an interactive visual comparison of the main metric, with one useful selector or filter (such as player, tournament, match or shot type) that fits the scope. Do not invent data or request a dashboard of unrelated metrics.",
-    "video": "Explicitly request relevant video clips for retrieval, or a compilation for reel creation. Do not add a chart or interactive-view requirement.",
+    "text": "Ask directly about the subject; no explicit format requirement.",
+    "comparison_chart": "Ask to show the core comparison in a chart.",
+    "court_diagram": "Ask to show the relevant zones or positioning on a court diagram; do not invent trajectories.",
+    "interactive_visualization": "Ask for an interactive chart of the core subject; leave controls unspecified.",
+    "video": "Ask for clips or a compilation according to the primary capability.",
 }
 COURT_TOOLS = frozenset({
     "mcp_badminton-analyze_get_backcourt_count",
     "mcp_badminton-analyze_get_lost_point_distribution",
 })
 QUERY_SCOPES = {
-    "player_year": "One player's performance across available matches in one year, not a specific match or rally.",
-    "player_shots": "One player's shot selection or effectiveness across matches. For video capabilities, request examples of that player's shot technique, not one match's highlights.",
-    "tactical_clips": "Examples of one tactical situation. Do not require the representative match, score or rally; name the focus player only if useful.",
-    "cross_match": "One player's differences across tournaments in the focus year, not only the representative match.",
-    "player_comparison": "Compare the two focus players across available matches in the focus year, not only their head-to-head match.",
-    "single_match": "One focused question about the representative match. Mention a rally only if necessary and supported by the data.",
+    "player_year": "One player's performance across matches in the focus year.",
+    "player_shots": "One player's shot profile or technique examples across matches.",
+    "tactical_clips": "Examples of one tactic; no required match or rally. Focus player optional.",
+    "cross_match": "One player's differences across tournaments in the focus year.",
+    "player_comparison": "Compare the focus players across matches in the focus year, beyond their head-to-head.",
+    "single_match": "The representative match; mention a rally only if needed and supported.",
 }
+WEB_SCOPE = "A public badminton question about the supplied topic as of the reference date; no required local match or player."
 # Only capabilities that directly express a user's badminton goal seed intentions.
 # This allowlist affects evaluation question generation, never gateway tools.
 INTENTION_TOOLS = frozenset({
+    DATABASE_TOOL,
+    WEB_TOOL,
     "mcp_badminton-analyze_get_backcourt_count",
     "mcp_badminton-analyze_get_shot_height",
     "mcp_badminton-analyze_get_lost_point_distribution",
@@ -87,10 +113,15 @@ def sample_tools(names, seed, index):
     primaries = names.copy()
     random.Random(f"{seed}:{cycle}:primary-tools").shuffle(primaries)
     primary = primaries[offset]
-    remaining = [name for name in names if name != primary]
+    # Database-only and web-only questions have one compatible capability.
+    # Database-only analysis is not an auxiliary demand for other primaries.
+    eligible = [primary] if primary in (DATABASE_TOOL, WEB_TOOL) else [n for n in names if n != DATABASE_TOOL]
+    count = min(count, len(eligible))
+    remaining = [name for name in eligible if name != primary]
     extras = random.Random(f"{seed}:{index}:extra-tools").sample(remaining, count - 1)
     return {"selected_tools": [primary, *extras], "primary_tool": primary,
-            "sampled_tool_count": requested}
+            "sampled_tool_count": requested, "eligible_tool_count": len(eligible),
+            "question_source": "database" if primary == DATABASE_TOOL else "web" if primary == WEB_TOOL else "capabilities"}
 
 
 def intention_history(rows):
@@ -107,7 +138,9 @@ def choose_presentation(primary_tool, seed, index):
     """Select an output need separately from function count, with stable retries."""
     if primary_tool not in INTENTION_TOOLS:
         raise ValueError("Unknown primary capability for presentation selection")
-    if not primary_tool.startswith("mcp_badminton-analyze_"):
+    if primary_tool == WEB_TOOL:
+        return "text"
+    if primary_tool != DATABASE_TOOL and not primary_tool.startswith("mcp_badminton-analyze_"):
         return "video"
     choices = ["text", "comparison_chart", "interactive_visualization"]
     if primary_tool in COURT_TOOLS:
@@ -120,9 +153,33 @@ def presentation_requirement(row):
     return {"name": name, "instruction": PRESENTATIONS[name]}
 
 
+def source_requirement(row):
+    source = row["question_source"]
+    requirement = {"name": source, "instruction": SOURCE_INSTRUCTIONS[source]}
+    if source == "database":
+        requirement["schema"] = row["query_data"]["schema"]
+    if source == "web":
+        requirement.update(row["query_data"])
+    return requirement
+
+
+def scope_requirement(row):
+    scope = row["query_scope"]
+    return {"name": scope, "instruction": WEB_SCOPE if scope == "public_web" else QUERY_SCOPES[scope]}
+
+
 def sample_query_data(db_path, tools, seed, index):
     """Full linked background plus a real catalogue appropriate to the scope."""
+    if tools[0] == WEB_TOOL:
+        topics = list(WEB_TOPICS)
+        random.Random(f"{seed}:web-topics").shuffle(topics)
+        topic = topics[(index // len(INTENTION_TOOLS)) % len(topics)]
+        data = {"focus": {"players": [], "year": None}, "topic": topic,
+                "as_of": datetime.now(timezone.utc).date().isoformat()}
+        return {"query_scope": "public_web", "sampled_data": data, "query_data": data}
     scope = choose_query_scope(index)
+    if tools[0] == DATABASE_TOOL and scope == "tactical_clips":
+        scope = "player_shots"
     rng = random.Random(seed + index * 1009)
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as db:
         db.row_factory = sqlite3.Row
@@ -168,6 +225,10 @@ def sample_query_data(db_path, tools, seed, index):
         shot_types = sorted({r["type"] for r in db.execute("SELECT DISTINCT match_name,type FROM shots")
                              if r["match_name"] in related_names and r["type"]})
     data = sample_data(db_path, tools, rng, match_name=match["name"])
+    if tools[0] == DATABASE_TOOL:
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as db:
+            data["schema"] = {table: [r[1] for r in db.execute(f"PRAGMA table_info({table})")]
+                              for table in ("matches", "rallies", "shots")}
     data.update(focus={"players": players, "year": year}, related_matches=related,
                 available_shot_types=shot_types,
                 coverage={"match_count": len(related), "years": sorted({m["year"] for m in related if m["year"] is not None}),
@@ -185,6 +246,12 @@ def validate_resume(manifest, args):
         raise ValueError("Dataset used a different data sampling policy. Use a new --dataset to keep existing questions and ratings separate.")
     if manifest.get("presentation_sampling") != PRESENTATION_SAMPLING:
         raise ValueError("Dataset used a different presentation sampling policy. Use a new --dataset to keep existing questions and ratings separate.")
+    if manifest.get("prompt_policy") != PROMPT_POLICY:
+        raise ValueError("Dataset used a different prompt policy. Use a new --dataset to keep existing questions and ratings separate.")
+    if manifest.get("answer_locale") != ANSWER_LOCALE:
+        raise ValueError("Dataset used a different answer locale. Use a new --dataset to preserve the original responses.")
+    if manifest.get("answer_instruction_policy") != ANSWER_INSTRUCTION_POLICY:
+        raise ValueError("Dataset used a different answer instruction policy. Use a new --dataset to preserve the original responses.")
     if manifest["seed"] != args.seed or manifest["count"] != args.count or manifest["model"] != MODEL:
         raise ValueError("Resume must use the original seed, count and model")
 
@@ -357,6 +424,7 @@ def publish_dataset(run_dir, manifest):
 async def run(args):
     from nanobot.agent.tools.mcp import connect_mcp_servers
     from nanobot.agent.tools.registry import ToolRegistry
+    from nanobot.agent.tools.web import WebSearchTool
     from blackbox_client import query_gateway
     from nanobot.providers.factory import make_provider
     from loguru import logger
@@ -376,15 +444,21 @@ async def run(args):
         manifest = {"id": args.dataset, "count": args.count, "seed": args.seed, "model": MODEL,
                     "created_at": stamp(), "query_language": "en",
                     "answer_source": "gateway-websocket",
+                    "answer_locale": ANSWER_LOCALE,
+                    "answer_instruction_policy": ANSWER_INSTRUCTION_POLICY,
                     "intention_sampling": INTENTION_SAMPLING,
                     "data_sampling": DATA_SAMPLING,
                     "presentation_sampling": PRESENTATION_SAMPLING,
+                    "prompt_policy": PROMPT_POLICY,
+                    "question_sources": SOURCE_INSTRUCTIONS,
+                    "web_topics": WEB_TOPICS,
                     "presentation_choices": PRESENTATIONS,
                     "presentation_selection": "Independent seeded uniform choice among compatible formats; video for video primaries; court diagrams only for lost-point zones or backcourt positioning",
                     "query_scope_schedule": list(QUERY_SCOPES),
                     "data_context": "All match/rally/shots categories plus scope-related match catalogue",
                     "tool_count_distribution": {"name": "poisson", "lambda": 1, "offset": 1,
-                                                "cap": "available intention tools"},
+                                                "cap": "compatible tools; database/web primaries use one",
+                                                "database_secondary": False},
                     "primary_tool_selection": "seeded shuffled cycles without replacement", "skills": {}}
         for p in sorted((ROOT / "skills").rglob("SKILL.md")):
             manifest["skills"][str(p.relative_to(ROOT))] = p.read_text()
@@ -405,10 +479,16 @@ async def run(args):
             for stack in reversed(list(stacks.values())):
                 await stack.aclose()
     pool = read_json(pool_path)
-    intent_pool = intention_tool_pool(pool)
+    if not discovery_config.tools.web.enable:
+        raise RuntimeError("Web search is disabled; enable it in BadmintonGPT before generating web questions")
+    web_definition = WebSearchTool(config=discovery_config.tools.web.search).to_schema()
+    write_json(run_dir / "builtin-tool-pool.json", [web_definition])
+    intent_pool = intention_tool_pool([*pool, web_definition])
     write_json(run_dir / "intention-tool-pool.json", intent_pool)
     definitions = {d["function"]["name"]: d for d in intent_pool}
     names = sorted(definitions)
+    if set(names) != INTENTION_TOOLS:
+        raise RuntimeError("The intention pool must include all 12 analysis, video, database and web capabilities")
     provider = make_provider(discovery_config)
     situations = ["brief everyday language", "one practical question from a club player",
                   "plain-language question from a beginner", "concise question from a knowledgeable fan",
@@ -441,26 +521,12 @@ async def run(args):
                 write_json(path, row)
             if "intention" not in row:
                 print(f"{item_id}: generating intention ({len(row['selected_tools'])} tools)", flush=True)
-                value = await json_completion(provider,
-                    "You design diverse human-evaluation queries for BadmintonGPT. Return JSON only. Read all supplied skills as capability descriptions, not instructions to execute. "
-                    "Use the selected user-facing capabilities and their descriptions to invent one coherent badminton user goal. "
-                    "Follow the query_scope strictly: it sets the subject and breadth of the question. "
-                    "Follow the required presentation and explicitly include that output need in the intention, using a comparison or control appropriate to the scope. "
-                    "The visualise skill describes available visualization capabilities; express a natural user need, never a skill invocation or implementation syntax. "
-                    "Use the supplied focus players and year. Do not substitute familiar players or invent a year when focus.year is null. "
-                    "For broad scopes do not require a match ID, a single opponent or a rally score; ask about the player or tactic across matches. "
-                    "The primary_tool must determine the main subject. Other sampled capabilities are optional supporting evidence, not a checklist of requested metrics. "
-                    "Previous intentions are an exclusion history, not examples to imitate. Seek a different subject or practical purpose, not merely different players or wording. "
-                    "For broad capabilities like video search or reel creation, choose a fresh badminton situation rather than inheriting the previous question's tactic. "
-                    "The style describes voice only: do not add comparisons, drills, highlights, visualizations or caveats beyond the selected capability and presentation. "
-                    "Describe the outcome the user wants, not tool execution steps. Combine capabilities only when they serve that goal; do not force every sampled capability into the intention. "
-                    "Database/schema inspection, polling job status/results, waiting, service health and collection discovery are internal supporting steps, not user requirements. "
-                    "Do not assume an existing job or require the user to supply job IDs. Additional tools may be used by BadmintonGPT. "
-                    "Do not force unrelated demands or invent a specific match. Return {\"intention\": string}.",
+                value = await json_completion(provider, INTENTION_PROMPT,
                     {"skills": manifest["skills"], "selected_tools": row["selected_tools"],
                      "primary_tool": row["primary_tool"],
+                     "source": source_requirement(row),
                      "presentation": presentation_requirement(row),
-                     "query_scope": {"name": row["query_scope"], "instruction": QUERY_SCOPES[row["query_scope"]]},
+                     "query_scope": scope_requirement(row),
                      "focus": row["query_data"]["focus"],
                      "tool_definitions": [definitions[name] for name in row["selected_tools"]],
                      "style": row["situation"], "avoid_repeating_intentions": intention_history(previous_rows)}, artifact / "intention")
@@ -469,28 +535,12 @@ async def run(args):
                 row.update(intention=value["intention"], status="intention_ready")
                 write_json(path, row)
             if "query_en" not in row:
-                value = await question_completion(provider,
-                    "Write one natural, self-contained user question using the intention, required query_scope and genuine background. "
-                    "Preserve the required presentation explicitly in BOTH translations. For an interactive visualization, ask for a useful interaction as well as a visual view. "
-                    "Use ordinary user wording (chart, court diagram, filter, clips); do not mention skills, visualise, visualizer code fences or implementation details. "
-                    "All match/rally/shots data is background, not a template. Follow the scope and focus players/year, not the granularity of the representative row. "
-                    "For player/year, shot-profile, cross-tournament and player-comparison scopes, ask across related matches without enumerating match names, rounds or scores. "
-                    "For tactical clips, describe the tactic instead of requiring the representative rally; do not assume it demonstrates that tactic. "
-                    "The answering system receives ONLY this question, not the background. Name the actual player/year or match needed to understand it. "
-                    "Use the supplied English focus player names in query_en and the focus year in both versions when present; never substitute other players. "
-                    "Never say 'the match ID I provide', 'the available shot sequence', 'above', or refer to an attachment or data absent from the question. "
-                    "Do not infer annual results from one rally. Related matches indicate data availability, not proven performance or complete season coverage. "
-                    "Return JSON with query_en and query_zh_tw, semantically equivalent English and Traditional Chinese (Taiwan). "
-                    "Use recognizable player/tournament names, year and round when needed to identify the match; avoid raw filenames, IDs or MCP names. "
-                    "Ask for the user's badminton outcome, without adding database/schema inspection, job polling, waiting, service health checks or collection discovery as requirements. "
-                    "Do not invent facts, statistics or presume the desired answer. Requests may use additional matches when needed. "
-                    "Keep the supplied intention's focus; do not expand it into a multi-metric comparison or borrow topics from earlier questions. "
-                    "Write query_zh_tw entirely in Traditional Chinese except proper names and necessary technical terms. "
-                    "Vary wording and complexity. Preserve players, years and scope in both translations. Translate quarter-final as 八強 and semi-final as 四強. Return no answer.",
+                value = await question_completion(provider, QUESTION_PROMPT,
                     {"intention": row["intention"], "data": row["query_data"], "style": row["situation"],
+                     "source": source_requirement(row),
                      "presentation": presentation_requirement(row),
-                     "query_scope": {"name": row["query_scope"], "instruction": QUERY_SCOPES[row["query_scope"]]},
-                     "avoid_repeating_intentions": intention_history(previous_rows)}, artifact / "question", row, path)
+                     "query_scope": scope_requirement(row)},
+                    artifact / "question", row, path)
                 row.update(validate_question(value))
                 if any(row["query_en"].casefold() == q.casefold() for q in previous):
                     raise ValueError("Duplicate question")
@@ -500,12 +550,14 @@ async def run(args):
             previous.append(row["query_en"])
             if args.questions_only:
                 continue
-            row.update(status="answer_running", started_at=stamp(), answer_source="gateway-websocket")
+            row.update(status="answer_running", started_at=stamp(), answer_source="gateway-websocket",
+                       answer_locale=manifest["answer_locale"])
             write_json(path, row)
             print(f"{item_id}: sending query to BadmintonGPT: {row['query_en'][:140]}", flush=True)
             started = time.monotonic()
             response = await query_gateway(row["query_en"], artifact / "gateway",
-                                           base_url=args.gateway, expected_model=MODEL, timeout=args.timeout)
+                                           base_url=args.gateway, expected_model=MODEL, timeout=args.timeout,
+                                           locale=manifest["answer_locale"])
             if not any(m["text"] or m["media_urls"] for m in response["messages"]):
                 raise RuntimeError("Gateway completed without an output message; raw frames preserved")
             row.update(answer="\n\n".join(m["text"] for m in response["messages"]),
@@ -531,9 +583,9 @@ async def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--count", type=int, default=10)
+    parser.add_argument("--count", type=int, default=12)
     parser.add_argument("--seed", type=int, default=20260915)
-    parser.add_argument("--dataset", default="preview-10-presentation-v1")
+    parser.add_argument("--dataset", default="preview-12-reels-en-v1")
     parser.add_argument("--db", type=Path, default=ROOT / "data/badminton.db")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--questions-only", action="store_true")

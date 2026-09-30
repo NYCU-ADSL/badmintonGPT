@@ -95,3 +95,25 @@ def test_public_output_preserves_gateway_text_and_urls(setup):
     item = client.get("/api/dataset").json()["items"][0]
     assert item["answer"] == original
     assert item["output_messages"] == messages
+
+
+def test_playback_copy_preserves_original_answer_and_validates_file(setup):
+    path, _, client = setup
+    data = json.loads(path.read_text())
+    source = "https://video.example/files/encoded-id"
+    answer = f"![Clip.mp4]({source})"
+    data["items"][0].update(answer=answer, output_messages=[{"text": answer, "media_urls": []}])
+    path.write_text(json.dumps(data))
+    media = path.parent / "media/q001"
+    media.mkdir(parents=True)
+    (media / "playback.mp4").write_bytes(b"original-timeline-compatible-codec")
+    manifest = path.parent / "playback-media.json"
+    manifest.write_text(json.dumps({"q001": {"source_url": source, "filename": "playback.mp4"}}))
+    item = client.get("/api/dataset").json()["items"][0]
+    assert item["answer"] == answer
+    assert item["output_messages"] == data["items"][0]["output_messages"]
+    assert item["playback_sources"] == {source: "/api/media/q001/playback.mp4"}
+    assert client.get(item["playback_sources"][source]).content == b"original-timeline-compatible-codec"
+    for filename in ["../../dataset.json", "missing.mp4"]:
+        manifest.write_text(json.dumps({"q001": {"source_url": source, "filename": filename}}))
+        assert client.get("/api/dataset").json()["items"][0]["playback_sources"] == {}

@@ -38,7 +38,8 @@ def test_only_query_is_sent_and_output_is_preserved(tmp_path):
     socket = Socket(frames)
     query = "  Please make a video.\n"
     result = run(socket, query, tmp_path)
-    assert socket.sent == [{"type": "message", "chat_id": "new-session", "content": query, "webui": True}]
+    assert socket.sent == [{"type": "message", "chat_id": "new-session", "content": query, "webui": True, "locale": "en"}]
+    assert json.loads((tmp_path / "request.json").read_text())["envelope"] == socket.sent[0]
     assert result["messages"] == [{"text": "  Original\nreply: anchor unavailable.  ", "media_urls": []}]
     assert [json.loads(line) for line in (tmp_path / "output-frames.jsonl").read_text().splitlines()] == frames
     # No second query, /stop command, tool call, or fallback is sent.

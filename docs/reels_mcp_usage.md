@@ -10,6 +10,23 @@ points nanobot at the remote URL. This file is the connection cheat-sheet; for t
   `skills/badminton-reels/SKILL.md` (domain knowledge) + `skills/long-mcp-job/SKILL.md` (the generic
   recipe).
 - **How the server was built / its refactor spec**: [`REELS_MCP_HANDOFF.md`](./REELS_MCP_HANDOFF.md).
+- **Narration language**: `generate_reel` takes `language` (`zh-TW` | `en`, narration script + TTS voice +
+  subtitles). The current English-only system instruction explicitly requires `language="en"`.
+  If omitted, the nanobot fork fills it from the WebUI language picker (`zh-TW`/`zh-CN` → `zh-TW`,
+  other UI languages → `en`). An explicit value wins. Confirm the language from the tool result,
+  not the UI locale alone.
+
+## Deploying language support
+
+Repo changes do not update either running service automatically. The reels MCP must expose the
+`language` property in its live `generate_reel` schema, and `get_reel_result` must echo it. An old
+reels image can keep using Chinese scripts, opening lines and voices despite an English chat reply.
+
+Rebuild and recreate `reels` from `../badminton-reels`, preserving its output/cache volumes. Refresh
+BadmintonGPT's MCP connections afterward so its cached tool definitions include the new field.
+When updating SOUL, rebuild/recreate the gateway as well. Check for active jobs and conversations
+before restarting services. Existing video files retain their original narration/subtitles;
+validate the change with a new job and inspect its stored spec, complete script and video.
 
 ## nanobot config (`~/.nanobot/config.json` — the committed template is `nanobot/config.json`)
 

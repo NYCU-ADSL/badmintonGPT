@@ -5,7 +5,7 @@ services:
     user: '${EVAL_UID:-1000}:${EVAL_GID:-1000}'
     profiles: [generate]
     entrypoint: [python, /evaluation/generate.py]
-    command: [--count, '10', --dataset, preview-10-presentation-v1, --resume]
+    command: [--count, '12', --seed, '20260917', --dataset, preview-12-reels-en-v1, --resume]
     environment:
       EVAL_REPO: /repo
       PYTHONPATH: /repo/vendor/nanobot
@@ -24,7 +24,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      EVAL_DATASET: /evaluation/data/preview-5-presentation-v1/dataset.json
+      EVAL_DATASET: /evaluation/data/formal-200-v1/dataset.json
       EVAL_RATINGS: /evaluation/data/ratings.sqlite3
     volumes:
       - ./data:/evaluation/data

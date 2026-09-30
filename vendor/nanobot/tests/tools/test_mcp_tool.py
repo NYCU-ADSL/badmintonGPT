@@ -8,12 +8,19 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 import nanobot.agent.tools.mcp as mcp_mod
+from nanobot.agent.tools.context import (
+    RequestContext,
+    bind_request_context,
+    reset_request_context,
+)
 from nanobot.agent.tools.mcp import (
     MCPPromptWrapper,
     MCPResourceWrapper,
     MCPToolWrapper,
     _normalize_windows_stdio_command,
+    _pick_language,
     _sanitize_name,
+    _schema_enum,
     connect_mcp_servers,
 )
 from nanobot.agent.tools.registry import ToolRegistry
@@ -292,6 +299,122 @@ async def test_execute_returns_text_blocks() -> None:
     result = await wrapper.execute(value=1)
 
     assert result == "hello\n42"
+
+
+# --- badmintonGPT fork: `language` defaulted from the WebUI locale ---
+
+
+_LANGUAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "match_name": {"type": "string"},
+        "language": {"type": "string", "enum": ["zh-TW", "en"], "default": "zh-TW"},
+    },
+    "required": ["match_name"],
+}
+
+
+def _make_language_wrapper(session: object) -> MCPToolWrapper:
+    tool_def = SimpleNamespace(
+        name="generate_reel", description="reel", inputSchema=_LANGUAGE_SCHEMA
+    )
+    return MCPToolWrapper(session, "reels", tool_def, tool_timeout=1)
+
+
+@asynccontextmanager
+async def _ui_locale(locale: str | None):
+    metadata = {"locale": locale} if locale is not None else {}
+    token = bind_request_context(
+        RequestContext(channel="websocket", chat_id="c1", metadata=metadata)
+    )
+    try:
+        yield
+    finally:
+        reset_request_context(token)
+
+
+@pytest.mark.parametrize(
+    ("locale", "expected"),
+    [("zh-TW", "zh-TW"), ("zh-CN", "zh-TW"), ("ja", "en"), ("en", "en"), ("fr", "en")],
+)
+@pytest.mark.asyncio
+async def test_execute_fills_language_from_ui_locale(locale: str, expected: str) -> None:
+    seen: dict = {}
+
+    async def call_tool(_name: str, arguments: dict) -> object:
+        seen.update(arguments)
+        return SimpleNamespace(content=[_FakeTextContent("ok")])
+
+    wrapper = _make_language_wrapper(SimpleNamespace(call_tool=call_tool))
+    async with _ui_locale(locale):
+        await wrapper.execute(match_name="m")
+
+    assert seen == {"match_name": "m", "language": expected}
+
+
+@pytest.mark.asyncio
+async def test_execute_keeps_explicit_language_over_ui_locale() -> None:
+    seen: dict = {}
+
+    async def call_tool(_name: str, arguments: dict) -> object:
+        seen.update(arguments)
+        return SimpleNamespace(content=[_FakeTextContent("ok")])
+
+    wrapper = _make_language_wrapper(SimpleNamespace(call_tool=call_tool))
+    async with _ui_locale("zh-TW"):
+        await wrapper.execute(match_name="m", language="en")
+
+    assert seen["language"] == "en"
+
+
+@pytest.mark.asyncio
+async def test_execute_leaves_language_unset_without_locale() -> None:
+    seen: dict = {}
+
+    async def call_tool(_name: str, arguments: dict) -> object:
+        seen.update(arguments)
+        return SimpleNamespace(content=[_FakeTextContent("ok")])
+
+    wrapper = _make_language_wrapper(SimpleNamespace(call_tool=call_tool))
+    async with _ui_locale(None):
+        await wrapper.execute(match_name="m")
+    assert "language" not in seen
+
+    seen.clear()
+    await wrapper.execute(match_name="m")  # no request context bound at all
+    assert "language" not in seen
+
+
+@pytest.mark.asyncio
+async def test_execute_ignores_locale_for_tools_without_language_param() -> None:
+    seen: dict = {}
+
+    async def call_tool(_name: str, arguments: dict) -> object:
+        seen.update(arguments)
+        return SimpleNamespace(content=[_FakeTextContent("ok")])
+
+    wrapper = _make_wrapper(SimpleNamespace(call_tool=call_tool))
+    async with _ui_locale("zh-TW"):
+        await wrapper.execute(value=1)
+
+    assert seen == {"value": 1}
+
+
+def test_schema_enum_collects_nested_choices() -> None:
+    assert _schema_enum({"enum": ["zh-TW", "en"]}) == ["zh-TW", "en"]
+    assert _schema_enum(
+        {"anyOf": [{"enum": ["zh-TW", "en"]}, {"type": "null"}]}
+    ) == ["zh-TW", "en"]
+    assert _schema_enum({"oneOf": [{"const": "en"}, {"const": "ja"}]}) == ["en", "ja"]
+    assert _schema_enum({"type": "string"}) == []
+
+
+def test_pick_language_mapping() -> None:
+    assert _pick_language("zh-TW", ["zh-TW", "en"]) == "zh-TW"
+    assert _pick_language("zh-CN", ["zh-TW", "en"]) == "zh-TW"
+    assert _pick_language("ko", ["zh-TW", "en"]) == "en"
+    assert _pick_language("ko", ["zh-TW", "ja"]) is None  # nothing sensible → server default
+    assert _pick_language("ja", []) == "ja"  # free-form string param: pass the code through
 
 
 @pytest.mark.asyncio

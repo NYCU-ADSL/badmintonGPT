@@ -13,6 +13,7 @@ import httpx
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.context import current_request_context
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.bus.events import (
     INBOUND_META_RUNTIME_CONTROL,
@@ -205,6 +206,71 @@ def _normalize_schema_for_openai(schema: Any) -> dict[str, Any]:
     return normalized
 
 
+# --- badmintonGPT fork: default a tool's `language` argument from the WebUI locale ---
+# The WebUI sends its language-picker code on every message (inbound metadata["locale"],
+# see channels/websocket.py + agent/loop.py). Tools that declare a `language` input
+# (e.g. badminton-reels `generate_reel`) get it filled in automatically when the model
+# leaves it out, so narration/TTS/subtitles follow the same setting as the reply language.
+# An explicit value from the model always wins.
+
+
+def _schema_enum(spec: dict[str, Any]) -> list[str]:
+    """Collect string choices from a JSON-schema property (enum/const, incl. anyOf/oneOf)."""
+    choices: list[str] = []
+
+    def _walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        for v in node.get("enum") or []:
+            if isinstance(v, str) and v not in choices:
+                choices.append(v)
+        const = node.get("const")
+        if isinstance(const, str) and const not in choices:
+            choices.append(const)
+        for key in ("anyOf", "oneOf"):
+            for branch in node.get(key) or []:
+                _walk(branch)
+
+    _walk(spec)
+    return choices
+
+
+def _pick_language(locale: str, choices: list[str]) -> str | None:
+    """Map a UI locale (``zh-TW``, ``zh-CN``, ``ja`` …) onto one of ``choices``.
+
+    exact match → same base language (``zh-CN`` → ``zh-TW``) → ``en`` → None.
+    With no choices (free-form string) the locale code is passed through as-is.
+    """
+    if not choices:
+        return locale
+    if locale in choices:
+        return locale
+    base = locale.split("-", 1)[0].lower()
+    for c in choices:
+        if c.split("-", 1)[0].lower() == base:
+            return c
+    for c in choices:
+        if c.lower() == "en":
+            return c
+    return None
+
+
+def _fill_language_from_locale(parameters: dict[str, Any], kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Return ``kwargs`` with ``language`` defaulted from the request's UI locale, if applicable."""
+    props = parameters.get("properties") if isinstance(parameters, dict) else None
+    spec = (props or {}).get("language")
+    if not isinstance(spec, dict) or kwargs.get("language"):
+        return kwargs
+    ctx = current_request_context()
+    locale = ctx.metadata.get("locale") if ctx else None
+    if not isinstance(locale, str) or not locale.strip():
+        return kwargs
+    value = _pick_language(locale.strip(), _schema_enum(spec))
+    if value is None:
+        return kwargs
+    return {**kwargs, "language": value}
+
+
 class _ServerLink:
     """Reconnect context for one live MCP server, handed to its wrappers.
 
@@ -296,6 +362,13 @@ class MCPToolWrapper(_SessionHealer, Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         from mcp import types
+
+        filled = _fill_language_from_locale(self._parameters, kwargs)
+        if filled is not kwargs:
+            logger.debug(
+                "MCP tool '{}': language={!r} filled from UI locale", self._name, filled["language"]
+            )
+            kwargs = filled
 
         for attempt in range(2):  # At most 1 retry
             try:

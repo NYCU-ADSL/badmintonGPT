@@ -439,9 +439,9 @@ Connection: see reels_mcp_usage.md (remote HTTP, CF Access service token). Tool 
 
 | Tool | Input | Output |
 |------|------|------|
-| `generate_reel` | `match_name` (+ `style/duration_target_sec/focus_player/shot_types/sets/rally_ids/max_highlights/narrative_emphasis/voice_id`) | `{job_id, state}` |
+| `generate_reel` | `match_name` (+ `style/duration_target_sec/focus_player/shot_types/sets/rally_ids/max_highlights/narrative_emphasis/voice_id/enable_anchor/language`) | `{job_id, state}` |
 | `get_reel_status` | `job_id` | `{state, stage, total_stages, message, error}` |
-| `get_reel_result` | `job_id` | `{ready, video_url, selected_rally_ids, duration_sec, quality_score, style, script_summary}` |
+| `get_reel_result` | `job_id` | `{ready, video_url, selected_rally_ids, duration_sec, quality_score, style, language, script_summary}` |
 
 `state ∈ {queued, running, succeeded, failed}`。
 
@@ -477,7 +477,9 @@ description: Generate match highlight videos. When the user wants to make a high
 - Always pass matches.name as match_name (folder name without .mp4; use badminton-db to look up/confirm it first).
 - video_url plays directly in the browser without additional processing.
 - Optional parameters: style / duration_target_sec / focus_player / shot_types / sets / rally_ids /
-  max_highlights / narrative_emphasis / voice_id (see contract table above).
+  max_highlights / narrative_emphasis / voice_id / enable_anchor / language (see contract table above).
+- `language` (`zh-TW`|`en`, narration/voice/subtitles) is auto-filled by the gateway from the WebUI
+  language picker (the fork's `mcp.py` injects it when the model omits it) — pass it only on an explicit request.
 ```
 
 > reels tools are typed MCP tools with deterministic routing; the skill only explains their orchestration. Even if the skill does not trigger, the agent can call MCP tools directly.

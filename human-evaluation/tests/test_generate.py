@@ -13,7 +13,8 @@ from generate import (
     DATA_SAMPLING, INTENTION_SAMPLING, INTENTION_TOOLS, MODEL, intention_history, intention_tool_pool,
     QUERY_SCOPES, choose_query_scope, poisson_one_plus, sample_data, sample_query_data, sample_tools,
     question_completion, validate_question, validate_question_scope, validate_resume,
-    COURT_TOOLS, PRESENTATIONS, PRESENTATION_SAMPLING, choose_presentation, presentation_requirement,
+    COURT_TOOLS, PRESENTATIONS, PRESENTATION_SAMPLING, PROMPT_POLICY, choose_presentation, presentation_requirement,
+    DATABASE_TOOL, WEB_TOOL, WEB_TOPICS, ANSWER_LOCALE, ANSWER_INSTRUCTION_POLICY, source_requirement, scope_requirement,
 )
 
 
@@ -22,7 +23,9 @@ def test_presentations_match_primary_capability_and_cover_formats():
     for tool in INTENTION_TOOLS:
         modes = {choose_presentation(tool, 42, i) for i in range(300)}
         observed.update(modes)
-        if "badminton-analyze" not in tool:
+        if tool == WEB_TOOL:
+            assert modes == {"text"}
+        elif tool != DATABASE_TOOL and "badminton-analyze" not in tool:
             assert modes == {"video"}
         else:
             expected = {"text", "comparison_chart", "interactive_visualization"}
@@ -133,27 +136,66 @@ def test_scoped_context_is_grounded_complete_and_read_only(tmp_path):
             assert len(related) == 1
         assert "selected_data_categories" not in row
     assert path.read_bytes() == before
+    # Database-only analysis must work without CoachAI IDs or video availability.
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE matches SET analyze_match_id=NULL")
+        db.execute("UPDATE rallies SET has_video=0")
+    before = path.read_bytes()
+    row = sample_query_data(path, [DATABASE_TOOL], 42, 2)
+    row["question_source"] = "database"
+    assert row["query_scope"] == "player_shots"
+    assert row["query_data"]["match"]["analyze_match_id"] is None
+    assert "type" in source_requirement(row)["schema"]["shots"]
+    assert path.read_bytes() == before
+
+
+def test_web_context_needs_no_database_or_analysis_metrics(tmp_path):
+    topics = set()
+    for cycle in range(4):
+        row = sample_query_data(tmp_path / "missing.db", [WEB_TOOL], 42, cycle * 12)
+        assert row == sample_query_data(tmp_path / "missing.db", [WEB_TOOL], 42, cycle * 12)
+        row["question_source"] = "web"
+        assert row["query_scope"] == "public_web"
+        assert scope_requirement(row)["name"] == "public_web"
+        assert row["query_data"]["focus"] == {"players": [], "year": None}
+        assert "match" not in row["query_data"]
+        assert source_requirement(row)["as_of"]
+        topics.add(row["query_data"]["topic"])
+        validate_question_scope({"query_en": "What are the latest badminton rules?", "query_zh_tw": "最新羽球規則是什麼？"}, row)
+    assert topics == set(WEB_TOPICS)
+    assert not (tmp_path / "missing.db").exists()
 
 
 def test_primary_coverage_and_resume_are_independent_of_call_order():
     names = sorted(INTENTION_TOOLS)
-    rows = [sample_tools(names, 42, i) for i in range(30)]
-    for start in range(0, 30, 10):
-        assert {r["primary_tool"] for r in rows[start:start + 10]} == set(names)
-    for i in reversed(range(30)):
+    size = len(names)
+    assert size == 12
+    rows = [sample_tools(names, 42, i) for i in range(size * 3)]
+    for start in range(0, size * 3, size):
+        assert {r["primary_tool"] for r in rows[start:start + size]} == set(names)
+    for i in reversed(range(size * 3)):
         assert sample_tools(list(reversed(names)), 42, i) == rows[i]
         selected = rows[i]["selected_tools"]
         assert selected[0] == rows[i]["primary_tool"]
-        assert len(selected) == len(set(selected)) == min(rows[i]["sampled_tool_count"], len(names))
+        assert len(selected) == len(set(selected)) == min(rows[i]["sampled_tool_count"], rows[i]["eligible_tool_count"])
 
 
-def test_count_caps_only_at_available_tools(monkeypatch):
+def test_count_caps_at_compatible_tools(monkeypatch):
     monkeypatch.setattr("generate.poisson_one_plus", lambda rng: 6)
-    assert len(sample_tools(INTENTION_TOOLS, 42, 0)["selected_tools"]) == 6
-    monkeypatch.setattr("generate.poisson_one_plus", lambda rng: 11)
-    row = sample_tools(INTENTION_TOOLS, 42, 0)
-    assert row["sampled_tool_count"] == 11
-    assert len(row["selected_tools"]) == 10
+    for i in range(12):
+        row = sample_tools(INTENTION_TOOLS, 42, i)
+        exclusive = row["primary_tool"] in (DATABASE_TOOL, WEB_TOOL)
+        assert len(row["selected_tools"]) == (1 if exclusive else 6)
+        if exclusive:
+            assert row["selected_tools"] == [row["primary_tool"]]
+            assert row["question_source"] in ("database", "web")
+        else:
+            assert DATABASE_TOOL not in row["selected_tools"]
+    monkeypatch.setattr("generate.poisson_one_plus", lambda rng: 20)
+    for i in range(12):
+        row = sample_tools(INTENTION_TOOLS, 42, i)
+        assert row["sampled_tool_count"] == 20
+        assert len(row["selected_tools"]) == row["eligible_tool_count"]
     with pytest.raises(ValueError, match="empty"):
         sample_tools([], 42, 0)
 
@@ -184,7 +226,7 @@ def test_intentions_exclude_supporting_tools_without_removing_available_tools():
     pool = [{"function": {"name": name, "description": "Definition", "parameters": {}}} for name in names]
     before = json.dumps(pool)
     selected = intention_tool_pool(pool)
-    assert [d["function"]["name"] for d in selected] == sorted(names[-3:])
+    assert [d["function"]["name"] for d in selected] == sorted([DATABASE_TOOL, *names[-3:]])
     assert selected[0]["function"]["description"] == "Definition"
     assert json.dumps(pool) == before
 
@@ -215,6 +257,21 @@ def test_resume_cannot_mix_intention_policies():
     with pytest.raises(ValueError, match="different presentation sampling policy"):
         validate_resume(manifest, args)
     manifest["presentation_sampling"] = PRESENTATION_SAMPLING
+    with pytest.raises(ValueError, match="different prompt policy"):
+        validate_resume(manifest, args)
+    manifest["prompt_policy"] = "old-policy"
+    with pytest.raises(ValueError, match="different prompt policy"):
+        validate_resume(manifest, args)
+    manifest["prompt_policy"] = PROMPT_POLICY
+    with pytest.raises(ValueError, match="different answer locale"):
+        validate_resume(manifest, args)
+    manifest["answer_locale"] = "zh-TW"
+    with pytest.raises(ValueError, match="different answer locale"):
+        validate_resume(manifest, args)
+    manifest["answer_locale"] = ANSWER_LOCALE
+    with pytest.raises(ValueError, match="different answer instruction policy"):
+        validate_resume(manifest, args)
+    manifest["answer_instruction_policy"] = ANSWER_INSTRUCTION_POLICY
     validate_resume(manifest, args)
 
 

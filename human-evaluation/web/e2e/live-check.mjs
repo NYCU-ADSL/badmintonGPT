@@ -7,7 +7,7 @@ import path from "node:path";
 const base = process.env.EVAL_URL;
 if (!base) throw new Error("Set EVAL_URL to the deployed evaluation URL");
 const expected = Number(process.env.EVAL_EXPECTED_COUNT ?? 10);
-const out = path.resolve("../runtime/live-verification");
+const out = path.resolve(process.env.EVAL_REPORT_DIR ?? "../runtime/live-verification");
 await mkdir(out, { recursive: true });
 const code = `validation-${Date.now()}`;
 const browser = await chromium.launch({ executablePath: process.env.EVAL_BROWSER_EXECUTABLE });
@@ -23,15 +23,23 @@ try {
   report.dataset_id = dataset.id;
   report.model = dataset.model;
   await page.goto(base, { waitUntil: "networkidle" });
-  await page.getByLabel("評測代碼", { exact: true }).fill(code);
-  await page.getByRole("button", { name: "開始評測" }).click();
+  await page.getByText("輸入你的評測代碼", { exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "介面語言" }).selectOption("en");
+  await page.getByText("Enter your evaluator code", { exact: true }).waitFor();
+  await page.screenshot({ path: path.join(out, "login.png"), fullPage: true });
+  await page.getByLabel("Evaluator code", { exact: true }).fill(code);
+  await page.getByRole("button", { name: "Start evaluation" }).click();
   await page.getByText(dataset.items[0].query_en, { exact: true }).waitFor();
   for (let i = 0; i < dataset.items.length; i++) {
-    if (i) await page.getByRole("button", { name: `第 ${i + 1} 題`, exact: true }).click();
+    if (i) {
+      await page.getByRole("spinbutton", { name: "Jump to question" }).fill(String(i + 1));
+      await page.getByRole("button", { name: "Go", exact: true }).click();
+    }
+    if (await page.locator(".question-grid button").count() > 20) throw new Error("Too many question buttons");
     await page.getByText(dataset.items[i].query_en, { exact: true }).waitFor();
     await page.getByText(dataset.items[i].query_zh_tw, { exact: true }).waitFor();
     if (await page.locator(".answer-body").count()) throw new Error("Answer visible before Q1");
-    await page.getByRole("radio", { name: /^合理 Realistic/ }).check();
+    await page.getByRole("radio", { name: /^Realistic/ }).check();
     await page.locator(".answer-body").waitFor();
     // The real renderer is lazy-loaded; wait for it, not its plain-text fallback.
     await page.locator(".answer-body .markdown-content").first().waitFor({ state: "attached" });
@@ -53,14 +61,16 @@ try {
       await page.screenshot({ path: path.join(out, `question-${i + 1}.png`), fullPage: true });
     }
   }
-  await page.getByRole("radio", { name: /^部分符合/ }).check();
-  await page.getByRole("button", { name: "儲存", exact: true }).click();
-  await page.getByText("已儲存至伺服器").waitFor();
+  await page.getByRole("radio", { name: /^Partially addresses/ }).check();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByText("Saved to server").waitFor();
   const saved = await (await page.request.get(`${base}/api/evaluators/${code}/ratings`)).json();
   if (saved.completed !== 1 || saved.ratings[0].q2 !== "partially_addresses") throw new Error("Server did not save rating");
   await page.reload();
-  await page.getByRole("button", { name: `第 ${expected} 題，已完成`, exact: true }).click();
-  if (!await page.getByRole("radio", { name: /^部分符合/ }).isChecked()) throw new Error("Rating did not survive reload");
+  if (await page.getByRole("combobox").inputValue() !== "en") throw new Error("Language did not survive reload");
+  await page.getByRole("spinbutton", { name: "Jump to question" }).fill(String(expected));
+  await page.getByRole("button", { name: "Go", exact: true }).click();
+  if (!await page.getByRole("radio", { name: /^Partially addresses/ }).isChecked()) throw new Error("Rating did not survive reload");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: path.join(out, "mobile.png"), fullPage: true });
@@ -68,6 +78,18 @@ try {
   if (errors.length) throw new Error(errors.join("\n"));
   report.status = "passed";
   report.persistence_verified = true;
+  report.question_jump_verified = true;
+  report.max_question_buttons = 20;
+  await page.getByRole("combobox").selectOption("zh-TW");
+  await page.getByRole("button", { name: "儲存", exact: true }).waitFor();
+  if (!await page.getByRole("radio", { name: /^部分符合/ }).isChecked()) throw new Error("Language switch lost rating");
+  await page.getByText(dataset.items.at(-1).query_en, { exact: true }).waitFor();
+  await page.getByText(dataset.items.at(-1).query_zh_tw, { exact: true }).waitFor();
+  await page.screenshot({ path: path.join(out, "mobile-zh.png"), fullPage: true });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) throw new Error("Chinese mobile overflow");
+  report.language_switch_verified = true;
+  report.language_persistence_verified = true;
+  report.bilingual_questions_verified = true;
 } catch (error) {
   report.status = "failed";
   report.error = String(error);

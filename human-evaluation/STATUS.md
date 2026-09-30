@@ -1,8 +1,116 @@
 # 實作狀態
 
-更新時間：2026-09-16（Asia/Taipei）。
+更新時間：2026-09-18（Asia/Taipei）。
 
-## 目前網站：呈現需求 5 題預覽
+## 正式版 200 題：已部署
+
+`formal-200-v1`（count 200、seed 2026091701、模型 gpt-5.6-luna）已完成 200／200 題，generator exit code 0。200 題 query、locale、原始 WebSocket frame 與保存的 output_messages 均核對通過；本次部署前再次逐題核對 request/output JSON 一致。各主能力 16–17 題，資料庫 16 題、web 17 題、其他能力 167 題。
+
+q086 保留原生回答的中文球種標籤 `小平球`（3 字）。q091、q149、q151、q176 與原 WebUI 歷史的分段不同，但收到的原始 frame 與保存回答一致；未為迎合語言或內容要求改寫、刪節或重送回答。完成／核對報告位於 `runtime/formal-200-v1/`。
+
+2026-09-18 公開站已確認使用正式 200 題；本次播放器修復再次重建 web 並驗證線上輸出。先前 Docker 自動審核容量不足已解除。原題庫、原始問答與評分保留，200 題公開 query／answer／output_messages 與本機保存內容逐一一致。部署前檢查與資料 hash 位於 `runtime/formal-200-v1/deployment/`。
+
+## Retrieval 影片播放修復（2026-09-18）
+
+實測 q003、q104 的原始影片 URL 回傳 404；保留原始回答／連結並顯示失敗提示、重試及開啟原始影片。q126 原檔為 MPEG-4 Part 2 (`mp4v`)，Chromium 無法解碼；另存 H.264 播放副本，1280×720、4.8 秒、144 幀皆相同。來源及副本 hash 記錄於 `data/formal-200-v1/playback-media.json`，副本在 `media/q126/playback-h264.mp4`。API 另回傳 `playback_sources`，不覆寫 dataset、answer 或 output_messages；原檔保存於 `runtime/retrieval-playback/q126-original.mp4`。
+
+原生 AttachmentTile 的失敗狀態改綁定媒體來源，換題／換網址可恢復播放器；支援顯示層相容副本及中英文失敗提示。7 個前端測試、11 個 API 測試、3 個瀏覽器測試及建置通過。公開站 q111、q126、q144、q174 實際播放通過，q126 seek 通過；q003、q104 顯示來源失效提示。200 題所有原始問答公開內容核對一致，資料集 hash 未變。報告、編碼核對與截圖：`runtime/retrieval-playback/`。這些檢查不是影片語意正確性驗證。
+
+## 目前網站：可容納 240 題的分頁選題
+
+選題區每頁最多 20 題，240 題分為 12 頁。支援翻頁、題號直接跳轉、回到目前題號與「下一個未完成」循環查找。題號保留，勾號標示已完成、圓點標示未儲存草稿；切題保留草稿，儲存並下一題跨頁時自動跟到該頁。中英文皆使用 i18n 翻譯。
+
+6 個前端流程測試、TypeScript／Vite 建置及 2 個瀏覽器測試通過。以 240 題 fixture 驗證末題跳轉、跨頁保存、草稿保留、非法題號、部分末頁／全部完成與中英文 320px／390px 版面；240 題是 UI 測試資料，公開站仍使用原本 12 題 `preview-12-reels-en-v1`。已部署 web，公開站全部題目跳轉、語言切換、媒體及評分保存／重載通過，精確清除本次 1 筆測試評分。截圖與公開驗證報告：`runtime/navigation-240/`。
+
+## 介面語言：i18n 中英文選單
+
+介面採 i18next／react-i18next，由右上角選單切換繁中或 English，預設繁中並記住選擇；文案集中於 `web/src/locales/`。評分說明、選項、按鈕、保存／錯誤提示及附件／程式碼操作標籤皆依所選語言顯示。question 固定同時顯示英文與繁中。沿用 `preview-12-reels-en-v1` 的 12 題原始問答與評分。
+
+4 個前端測試、TypeScript／Vite 建置與瀏覽器端到端測試通過，涵蓋切換時保留草稿、錯誤提示即時翻譯、question／原始回答保持內容，以及語言偏好重載。已更新評測 web 服務，公開網址不變。公開站 12 題、影片、評分保存／重載及中英文 390px 手機版驗證通過；精確清除本次驗證的 1 筆測試評分。報告與畫面：`runtime/i18n-selector/live-verification/`。先前並列版紀錄保留於 `runtime/bilingual-ui/live-verification/`。
+
+## 目前資料集：reels 英文配音／字幕修復完成
+
+資料集 `preview-12-reels-en-v1`（seed 20260917），12／12 題，模型仍為 gpt-5.6-luna。所有 query 保持原文，只重新取得 q009、q012 的原始回答與影片，其餘 10 題回答及 output_messages 逐字沿用 `preview-12-system-en-v1`，來源與各題指令政策均有記錄。舊資料、影片和評分保留。
+
+根因：`../badminton-reels` 已有英文功能，但運行中 image 仍沒有 language 參數與英文 prompt。已驗證 repo 與新 image 的六項語言流程，重建並更新 reels，確認公開 MCP schema 有 `language: en | zh-TW`；重新建立 gateway 刷新工具定義。system instruction 明確設定 `language="en"`，優先於技能 UI 預設，user query 未加語言指令。沒有修改 AgentLoop、工具攔截、anchor 或工作重試行為，也沒有另寫 reels 的語言實作。
+
+- 10 個 gateway 語言參數測試、21 個評測測試通過。
+- 新影片 job 094、095 的 spec/result 均為 en；兩支共 20 段 text/subtitle_text 無中文字，固定開場／結尾為英文。
+- 實際 TTS 紀錄兩次選用 English Guyzo 音色；ffprobe 確認含 AAC 音軌，成品擷取畫面確認英文字幕。環境不支援直接聽取音訊，未宣稱人工聽辨或 ASR 檢查。
+- 12 題 user query、原始輸出與原 WebUI 歷史核對一致；回答文字均為英文。
+- 網站 12 題、評分保存／重新載入、手機版及兩支新影片載入通過；已精確清除本次測試評分。五個圖表沿用原始內容及上一版互動驗證。
+- q012 原始回答指出影片旁白有勝方描述不一致；影片約 59.12 秒，雖工具要求 30 秒。全部原樣保留，語言驗證不代表內容正確性。
+
+完整預覽：`data/preview-12-reels-en-v1/preview.md`。部署、完整英文腳本、音色紀錄、成品字幕畫面及媒體報告：`runtime/reels-language-fix/`；原始輸出核對與網站報告：`runtime/preview-12-reels-en-v1/`。本次兩個 image 均已重建，新語言規則不依賴容器內暫時修改。
+
+## 前一版：英文 system instruction 的 12 題回答
+
+資料集 `preview-12-system-en-v1`（seed `20260917`），12／12 題完成，模型 `gpt-5.6-luna`。使用者明確允許英文要求放在 system instruction，禁止放在 user instruction。已只替換 repo 的 `nanobot/workspace/SOUL.md` 與運行中 gateway 的 workspace／啟動來源 SOUL 語言規則；原生 ContextBuilder 確認載入 system prompt。運行中的舊 SOUL 原本預設繁體中文。其餘服務程式碼與工具未改。
+
+- 重用 `preview-12-sources-v1` 的 12 題，英文及繁中 query 均逐字相同；user query 沒有加語言指令。
+- 12 份回答文字及 5 個圖表原始文字均為英文，CJK 掃描為 0；原始 WebSocket 輸出與原 WebUI 歷史 12／12 一致。
+- 21 個相關測試通過；manifest 記錄 `gateway-system-english-v1`，避免混用先前的回答政策。
+- 網站 12 題、Q1 門檻、評分保存與重新載入、手機版及影片載入檢查通過；五個圖表載入、選單互動與實際顯示英文標籤檢查通過；精確清除本次測試評分。
+- **影片並非全英文**：第 9 題的 `script_summary` 為中文，原回答「English UI-selected voice/subtitles」與工具結果不符；第 12 題的敘事要求明示英文，結果仍保留中文主播開場。兩題均保留原始回覆與影片。部署中的 reels schema 沒有 `language` 欄位，system instruction 無法保證外部服務的固定內容變成英文。
+- 第 5、6 題由模型選擇資料庫分析；第 11 題仍把後場站位頻率解釋為擊球次數。上述內容照實保留，未因品質重跑。
+
+完整預覽：`data/preview-12-system-en-v1/preview.md`；部署備份、語言／媒體檢查、原始輸出核對與瀏覽器報告：`runtime/preview-12-system-en-v1/`。這些檢查不代表回答統計或新聞內容已驗證。舊資料與評分保留。
+
+當時部署：只同步運行中容器的 workspace 與啟動來源，無需重啟。原 image 未重建；日後重新建立 gateway 容器，應由更新後的 repo 重建 image，保留新語言規則。
+
+## 先前 locale-only 試跑：停止並保留
+
+使用者要求所有回答為英文。已查明評測端先前沒有送出原生 WebUI 的 locale 欄位；英文 query 本身不能固定回答語言。現改用 `locale: en`，不增加 query 語言要求或 system prompt、不改 BadmintonGPT 核心／工具，也不翻譯既有回答。執行中 gateway 確認支援回覆語言提示；其 MCP 版本尚無工作區新版的工具 language 自動填入邏輯，因此沒有宣稱影片旁白語言一定受同樣控制。
+
+新資料集 `preview-12-sources-en-v1`，原封不動重用 `preview-12-sources-v1` 的 12 題雙語 query，另行取得原始回答。manifest 記錄 `answer_locale: en` 與來源題庫；未複製舊答案。21 個相關測試通過，涵蓋 query 內容不變、原始輸出保留與 locale 政策隔離。網站保留上一版。實測 locale=en 的第 1、4 題仍有中文敘述，第 3 題仍有中文球種標籤；不能宣稱全英文。已停止此批後續提交，完成 4 題，第 5 題已送出並以原生唯讀 attach 完成後續輸出與歷史保存；未續跑或再次送出 query。使用者後續選擇修改 system instruction（見上方）。報告：`runtime/preview-12-sources-en-v1/language-audit.json`。
+
+## 前一版：12 類主能力完整問答
+
+資料集 `preview-12-sources-v1`，seed `20260917`，12／12 題完成，模型為 `gpt-5.6-luna`。五題送出前修訂，原始問題草稿與原因留存；回答階段只送英文 query，所有回答原樣保存。
+
+- 12 類主能力各一題，全部取得原始回答；query 與回覆的 WebSocket 保存內容、原 WebUI 歷史核對均通過。
+- 第 1 題實際只使用資料庫 query、檔案讀取與程式計算，未使用 badminton-analyze、reels 或影片搜尋。第 10 題實際使用 web_search 與 web_fetch。
+- 第 1、2、4、6、7 題產生圖表，共 5 個；圖表載入及現有互動控制均通過瀏覽器檢查。
+- 第 9、12 題影片分別約 60.29 秒與 30.93 秒，均可載入。第 12 題先搜尋，再由 BadmintonGPT 自行呼叫 reels 製作片段。
+- 第 1、2、3、11、12 題曾在送出前修訂草稿，原稿、原因及修訂 prompt 全數保留。第 3 題改成可辨識的單場統計核實，偏離原抽樣 tactical_clips 範圍；修訂發生於回答前。
+- 第 11 題雖詢問後場站位頻率，原始回答仍用「後場擊球頻率」解釋，且表列與排除場次的文字有不一致之處；未修改或重跑回答，供人工評測。
+- 網站雙語問題、Q1 顯示門檻、評分保存與重新載入、手機頁面檢查通過；測試評分已依精確代碼清除。這些檢查不代表回答統計、新聞或影片內容的正確性已獲驗證。
+
+完整問答：`data/preview-12-sources-v1/preview.md`。核對、能力使用觀察、網站與圖表互動報告及截圖皆在 `runtime/preview-12-sources-v1/`。
+
+## 最新草稿：24 題 query（僅問題）
+
+依要求生成 `preview-24-sources-v1`，seed `20260916`，24 題全部為 `question_ready`。12 類主能力各兩次；第 5、15 題為資料庫獨立分析，第 3、17 題為網路搜尋。兩個生成階段均收到對應 source；抽樣與 seed 核對一致。未送任何 BadmintonGPT query，無 gateway request 或回答，網站仍保留 `preview-5-presentation-v1`。
+
+草稿觀察：第 12、24 題未完整指明比賽，第 17 題未指定排名項目，第 10、16 題模板相近，部分範圍仍偏向單場。保留實際生成內容供使用者審閱。預覽：`data/preview-24-sources-v1/preview.md`；紀錄：`runtime/preview-24-sources-v1/question-review.json`。
+
+## 最新修正：資料庫獨立分析與網路搜尋
+
+主能力池從 10 擴成 12 類：新增 `mcp_badminton-db_query` 與原生 `web_search`。每輪 12 題各一次，主能力比例各約 8.33%。MCP 定義與原生 web_search 定義分開保存，沒有新增假的 MCP function 或修改 BadmintonGPT 工具。
+
+資料庫主題只抽資料庫能力，提供實際 schema，可問原始球種使用比例、回合長度、比分、得失分原因等；不要求 CoachAI ID、影片或外部分析指標。網路主題只抽 web_search，不讀本地資料庫，依新聞／排名／賽程／規則與 UTC 日期出題。原 Poisson(1)+1 抽樣值仍保存，這兩類因相容能力只有 1 個而截至 1；其他主題最多從 11 個相容能力抽樣，web 可作輔助，資料庫獨立類不作輔助。這是出題設計，BadmintonGPT 的實際工具使用仍由原服務決定。
+
+政策：`database-web-capabilities-v3`、`database-web-context-v3`、`single-purpose-sources-v2`。預設新資料集 `preview-12-sources-v1`。21 個相關測試通過，涵蓋 12 類覆蓋、獨立來源不混工具、相容數量上限、無分析 ID／影片仍可取資料庫背景、網路類完全不存取 DB、四種網路主題與原始輸出保存。既有容器的原生 web_search 定義載入及 12 類池組合檢查通過，未執行搜尋。
+
+另以實際資料庫離線驗證一輪 12 題的選取與背景組裝，報告 `runtime/database-web-check.json`。本次沒有生成新 query 或送出任何 BadmintonGPT 回答請求，網站與既有草稿保留。
+
+## 最新草稿：精簡提示十題（僅問題）
+
+依要求生成 `preview-10-concise-v1`，seed `20260916`，10 題皆為 `question_ready`，涵蓋全部 10 個主功能；未呼叫 BadmintonGPT 回答，無 gateway request 或回答。第 6 題誤將後場站位次數寫成擊球次數且未指明比賽，第 8 題縮成單場，第 9 題偏離戰術例子範圍且未指明比賽；保留實際結果供檢視，未自行修改或重生。預覽：`data/preview-10-concise-v1/preview.md`；檢查：`runtime/preview-10-concise-v1/question-review.json`。網站仍為 `preview-5-presentation-v1`。
+
+## 前一批草稿：精簡提示五題（僅問題）
+
+依要求生成 `preview-5-concise-v1`，seed `20260916`，5 題皆為 `question_ready`；未呼叫 BadmintonGPT 回答，無 gateway request 或回答。問題大致各一句；第 2 題仍縮成單場精華，未完全符合跨比賽球種範圍，保留供使用者檢視。預覽：`data/preview-5-concise-v1/preview.md`；檢查：`runtime/preview-5-concise-v1/question-review.json`。網站仍顯示前批 `preview-5-presentation-v1`。
+
+## 最新修正：精簡提示與單一目的
+
+新增 `prompt_policy: single-purpose-concise-v1`，新資料集預設 `preview-10-concise-v1`。intention 主要指令由 297 個英文詞縮至 74 個（字元減少 74.8%），query 由 326 個縮至 107 個（字元減少 67.7%）。呈現方式說明由 879 字元縮至 343 字元；範圍描述同步精簡，query 不再接收歷史意圖。完整技能、工具定義與資料背景保留，上述縮減數字只計指令文字。
+
+每題一個核心目的，其他抽中工具只能支援同一目的，不增加任務／指標；呈現方式融入目的，互動圖表不指定控制元件。query 階段只改寫與翻譯，不新增要求，也不把資料使用規則寫進問題。單一目的屬於模型提示要求，沒有新增以關鍵字猜測需求數量的檢查。
+
+20 個生成及原始輸出保存相關測試通過，包含新舊 prompt 政策隔離。長度比較報告：`runtime/concise-prompt-check.json`。本次尚未呼叫模型重新生成題目；網站與原始回答保留目前的 `preview-5-presentation-v1`，BadmintonGPT 回答流程未改動。
+
+## 前一批：呈現需求 5 題預覽（保留）
 
 資料集 `preview-5-presentation-v1`，seed `20260916`，5／5 題完成，三階段模型 `gpt-5.6-luna`。Function 數量為 2、1、2、3、1；呈現為文字、影片、影片、互動視覺化、比較圖表。問題預先檢查通過，intention 及 query prompt 都收到相同呈現要求。回答耗時依序 103.42、385.26、292.32、206.34、151.75 秒。
 

@@ -25,13 +25,18 @@ Brief summary (see that skill for details and strict rules): after `generate_ree
   `SELECT name FROM matches WHERE name LIKE '%keyword%'`.
 - Optional parameters (style and content): `style` (humorous/professional/dramatic/educational/concise…),
   `duration_target_sec`, `focus_player`, `shot_types`, `sets`, `rally_ids`, `max_highlights`,
-  `narrative_emphasis`, `voice_id`, `enable_anchor`.
+  `narrative_emphasis`, `voice_id`, `enable_anchor`, `language`.
 - `state` values: `queued / running / succeeded / failed`.
 - `video_url` plays directly in the browser without additional processing.
 - **Always use Markdown image syntax for highlights**: `![Highlights](video_url)` (the leading `!` is required)—
   the WebUI automatically turns .mp4 links into embedded `<video>` players. **Do not** use a bare URL or a plain link
   `[Highlights](video_url)`; that displays only a clickable link and does not play the video.
 - `enable_anchor` controls the presenter avatar; it is enabled by default unless the user asks to disable it.
+- `language` (`zh-TW` | `en`) sets the narration script, TTS voice, and subtitle language. **Do not set it
+  yourself**: the gateway fills it in automatically from the user's WebUI language (Chinese UI → `zh-TW`,
+  any other UI language → `en`), so the video's narration matches the language you reply in. Pass it
+  explicitly **only** when the user asks for a specific narration language (e.g. "narrate it in English")—an
+  explicit value always wins. `get_reel_result` echoes the `language` used; mention it briefly in the final reply.
 
 ## Example
 ```
@@ -39,7 +44,8 @@ generate_reel(match_name="Viktor_AXELSEN_LEE_Zii_Jia_EAST_VENTURES_Indonesia_Ope
               style="dramatic", duration_target_sec=90, enable_anchor=true)
 → {job_id: "ax-lee-001", state: "queued"}
 # Then poll per long-mcp-job: immediately get_reel_status → sleep(30) → check again → … → succeeded
-get_reel_result("ax-lee-001") → {ready: true, video_url: "https://.../files/ax-lee-001.mp4"}
-# → Final response (brief): Your highlights are ready!
+get_reel_result("ax-lee-001") → {ready: true, video_url: "https://.../files/ax-lee-001.mp4", language: "zh-TW", …}
+# (no `language` was passed above—the gateway filled it from the user's UI language)
+# → Final response (brief): Your highlights are ready (Traditional Chinese narration)!
 # ![Highlights](https://.../files/ax-lee-001.mp4)
 ```

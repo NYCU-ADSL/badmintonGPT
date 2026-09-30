@@ -26,6 +26,9 @@ repo's own MCPs live under `mcps/`, each self-contained:
   containerize it here (a Dockerfile for self-hosting is being added to the separate
   `badminton-reels` repo; this repo's config keeps pointing at the remote URL); see
   `docs/REELS_MCP_HANDOFF.md` (how it was built) and `docs/reels_mcp_usage.md` (how to connect).
+  `generate_reel` takes **`language` (`zh-TW` | `en`)** = narration script + TTS voice + subtitles;
+  the agent never computes it — the fork's `mcp.py` fills it from the WebUI language picker
+  (`zh-TW`/`zh-CN` → `zh-TW`, else `en`) when the model omits it (explicit value wins).
 - **`badminton-video-retrieval`** — a **remote** MCP (deployed at `video-retrieval.nycu-cgvlab.org`,
   behind Cloudflare Access) that does **natural-language semantic video-clip retrieval** over a
   Milvus vector DB. Standard async-job contract (`start_video_retrieval(query, return_mode)` →
@@ -295,6 +298,12 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   `verify_db` 23/23; parity OK. Only the gateway is tunneled by cloudflared — `badminton-db:8801` is
   internal-only (never host-published). nanobot's **SSRF filtering does NOT apply to configured
   `tools.mcpServers`**, so the internal `http://badminton-db:8801/mcp` URL connects fine.
+- **Reply language + reels `language` both come from the WebUI language picker.** The WebUI sends
+  `locale` on every message frame → `InboundMessage.metadata["locale"]` → (a) `loop.py` adds a "User
+  UI language: …" runtime line that SOUL.md's language rule honors, and (b) `agent/tools/mcp.py`
+  `_fill_language_from_locale` defaults any MCP tool's schema-declared `language` argument from it
+  (exact → same base language → `en` → unset). Non-WebUI channels send no locale → English default,
+  reels server default (`zh-TW`). Both are fork changes; `vendor/README.md` "reply-language".
 - **A text-only assistant response ends the turn** (per-session serial; cross-session concurrent,
   gate=3). Hence: no mid-poll text output, and progress display belongs to the UI, not the model.
 - **Tool events reach the WebUI only after the whole iteration's tool batch finishes** — hence the

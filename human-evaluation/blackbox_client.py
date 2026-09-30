@@ -39,7 +39,7 @@ class OutputCollector:
             self.messages.append({"text": event.get("text", ""), "media_urls": event.get("media_urls", [])})
 
 
-async def collect_output(socket, query, artifact, expected_model, bootstrap):
+async def collect_output(socket, query, artifact, expected_model, bootstrap, *, locale="en"):
     """One send only. A disconnected/uncertain request is never resubmitted."""
     artifact = Path(artifact)
     artifact.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,8 @@ async def collect_output(socket, query, artifact, expected_model, bootstrap):
     if ready.get("event") != "ready":
         raise RuntimeError("Gateway did not send a ready event")
     chat_id = ready["chat_id"]
-    envelope = {"type": "message", "chat_id": chat_id, "content": query, "webui": True}
+    # Same language-picker field as the native WebUI; query text stays unchanged.
+    envelope = {"type": "message", "chat_id": chat_id, "content": query, "webui": True, "locale": locale}
     with request_path.open("x") as handle:
         json.dump({"model": bootstrap["model_name"], "envelope": envelope}, handle, ensure_ascii=False, indent=2)
     collector = OutputCollector()
@@ -77,7 +78,7 @@ async def collect_output(socket, query, artifact, expected_model, bootstrap):
     return result
 
 
-async def query_gateway(query, artifact, *, base_url, expected_model, timeout=1800):
+async def query_gateway(query, artifact, *, base_url, expected_model, timeout=1800, locale="en"):
     # HTTP bootstrap and WS envelopes are the same interface used by the WebUI.
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(base_url.rstrip("/") + "/webui/bootstrap")
@@ -89,4 +90,4 @@ async def query_gateway(query, artifact, *, base_url, expected_model, timeout=18
     })
     async with connect(url, max_size=40 * 1024 * 1024) as socket:
         async with asyncio.timeout(timeout):
-            return await collect_output(socket, query, artifact, expected_model, bootstrap)
+            return await collect_output(socket, query, artifact, expected_model, bootstrap, locale=locale)

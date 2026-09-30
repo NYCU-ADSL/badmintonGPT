@@ -34,6 +34,7 @@ def wire_texts(path):
 
 def verify(dataset, gateway):
     root = HERE / "data" / dataset
+    manifest = json.loads((root / "manifest.json").read_text())
     rows = json.loads((root / "dataset.json").read_text())["items"]
     reports = []
     with httpx.Client(base_url=gateway, timeout=30) as client:
@@ -55,12 +56,13 @@ def verify(dataset, gateway):
             native_queries = [m["content"] for m in native["messages"] if m.get("role") == "user"]
             result = {"id": row["id"], "model": row["model"],
                       "request_matches_query": request["envelope"]["content"] == row["query_en"],
+                      "request_matches_locale": request["envelope"].get("locale") == manifest.get("answer_locale"),
                       "gateway_received_only_query": native_queries == [row["query_en"]],
                       "saved_output_matches_received": output["messages"] == row["output_messages"],
                       "text_matches_raw_frames": wire_texts(artifact / "output-frames.jsonl") == saved_text,
                       "text_matches_native_webui": native_text == saved_text}
             reports.append(result)
-    contract_fields = ("request_matches_query", "gateway_received_only_query",
+    contract_fields = ("request_matches_query", "request_matches_locale", "gateway_received_only_query",
                        "saved_output_matches_received", "text_matches_raw_frames")
     passed = all(all(r[key] for key in contract_fields) for r in reports)
     out = HERE / "runtime" / "output-verification.json"

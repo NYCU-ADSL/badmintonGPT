@@ -50,6 +50,8 @@ class ReelSpec(BaseModel):
     narrative_emphasis: str | None = None    # E.g. "comeback", "long rallies", "attacking tactics"; injected into scriptwriting
     only_with_video: bool = True             # Select only rallies with actual files in rally_video/
     voice_id: str | None = None              # Override Fish voice
+    enable_anchor: bool = True               # Presenter talking head (skipped when AI_PORTRAIT_* is unset)
+    language: Literal["zh-TW", "en"] = "zh-TW"  # Narration script / TTS voice / subtitle language (added later; see below)
 
 class ReelResult(BaseModel):
     video_path: str                          # Server-local path (internal only, not returned to remote clients)
@@ -59,8 +61,18 @@ class ReelResult(BaseModel):
     duration_sec: float
     quality_score: float
     style: str
+    language: str = "zh-TW"                  # Echo of ReelSpec.language
     script_summary: str                      # Concatenated segment subtitles or first N characters
 ```
+
+**`language` (added 2026-09).** One `Literal["zh-TW", "en"]` field (default `zh-TW`) threads through the
+whole pipeline: the writer/critic prompts take their task/segment-plan/length blocks from
+`prompts/languages/{code}.md` (English scripts are 250–450 words and must contain no Chinese), the TTS
+engine auto-selects an English Fish voice for `en` (`FISH_VOICE_ID` is honored **only** for `zh-TW`;
+`voice_id` still overrides either), and subtitles wrap at 18 chars on punctuation for `zh-TW` vs 42
+chars by word for `en`. `get_reel_result` echoes it. BadmintonGPT's English-only system instruction
+explicitly sets `language="en"`; otherwise the nanobot fork fills it from the WebUI language picker when omitted
+(`zh-TW`/`zh-CN` → `zh-TW`, everything else → `en`; see `vendor/README.md` "reply-language").
 
 Acceptance: models import successfully; `duration_target_sec`/`max_highlights` are range-clamped using `model_validator`.
 
@@ -213,6 +225,8 @@ def generate_reel(
     max_highlights: int = 8,
     narrative_emphasis: str | None = None,
     voice_id: str | None = None,
+    enable_anchor: bool = True,
+    language: Literal["zh-TW", "en"] = "zh-TW",
 ) -> dict:
     """Create an asynchronous highlight-generation job. Return job_id and initial state."""
     spec = ReelSpec(...parameters above...)
@@ -237,7 +251,7 @@ def get_reel_result(job_id: str) -> dict:
     return {"job_id": s.job_id, "state": s.state, "ready": True,
             "video_url": r.video_url, "selected_rally_ids": r.selected_rally_ids,
             "duration_sec": r.duration_sec, "quality_score": r.quality_score,
-            "style": r.style, "script_summary": r.script_summary}
+            "style": r.style, "language": r.language, "script_summary": r.script_summary}
             # Return downloadable video_url, not local video_path
 ```
 
@@ -298,9 +312,9 @@ Connection: **remote Streamable HTTP over Cloudflare Tunnel**, endpoint `<PUBLIC
 
 | Tool | Required input | Optional input | Key output |
 |------|------------|------------|---------|
-| `generate_reel` | `match_name` | `style, duration_target_sec, focus_player, shot_types, sets, rally_ids, max_highlights, narrative_emphasis, voice_id` | `{job_id, state}` |
+| `generate_reel` | `match_name` | `style, duration_target_sec, focus_player, shot_types, sets, rally_ids, max_highlights, narrative_emphasis, voice_id, enable_anchor, language` | `{job_id, state}` |
 | `get_reel_status` | `job_id` | — | `{state, stage, total_stages, message, error}` |
-| `get_reel_result` | `job_id` | — | `{ready, video_url, selected_rally_ids, duration_sec, quality_score, style, script_summary}` |
+| `get_reel_result` | `job_id` | — | `{ready, video_url, selected_rally_ids, duration_sec, quality_score, style, language, script_summary}` |
 
 Fixed `state` values: `queued / running / succeeded / failed`. Download videos through `video_url` (`<PUBLIC_BASE_URL>/files/{job_id}.mp4`); do not return local paths.
 

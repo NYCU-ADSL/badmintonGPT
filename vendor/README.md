@@ -58,7 +58,13 @@ Backend (Python):
   language: the WebUI sends a `locale` field on each outbound message, the channel stores it in the
   inbound `metadata`, and `loop.py` maps it to a language name passed as a per-turn line into the
   existing `[Runtime Context]` block (`build_messages(current_runtime_lines=…)`). Paired with the
-  `nanobot/workspace/SOUL.md` rule that honors the hint.
+  `nanobot/workspace/SOUL.md` rule that honors the hint. The same locale also drives MCP tools:
+  `nanobot/agent/tools/mcp.py` (`_fill_language_from_locale`, called at the top of
+  `MCPToolWrapper.execute`) defaults a tool's `language` argument from
+  `current_request_context().metadata["locale"]` when the model omits it — only for tools whose
+  input schema declares a `language` property (today: badminton-reels `generate_reel`), mapped onto
+  the schema's enum as exact match → same base language (`zh-CN` → `zh-TW`) → `en` → leave unset
+  (server default). An explicit value from the model is never overridden.
 - **`/api/tts` proxy** (`nanobot/channels/websocket.py`) — a GET-only route that proxies the WebUI
   speaker button's request to the upstream Qwen3-TTS with `TTS_API_KEY` injected server-side (openai
   SDK, PCM→WAV). See `../docs/MESSAGE_TTS.md`.
@@ -67,6 +73,11 @@ Backend (Python):
   the `${NANOBOT_MODEL}` ref when the WebUI echoes the resolved value back on save.
 
 Frontend (WebUI, `vendor/nanobot/webui/`):
+
+- **video playback recovery** — `AttachmentTile.tsx` associates failure with the source URL,
+  offers retry/open-original controls, and accepts optional `MediaPlaybackProvider` display copies
+  for browser codec compatibility. The evaluation site supplies this context; stored replies and
+  original attachment URLs are unchanged. Regression tests live in `human-evaluation/web/`.
 
 - **tool-progress bar** — `webui/src/components/ToolProgress.tsx` + a hook in
   `thread/AgentActivityCluster.tsx`; a live progress bar for any tool result with numeric
