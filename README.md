@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="https://badmintongpt.nycu-adsl.cc/">Live WebUI</a> ·
   <a href="#what-can-badmintongpt-do">Features</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#architecture">Architecture</a> ·
@@ -24,6 +25,7 @@ BadmintonGPT is a badminton match assistant built on [nanobot](https://github.co
 
 | You want to... | Go to |
 | --- | --- |
+| Open BadmintonGPT online | [badmintongpt.nycu-adsl.cc](https://badmintongpt.nycu-adsl.cc/) |
 | See what the assistant can answer | [Features and example questions](#what-can-badmintongpt-do) |
 | Run the complete system | [Quick start](#quick-start) and the [deployment guide](docs/DEPLOY.md) |
 | Understand the components | [Architecture](#architecture) and [design notes](docs/DESIGN.md) |
@@ -58,7 +60,7 @@ The browser talks to a nanobot agent. The agent uses skill instructions to choos
 
 | Component | Role |
 | --- | --- |
-| **Badminton database** | Local SQLite match, rally, and shot data exposed through an MCP service |
+| **Badminton database** | Local SQLite match, rally, and shot data built from the [Badminton dataset](https://huggingface.co/datasets/howard9199/Badminton) and exposed through an MCP service |
 | **Data analysis** | Calculates comparisons and creates visual explanations from match data |
 | **Badminton-Reels** | Generates highlight videos through a remote MCP service |
 | **Tactical video retrieval** | Finds relevant clips from a natural-language request |
@@ -70,7 +72,7 @@ The database MCP runs in its own container. The video and analysis MCP services 
 
 ### 1. Prepare the services
 
-You need Docker with Compose, an OpenAI API key, a Hugging Face token to build the match database, credentials for the remote badminton services, and a Cloudflare Tunnel. The [deployment guide](docs/DEPLOY.md) walks through the one-time Tunnel and Access setup.
+You need Docker with Compose, an OpenAI API key, a Hugging Face token with access to the Badminton dataset, credentials for the remote badminton services, and a Cloudflare Tunnel. The [deployment guide](docs/DEPLOY.md) walks through the one-time Tunnel and Access setup.
 
 ```bash
 cp .env.example .env
