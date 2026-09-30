@@ -425,7 +425,7 @@ messages.
 
 ## 6. Settings (D3 + D1 toggle)
 
-Add a **"Speech / 語音" group** to the existing Settings panel
+Add a **"Speech" group** to the existing Settings panel
 (`vendor/nanobot/webui/src/components/settings/SettingsView.tsx`), persisted to `localStorage`
 following the `useTheme.ts` pattern (`STORAGE_KEY = "nanobot-webui.theme"`):
 
@@ -448,10 +448,10 @@ real catalog is known it is just `["chris"]`; see §9.
 
 1. **`.env.example`**:
    ```bash
-   # --- Message TTS（WebUI 朗讀；只給 gateway，不進前端 bundle）---
+   # --- Message TTS (WebUI read-aloud; gateway only, not included in the frontend bundle) ---
    TTS_API_KEY=sk-...
    TTS_AUTO_PREFETCH=false   # WebUI default trigger mode (true = prefetch on reply completion)
-   # 選填：覆寫端點 / 模型 / 預設語音
+   # Optional: override endpoint / model / default voice
    # TTS_API_BASE=https://llm.andyjjrt.cc/v1
    # TTS_API_MODEL=DGX/Qwen3-TTS
    # TTS_DEFAULT_VOICE=chris  # also the WebUI voice-dropdown default

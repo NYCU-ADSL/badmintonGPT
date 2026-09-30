@@ -1,14 +1,14 @@
 ---
 name: badminton-analyze
 description: >-
-  使用 badminton-analyze MCP 工具分析羽球單打比賽。當使用者提供 match_id，
-  並要求球種成效、失分落點、回合休息時間、跑動距離、後場使用、擊球高度、
-  殺球後移動或數據驗證時使用。
+  Analyze badminton singles matches with badminton-analyze MCP tools. Use when the user provides
+  a match_id and requests shot effectiveness, lost-point locations, rally rest times, running
+  distance, backcourt usage, shot height, post-smash movement, or statistics verification.
 ---
 
-# 羽球單打比賽分析
+# Badminton singles match analysis
 
-根據 MCP Server 回傳的比賽資料產生可核對的戰術分析。現在的正式分析範圍以單打為主，呼叫工具時使用：
+Produce verifiable tactical analysis from match data returned by the MCP Server. The current official analysis scope focuses on singles. Use the following when calling tools:
 
 ```json
 {
@@ -17,36 +17,36 @@ description: >-
 }
 ```
 
-## 開始分析前
+## Before starting analysis
 
-- 使用者已提供 `match_id` 時直接使用，不要再次詢問。
-- 缺少 `match_id` 時，先請使用者提供。
-- `match_id` 保持字串形式，不要猜測或自行替換。
-- 除非使用者明確要求其他範圍，`match_type` 一律使用 `"single"`。
-- 工具回傳 `error` 時，不要補造數值；說明失敗原因及缺少的資料。
+- If the user has provided a `match_id`, use it directly without asking again.
+- If `match_id` is missing, ask the user to provide it first.
+- Keep `match_id` as a string; do not guess or substitute it.
+- Always use `"single"` for `match_type` unless the user explicitly requests another scope.
+- If a tool returns an `error`, do not invent values; explain the failure and what data is missing.
 
-## 可用工具
+## Available tools
 
-| MCP tool | 用途 |
+| MCP tool | Purpose |
 | --- | --- |
-| `get_backcourt_count` | 計算每位球員在後場擊球的次數及相關 rally 明細 |
-| `get_shot_height` | 統計每位球員高於與低於網高的擊球次數 |
-| `get_lost_point_distribution` | 統計每位球員在 1–16 區的失分分布 |
-| `get_rally_rest_time` | 計算同一局相鄰 rallies 之間的休息秒數 |
-| `get_running_distance` | 計算總跑動距離、每 rally 平均距離與每球平均距離 |
-| `get_shot_win_rate` | 計算各球種的 attempts、winners 與 win_rate |
-| `get_smash_followup_speed` | 計算殺球後往發球線或中心區域移動的速度 |
-| `verify_match_statistics` | 從原始比賽資料重新計算並驗證最高或最低的統計結果 |
+| `get_backcourt_count` | Count each player's backcourt shots and provide related rally details |
+| `get_shot_height` | Count each player's shots above and below net height |
+| `get_lost_point_distribution` | Summarize each player's lost-point distribution across zones 1–16 |
+| `get_rally_rest_time` | Calculate rest time in seconds between adjacent rallies in the same game |
+| `get_running_distance` | Calculate total running distance, average distance per rally, and average distance per shot |
+| `get_shot_win_rate` | Calculate attempts, winners, and win_rate for each shot type |
+| `get_smash_followup_speed` | Calculate movement speed toward the service line or central area after a smash |
+| `verify_match_statistics` | Recalculate from raw match data and verify the highest or lowest statistics |
 
-以上是 MCP 對外公開的名稱。不要使用 `register_*_tools`；那些是 Python 內部註冊函式。
+These are the public MCP tool names. Do not use `register_*_tools`; those are internal Python registration functions.
 
-## 工具選擇
+## Tool selection
 
-使用者指定分析項目時，只呼叫相關工具。使用者要求完整比賽分析時，呼叫前七個分析工具，並依下方規則使用 `verify_match_statistics` 核對重要的極值結論。
+When the user specifies an analysis, call only the relevant tools. For a full match analysis, call the first seven analysis tools and use `verify_match_statistics` to verify important extreme-value conclusions according to the rules below.
 
-### 球種致勝率
+### Shot winner rate
 
-呼叫：
+Call:
 
 ```json
 {
@@ -55,52 +55,52 @@ description: >-
 }
 ```
 
-使用 `get_shot_win_rate` 的：
+Use these fields from `get_shot_win_rate`:
 
-- `players`：A、B 與實際球員姓名的對照。
-- `summary`：依球員及球種列出 `attempts`、`winners`、`win_rate`。
-- `data_quality`：總 rally、有效 rally、總球數、有效球數及略過數量。
+- `players`: mapping from A and B to actual player names.
+- `summary`: `attempts`, `winners`, and `win_rate` by player and shot type.
+- `data_quality`: total rallies, valid rallies, total shots, valid shots, and skipped counts.
 
-`win_rate` 是 0–1 的比例。向使用者呈現時可以轉成百分比，但保留原始 attempts 和 winners，避免只比較小樣本比例。
+`win_rate` is a proportion from 0 to 1. You may display it as a percentage, but retain the original attempts and winners to avoid comparing only proportions from small samples.
 
-### 失分區域分布
+### Lost-point distribution by zone
 
-`get_lost_point_distribution` 回傳：
+`get_lost_point_distribution` returns:
 
-- `summary`：每位球員在各區域的失分比例。
-- `details`：各 rally 的 `lose zone`。
-- `data_quality`：有效與略過的 rally 數量。
+- `summary`: each player's proportion of lost points in each zone.
+- `details`: the `lose zone` for each rally.
+- `data_quality`: valid and skipped rally counts.
 
-區域代碼的合法範圍是字串 `"1"` 到 `"16"`。沒有完整區域對照資料時保留數字代碼，不要自行創造區域名稱。
+Valid zone codes are strings from `"1"` to `"16"`. Without a complete zone mapping, retain the numeric codes; do not invent zone names.
 
-### Rally 休息時間
+### Rally rest time
 
-`get_rally_rest_time` 的時間單位是秒。摘要包含：
+`get_rally_rest_time` uses seconds. Its summary includes:
 
 - `average_rest_time`
 - `max_rest_time`
 - `min_rest_time`
 
-`details` 包含相鄰 rally 的 `rally` 與 `rest_time`；`data_quality.rest_intervals` 表示實際建立的休息區間數。
+`details` contains the `rally` and `rest_time` for adjacent rallies; `data_quality.rest_intervals` is the number of rest intervals actually established.
 
-### 其他動作與移動指標
+### Other action and movement metrics
 
-- 後場次數使用 `get_backcourt_count`。
-- 擊球高度使用 `get_shot_height`。
-- 跑動距離使用 `get_running_distance`，距離以工具回傳單位為準，報告中清楚標示。
-- 殺球後移動使用 `get_smash_followup_speed`，速度單位為 m/s。
+- Use `get_backcourt_count` for backcourt counts.
+- Use `get_shot_height` for shot height.
+- Use `get_running_distance` for running distance; use the units returned by the tool and label them clearly in the report.
+- Use `get_smash_followup_speed` for post-smash movement; speed is in m/s.
 
-## 驗證數值結論
+## Verify numerical conclusions
 
-當報告要聲稱某項統計是「最高」或「最低」時，用 `verify_match_statistics` 驗證。它目前支援單打及以下三種 metric：
+When claiming that a statistic is the "highest" or "lowest," verify it with `verify_match_statistics`. It currently supports singles and the following three metrics:
 
-| metric | 驗證內容 |
+| metric | Verification |
 | --- | --- |
-| `shot_win_rate` | 球員與球種的最高或最低致勝率 |
-| `lost_point_distribution` | 球員與區域的最高或最低失分比例 |
-| `rally_rest_time` | 最長或最短 rally 休息時間 |
+| `shot_win_rate` | Highest or lowest winner rate by player and shot type |
+| `lost_point_distribution` | Highest or lowest lost-point proportion by player and zone |
+| `rally_rest_time` | Longest or shortest rally rest time |
 
-呼叫範例：
+Example call:
 
 ```json
 {
@@ -111,30 +111,30 @@ description: >-
 }
 ```
 
-`condition` 只能是 `"highest"` 或 `"lowest"`。驗證結果的 `summary` 會包含 `metric`、`condition` 與該 metric 對應的欄位：
+`condition` must be `"highest"` or `"lowest"`. The verification `summary` includes `metric`, `condition`, and the fields for that metric:
 
-- `shot_win_rate`：`player`、`shot_type`、`attempts`、`winners`、`win_rate`。
-- `lost_point_distribution`：`player`、`zone`、`lost_points`、`total_lost_points`、`rate`。
-- `rally_rest_time`：`set`、`rally`、`rest_time`。
+- `shot_win_rate`: `player`, `shot_type`, `attempts`, `winners`, `win_rate`.
+- `lost_point_distribution`: `player`, `zone`, `lost_points`, `total_lost_points`, `rate`.
+- `rally_rest_time`: `set`, `rally`, `rest_time`.
 
-若來源工具與驗證工具結果不同，以 `verify_match_statistics` 的重新計算結果為準，並指出兩者不一致，不要隱藏差異。
+If the source and verification tools disagree, use the recalculated results from `verify_match_statistics` and explicitly identify the inconsistency; do not hide it.
 
-## 解讀資料品質
+## Interpret data quality
 
-正式統計工具可能回傳 `data_quality`。分析時：
+Official statistics tools may return `data_quality`. When analyzing:
 
-- 說明 `verified_rallies`、`valid_shots` 或 `rest_intervals` 等有效樣本數。
-- `skipped_rallies` 或 `skipped_shots` 大於 0 時，提醒結論只涵蓋可驗證資料。
-- 數值 `0` 代表已計算且結果為零；`null`、缺少欄位或 `error` 代表無法取得或計算，兩者不可混用。
-- 不要從缺少的 details 推論球員表現。
+- State valid sample counts such as `verified_rallies`, `valid_shots`, or `rest_intervals`.
+- If `skipped_rallies` or `skipped_shots` exceeds 0, note that conclusions cover only verifiable data.
+- A numeric `0` means the calculation returned zero; `null`, missing fields, or `error` mean the value could not be obtained or calculated. Do not conflate them.
+- Do not infer player performance from missing details.
 
-## 回覆方式
+## Response format
 
-先用 `players` 將 A、B 換成實際姓名，再整理重點：
+First use `players` to replace A and B with actual names, then summarize:
 
-1. 先回答使用者指定的問題。
-2. 用少量關鍵數字支持結論，附上次數、比例及單位。
-3. 比較球員時使用相同指標與相同資料範圍。
-4. details 很長時只摘錄支持結論的 rally，不要完整傾倒原始 JSON。
-5. 清楚區分工具直接回傳的結果與根據結果做出的戰術解讀。
-6. 對 `verify_match_statistics` 支援的三種 metric，任何「最高」或「最低」的正式結論都應附上驗證結果；其他指標則附上來源工具的數值與有效樣本。
+1. Answer the user's specific question first.
+2. Support conclusions with a few key numbers, including counts, proportions, and units.
+3. Compare players using the same metrics and data scope.
+4. If details are long, extract only rallies supporting the conclusion; do not dump the entire raw JSON.
+5. Clearly distinguish direct tool results from tactical interpretations based on them.
+6. For the three metrics supported by `verify_match_statistics`, include verification results with any formal "highest" or "lowest" conclusion; for other metrics, include source-tool values and valid sample counts.

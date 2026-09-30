@@ -1,0 +1,48 @@
+name: badmintongpt-human-evaluation
+services:
+  generator:
+    image: badmintongpt-gateway:0.2.1
+    user: '${EVAL_UID:-1000}:${EVAL_GID:-1000}'
+    profiles: [generate]
+    entrypoint: [python, /evaluation/generate.py]
+    command: [--count, '12', --seed, '20260917', --dataset, preview-12-reels-en-v1, --resume]
+    environment:
+      EVAL_REPO: /repo
+      PYTHONPATH: /repo/vendor/nanobot
+      EVAL_DB_MCP_URL: http://badminton-db:8801/mcp
+    volumes:
+      - ..:/repo:ro
+      - .:/evaluation
+    networks: [badminton]
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+  web:
+    user: '${EVAL_UID:-1000}:${EVAL_GID:-1000}'
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      EVAL_DATASET: /evaluation/data/formal-200-v1/dataset.json
+      EVAL_RATINGS: /evaluation/data/ratings.sqlite3
+    volumes:
+      - ./data:/evaluation/data
+    ports:
+      - '127.0.0.1:8810:8080'
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: [tunnel, --no-autoupdate, --url, 'http://web:8080']
+    depends_on:
+      web:
+        condition: service_healthy
+networks:
+  badminton:
+    external: true
+    name: badmintongpt_default

@@ -1,9 +1,13 @@
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { FileIcon, ImageIcon, PlaySquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
 import type { UIMediaAttachment } from "@/lib/types";
+
+// Optional display copies (e.g. a browser-compatible codec); original URLs stay intact.
+const MediaPlaybackContext = createContext<Record<string, string>>({});
+export const MediaPlaybackProvider = MediaPlaybackContext.Provider;
 
 interface AttachmentTileProps {
   attachment: UIMediaAttachment;
@@ -14,7 +18,10 @@ interface AttachmentTileProps {
 
 export function AttachmentTile({ attachment, className, inline = false, variant = "default" }: AttachmentTileProps) {
   const { t } = useTranslation();
-  const [failed, setFailed] = useState(false);
+  const playbackSources = useContext(MediaPlaybackContext);
+  const playbackUrl = attachment.url ? playbackSources[attachment.url] ?? attachment.url : undefined;
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const failed = failedSource !== null && failedSource === playbackUrl;
   const hasUrl = typeof attachment.url === "string" && attachment.url.length > 0;
   const label = attachmentLabel(attachment, t);
 
@@ -39,7 +46,7 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
             loading="lazy"
             decoding="async"
             draggable={false}
-            onError={() => setFailed(true)}
+            onError={() => setFailedSource(playbackUrl ?? null)}
             className={cn(
               "block h-auto max-w-full bg-background object-contain",
               variant === "compact" ? "max-h-40" : "max-h-[34rem]",
@@ -59,7 +66,7 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
         variant={variant}
       >
         <video
-          src={attachment.url}
+          src={playbackUrl}
           controls
           preload="auto"
           playsInline
@@ -67,7 +74,7 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
           // `error` with MEDIA_ERR_SRC_NOT_SUPPORTED and would show a dead "No video with
           // supported format and MIME type found." box — degrade to the download-link tile
           // instead so the user can still open the file in a local player.
-          onError={() => setFailed(true)}
+          onError={() => setFailedSource(playbackUrl ?? null)}
           className={cn(
             "block w-full bg-black",
             variant === "compact" ? "max-h-40" : "max-h-[26rem]",
@@ -76,6 +83,24 @@ export function AttachmentTile({ attachment, className, inline = false, variant 
         />
       </AttachmentFrame>
     );
+  }
+
+  if (attachment.kind === "video" && hasUrl && failed) {
+    return <AttachmentFrame attachment={attachment} className={className} inline={inline} variant={variant}>
+      <span className="block p-3 text-xs text-muted-foreground" role="status">
+        <span className="block">{t("message.videoPlaybackFailed", {
+          defaultValue: "This video could not be played. The source may be unavailable or its format unsupported by your browser.",
+        })}</span>
+        <span className="mt-2 flex flex-wrap items-center gap-3">
+          <button type="button" className="underline" onClick={() => setFailedSource(null)}>
+            {t("message.retryVideo", { defaultValue: "Retry playback" })}
+          </button>
+          <a href={attachment.url} target="_blank" rel="noreferrer noopener" className="underline">
+            {t("message.openOriginalVideo", { defaultValue: "Open original video" })}
+          </a>
+        </span>
+      </span>
+    </AttachmentFrame>;
   }
 
   const Icon = attachment.kind === "video"

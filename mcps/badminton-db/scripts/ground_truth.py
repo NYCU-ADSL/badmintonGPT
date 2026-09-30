@@ -90,35 +90,35 @@ print("Ground truth — Axelsen vs Lee (local) + 32-folder metadata")
 print("=" * 70)
 
 # Q1
-show("Q1 Axelsen 的比賽",
+show("Q1 Axelsen's matches",
      "SELECT name FROM matches WHERE name LIKE '%AXELSEN%' OR name LIKE '%Axelsen%'")
 
-# Q2 Axelsen(A) 殺球得分 — smash by A that won the rally
-show("Q2 Axelsen(A) 殺球得分 (該殺球即致勝球: win_reason 非空)",
+# Q2 Axelsen(A) smash points — smash by A that won the rally
+show("Q2 Axelsen(A) smash points (the smash itself is the winner: nonempty win_reason)",
      "SELECT COUNT(*) AS axelsen_smash_winners FROM shots "
      "WHERE type='殺球' AND player='A' AND win_reason<>''")
-show("Q2b 所有 A 的殺球次數 (含未得分)",
+show("Q2b All smashes by A (including non-winners)",
      "SELECT COUNT(*) AS total_A_smash FROM shots WHERE type='殺球' AND player='A'")
 
-# Q3 最常見失分原因
-show("Q3 失分原因分布",
+# Q3 Most common reason for losing points
+show("Q3 Distribution of reasons for losing points",
      "SELECT lose_reason, COUNT(*) AS n FROM shots WHERE lose_reason<>'' "
      "GROUP BY lose_reason ORDER BY n DESC")
 
-# Q4 挑球使用次數 by player
-show("Q4 挑球次數 (依選手)",
+# Q4 Lift counts by player
+show("Q4 Lift counts (by player)",
      "SELECT player, COUNT(*) AS n FROM shots WHERE type='挑球' GROUP BY player")
 print("    (A=Viktor AXELSEN, B=LEE Zii Jia)")
 
-# Q5 三局比分 — max roundscore per set
-show("Q5 三局比分",
+# Q5 Scores for three games — max roundscore per set
+show("Q5 Scores for three games",
      "SELECT set_no, MAX(CAST(roundscore_A AS INT)) AS final_A, "
      "MAX(CAST(roundscore_B AS INT)) AS final_B FROM shots GROUP BY set_no ORDER BY set_no")
 
-# Q6 Lee(B) 放小球的回合 (rally 編號) + 是否有影片
+# Q6 Lee(B) net-shot rallies (rally numbers) + video availability
 rv = DATA / MATCH / "rally_video"
 have = {p.stem for p in rv.glob("*.mp4")} if rv.exists() else set()
-print("\n### Q6 Lee(B) 放小球出現的回合數")
+print("\n### Q6 Number of rallies featuring Lee(B) net shots")
 res = cur.execute(
     "SELECT set_no, COUNT(*) AS n FROM shots WHERE type='放小球' AND player='B' "
     "GROUP BY set_no ORDER BY set_no").fetchall()
@@ -126,13 +126,13 @@ for row in res:
     print("   ", dict(row))
 total_b_net = cur.execute(
     "SELECT COUNT(*) FROM shots WHERE type='放小球' AND player='B'").fetchone()[0]
-print(f"    B 放小球總次數 = {total_b_net}")
-print(f"    本地實際存在的 rally_video 檔 ({len(have)} 個): {sorted(have)}")
+print(f"    Total B net shots = {total_b_net}")
+print(f"    Locally available rally_video files ({len(have)}): {sorted(have)}")
 
-# Q9 年份 / 練習片數
-show("Q9 正式賽事 vs 練習片數量",
+# Q9 Years / practice clip counts
+show("Q9 Official match vs practice clip counts",
      "SELECT is_practice, COUNT(*) AS n FROM matches GROUP BY is_practice")
-print("    (所有資料夾名稱皆含 2022 → 全為 2022 年)")
+print("    (All folder names contain 2022 → all are from 2022)")
 
-print("\n總 shots 列數 =", cur.execute("SELECT COUNT(*) FROM shots").fetchone()[0])
+print("\nTotal shots rows =", cur.execute("SELECT COUNT(*) FROM shots").fetchone()[0])
 db.close()

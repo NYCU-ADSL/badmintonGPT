@@ -1,0 +1,7 @@
+*
+!requirements.txt
+!server.py
+!export.py
+!web/
+!web/dist/
+!web/dist/**

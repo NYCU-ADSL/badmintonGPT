@@ -614,7 +614,7 @@
       "badminton-analyze": {
         "type": "streamableHttp",
         "url": "https://coachai.cs.nycu.edu.tw/mcp",
-        "headers": { "Authorization": "Bearer d5c73d819688f5f9907e9331d9abc7a0ca5904a7b27510d38a7e8b90a8011586" },
+        "headers": { "Authorization": "Bearer ${ANALYZE_MCP_TOKEN}" },
         "enabledTools": [
           "get_backcourt_count",
           "get_shot_height",
