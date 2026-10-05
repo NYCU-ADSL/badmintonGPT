@@ -57,6 +57,10 @@ Try questions such as:
 
 The interface can combine these capabilities in one response—for example, a tactical explanation alongside a comparison chart or playable video.
 
+To organize new conversations by project, choose **Project** on the new-chat screen and enter a
+name. BadmintonGPT creates a persistent project directory and groups its chats in the sidebar.
+Existing chats stay in their current group. Remote projects use restricted file access.
+
 ## Architecture
 
 ![BadmintonGPT framework: web search, data analysis, badminton database, badminton reels, and tactical video retrieval produce text suggestions, charts, and videos](images/BadmintonGPT-framework.png)

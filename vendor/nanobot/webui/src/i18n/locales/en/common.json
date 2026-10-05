@@ -767,6 +767,8 @@
       "manual": "Paste path",
       "manualPlaceholder": "/Users/name/project",
       "usePath": "Use Path",
+      "createProject": "Create project",
+      "projectNameInvalid": "Use a project name up to 64 characters with letters, numbers, spaces, _ or -.",
       "absolutePathRequired": "Enter an absolute folder path on this machine."
     }
   },

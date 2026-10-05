@@ -148,13 +148,18 @@ def workspaces_payload(
         if default_access_mode == "default"
         else build_workspace_scope(default_workspace, default_access_mode, source_channel=_WEBUI_SCOPE_CHANNEL)
     )
+    remote_projects = os.environ.get("NANOBOT_WEBUI_REMOTE_PROJECTS") == "1"
     return {
         "schema_version": WEBUI_WORKSPACE_STATE_SCHEMA_VERSION,
         "default_access_mode": default_access_mode,
         "default_scope": default_scope.payload(),
         "controls": {
-            "can_change_project": controls_available,
+            "can_change_project": controls_available or remote_projects,
             "can_use_full_access": controls_available,
+            "managed_project_root": (
+                str((default_workspace / "projects").resolve())
+                if remote_projects and not controls_available else None
+            ),
         },
     }
 
@@ -216,15 +221,49 @@ class WebUIWorkspaceController:
         elif raw is None:
             scope = self.default_scope()
         else:
+            if not controls_available and os.environ.get("NANOBOT_WEBUI_REMOTE_PROJECTS") == "1":
+                self._prepare_remote_project(raw)
             scope = validate_workspace_scope_payload(
                 raw,
                 default_workspace=self._default_workspace,
                 default_restrict_to_workspace=self._default_restrict_to_workspace,
                 source_channel=_WEBUI_SCOPE_CHANNEL,
             )
-        if not controls_available and scope.metadata() != self.default_scope().metadata():
-            raise WorkspaceScopeError("workspace controls are localhost-only", status=403)
+        if not controls_available:
+            if os.environ.get("NANOBOT_WEBUI_REMOTE_PROJECTS") != "1":
+                if scope.metadata() != self.default_scope().metadata():
+                    raise WorkspaceScopeError("workspace controls are localhost-only", status=403)
+            elif scope.project_path != self._default_workspace.resolve() or scope.access_mode != "restricted":
+                self._validate_remote_project(scope)
         return scope
+
+    def _validate_remote_project(self, scope: WorkspaceScope) -> None:
+        """Remote project selection stays in the persisted, restricted project directory."""
+        root = (self._default_workspace / "projects").resolve()
+        path = scope.project_path
+        if (
+            scope.access_mode != "restricted"
+            or path.parent != root
+            or not path.name
+            or len(path.name) > 64
+            or not all(char.isalnum() or char in " _-" for char in path.name)
+        ):
+            raise WorkspaceScopeError("remote projects must be restricted and inside projects", status=403)
+
+    def _prepare_remote_project(self, raw: Any) -> None:
+        if not isinstance(raw, dict) or raw.get("access_mode") != "restricted":
+            raise WorkspaceScopeError("remote projects require restricted access", status=403)
+        raw_path = raw.get("project_path")
+        if not isinstance(raw_path, str) or not Path(raw_path).is_absolute():
+            raise WorkspaceScopeError("remote project path must be absolute", status=403)
+        path = Path(raw_path).resolve(strict=False)
+        if path == self._default_workspace.resolve():
+            return
+        self._validate_remote_project(build_workspace_scope(path, "restricted"))
+        try:
+            path.mkdir(exist_ok=True)
+        except OSError as exc:
+            raise WorkspaceScopeError("could not create remote project", status=400) from exc
 
     def scope_for_new_chat(
         self,

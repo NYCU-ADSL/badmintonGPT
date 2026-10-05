@@ -767,6 +767,8 @@
       "manual": "貼上路徑",
       "manualPlaceholder": "/Users/name/project",
       "usePath": "使用路徑",
+      "createProject": "建立專案",
+      "projectNameInvalid": "專案名稱最多 64 個字元，只能使用文字、數字、空格、_ 或 -。",
       "absolutePathRequired": "請輸入這台機器上的絕對資料夾路徑。"
     }
   },

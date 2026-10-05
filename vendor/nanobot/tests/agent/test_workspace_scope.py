@@ -6,11 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 from nanobot.agent.tools.cli_apps import CliAppsTool
-from nanobot.agent.tools.filesystem import ReadFileTool
+from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool
 from nanobot.agent.tools.image_generation import ImageGenerationError, ImageGenerationTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
+from nanobot.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
+from nanobot.config.schema import ImageGenerationToolConfig, ProviderConfig
 from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
@@ -20,8 +22,6 @@ from nanobot.security.workspace_access import (
     validate_workspace_scope_payload,
     workspace_scope_from_metadata,
 )
-from nanobot.apps.cli.service import CliAppManager, CliAppsRuntimeConfig
-from nanobot.config.schema import ImageGenerationToolConfig, ProviderConfig
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
@@ -114,6 +114,35 @@ async def test_filesystem_tool_uses_current_restricted_workspace_scope(tmp_path:
         assert "outside allowed directory" in await tool.execute(path=str(outside))
     finally:
         reset_workspace_scope(token)
+
+
+@pytest.mark.asyncio
+async def test_restricted_project_can_read_agent_skill_without_writing_it(tmp_path: Path) -> None:
+    agent = tmp_path / "agent"
+    project = tmp_path / "project"
+    skill = agent / "skills" / "visualise" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("bar chart skill", encoding="utf-8")
+    project.mkdir()
+    ctx = SimpleNamespace(
+        workspace=str(agent),
+        config=SimpleNamespace(
+            restrict_to_workspace=True,
+            exec=SimpleNamespace(sandbox="bwrap"),
+        ),
+        file_state_store=None,
+    )
+    read_tool = ReadFileTool.create(ctx)
+    write_tool = WriteFileTool.create(ctx)
+    token = bind_workspace_scope(default_workspace_scope(project, restrict_to_workspace=True))
+    try:
+        assert "bar chart skill" in await read_tool.execute(path=str(skill))
+        assert "outside allowed directory" in await write_tool.execute(
+            path=str(skill), content="overwritten",
+        )
+    finally:
+        reset_workspace_scope(token)
+    assert skill.read_text(encoding="utf-8") == "bar chart skill"
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,15 @@ changes sit on top as ordinary commits, so:
 
 Backend (Python):
 
+- **project skill continuity** (`nanobot/agent/context.py`, `nanobot/agent/tools/filesystem.py`)
+  — project chats retain the agent's `SOUL.md` and `USER.md` while using project-local
+  `AGENTS.md`; `read_file` can read agent workspace skills when a project is selected.
+  Write/edit tools remain restricted to the selected project. This keeps visualise and the
+  badminton playbooks callable from the project groups.
+- **remote restricted projects** (`nanobot/webui/workspaces.py`, opt-in
+  `NANOBOT_WEBUI_REMOTE_PROJECTS=1`) — lets the Cloudflare Access WebUI create and select
+  one-level project directories under the persistent agent workspace's `projects/` directory.
+  Remote clients cannot choose other paths or Full Access; local WebUI behavior is unchanged.
 - **origin-aware MCP HTTP probe** (`nanobot/agent/tools/mcp.py` `_probe_http_url`) — a bare TCP
   probe can't tell a healthy remote MCP from a dead origin behind a reachable reverse proxy/tunnel:
   Cloudflare answers the TCP handshake and returns `502/503/504`, so nanobot would enter

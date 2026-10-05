@@ -10,13 +10,13 @@ from typing import Any
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.file_state import FileStates, _hash_file, current_file_states
 from nanobot.agent.tools.path_utils import resolve_workspace_path
-from nanobot.security.workspace_access import current_tool_workspace
 from nanobot.agent.tools.schema import (
     BooleanSchema,
     IntegerSchema,
     StringSchema,
     tool_parameters_schema,
 )
+from nanobot.security.workspace_access import current_tool_workspace
 from nanobot.utils.helpers import build_image_content_blocks, detect_image_mime
 
 
@@ -57,7 +57,12 @@ class _FsTool(Tool):
         )
         sandbox_restricts = bool(ctx.config.exec.sandbox)
         allowed_dir = Path(ctx.workspace) if restrict else None
-        extra_read = [BUILTIN_SKILLS_DIR]
+        # Only read_file may reach skill instructions outside the selected project.
+        # Write/edit/list tools must keep the project boundary unchanged.
+        extra_read = (
+            [BUILTIN_SKILLS_DIR, Path(ctx.workspace) / "skills"]
+            if cls is ReadFileTool else []
+        )
         return cls(
             workspace=Path(ctx.workspace),
             allowed_dir=allowed_dir,

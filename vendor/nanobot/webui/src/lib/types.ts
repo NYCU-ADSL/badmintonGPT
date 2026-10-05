@@ -169,6 +169,7 @@ export interface WorkspacesPayload {
   controls: {
     can_change_project: boolean;
     can_use_full_access: boolean;
+    managed_project_root?: string | null;
   };
 }
 

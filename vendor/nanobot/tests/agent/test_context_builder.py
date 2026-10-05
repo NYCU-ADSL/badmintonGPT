@@ -264,6 +264,25 @@ class TestBuildUserContent:
 
 
 class TestBuildSystemPrompt:
+    def test_project_keeps_agent_profile_and_uses_project_instructions(self, tmp_path):
+        agent = tmp_path / "agent"
+        project = tmp_path / "project"
+        agent.mkdir()
+        project.mkdir()
+        (agent / "AGENTS.md").write_text("AGENT_ONLY_BOOTSTRAP", encoding="utf-8")
+        (agent / "SOUL.md").write_text("VISUALISE_CHART_RULE", encoding="utf-8")
+        (agent / "USER.md").write_text("AGENT_USER_PROFILE", encoding="utf-8")
+        (project / "AGENTS.md").write_text("PROJECT_ONLY_INSTRUCTIONS", encoding="utf-8")
+        (project / "SOUL.md").write_text("PROJECT_IDENTITY_OVERRIDE", encoding="utf-8")
+
+        prompt = ContextBuilder(agent).build_system_prompt(workspace=project)
+
+        assert "PROJECT_ONLY_INSTRUCTIONS" in prompt
+        assert "VISUALISE_CHART_RULE" in prompt
+        assert "AGENT_USER_PROFILE" in prompt
+        assert "AGENT_ONLY_BOOTSTRAP" not in prompt
+        assert "PROJECT_IDENTITY_OVERRIDE" not in prompt
+
     def test_returns_nonempty_string(self, tmp_path):
         builder = _builder(tmp_path)
         result = builder.build_system_prompt()

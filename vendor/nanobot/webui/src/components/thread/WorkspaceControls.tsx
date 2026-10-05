@@ -57,12 +57,13 @@ export function WorkspaceProjectPicker({
     && controls?.can_change_project !== false;
   const hostApi = getHostApi();
   const nativeProjectPicker = !!hostApi;
+  const managedProjectRoot = controls?.managed_project_root;
 
   useEffect(() => {
     if (!open) return;
-    setPathDraft(currentProjectScope?.project_path ?? "");
+    setPathDraft(managedProjectRoot ? "" : currentProjectScope?.project_path ?? "");
     setPathError(null);
-  }, [currentProjectScope?.project_path, open]);
+  }, [currentProjectScope?.project_path, managedProjectRoot, open]);
 
   useEffect(() => {
     if (error && visible) setOpen(true);
@@ -71,7 +72,15 @@ export function WorkspaceProjectPicker({
   const applyProjectPath = useCallback(
     (projectPath: string, projectName?: string) => {
       const base = scope ?? defaultScope;
-      const trimmed = projectPath.trim();
+      const entered = projectPath.trim();
+      const isDefaultProject = entered === defaultScope?.project_path;
+      if (managedProjectRoot && !isDefaultProject
+        && (entered.length > 64 || !/^[\p{L}\p{N} _-]+$/u.test(entered))) {
+        setPathError(t("workspace.dialog.projectNameInvalid"));
+        return;
+      }
+      const trimmed = managedProjectRoot && !isDefaultProject
+        ? `${managedProjectRoot}/${entered}` : entered;
       if (!base || !onChange) return;
       if (!trimmed || !isAbsoluteWorkspacePath(trimmed)) {
         setPathError(t("workspace.dialog.absolutePathRequired"));
@@ -86,7 +95,7 @@ export function WorkspaceProjectPicker({
       setPathError(null);
       setOpen(false);
     },
-    [defaultScope, onChange, scope, t],
+    [defaultScope, managedProjectRoot, onChange, scope, t],
   );
 
   const pickNativeFolder = useCallback(async () => {
@@ -196,8 +205,8 @@ export function WorkspaceProjectPicker({
                   setPathDraft(event.target.value);
                   setPathError(null);
                 }}
-                placeholder={t("workspace.dialog.manualPlaceholder")}
-                aria-label={t("workspace.dialog.manual")}
+                placeholder={t(managedProjectRoot ? "chat.renameProjectPlaceholder" : "workspace.dialog.manualPlaceholder")}
+                aria-label={t(managedProjectRoot ? "chat.renameProjectPlaceholder" : "workspace.dialog.manual")}
                 className={cn(
                   "h-9 rounded-full border-border/55 bg-background/80 px-3 text-[12.5px]",
                   "focus-visible:ring-1 focus-visible:ring-foreground/10 focus-visible:ring-offset-0",
@@ -208,7 +217,7 @@ export function WorkspaceProjectPicker({
                 disabled={disabled || !pathDraft.trim()}
                 className="h-9 shrink-0 rounded-full px-3 text-[12px]"
               >
-                {t("workspace.dialog.usePath")}
+                {t(managedProjectRoot ? "workspace.dialog.createProject" : "workspace.dialog.usePath")}
               </Button>
             </form>
             {pathError || error ? (

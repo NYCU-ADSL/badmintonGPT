@@ -156,12 +156,13 @@ class ContextBuilder:
         return _to_blocks(left) + _to_blocks(right)
 
     def _load_bootstrap_files(self, workspace: Path | None = None) -> str:
-        """Load all bootstrap files from workspace."""
+        """Load project instructions and the agent's own profile files."""
         parts = []
         root = workspace or self.workspace
 
         for filename in self.BOOTSTRAP_FILES:
-            file_path = root / filename
+            # A selected project changes file/tool context, not the agent's identity.
+            file_path = (root if filename == "AGENTS.md" else self.workspace) / filename
             if file_path.exists():
                 content = file_path.read_text(encoding="utf-8")
                 parts.append(f"## {filename}\n\n{content}")

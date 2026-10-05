@@ -299,6 +299,43 @@ describe("ThreadComposer", () => {
     }));
   });
 
+  it("creates a named project inside the managed remote workspace", async () => {
+    const onWorkspaceScopeChange = vi.fn();
+    const defaultScope = {
+      project_path: "/home/nanobot/.nanobot/workspace",
+      project_name: "workspace",
+      access_mode: "restricted" as const,
+      restrict_to_workspace: true,
+    };
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Ask anything..."
+        variant="hero"
+        workspaceScope={defaultScope}
+        workspaceDefaultScope={defaultScope}
+        workspaceControls={{
+          can_change_project: true,
+          can_use_full_access: false,
+          managed_project_root: `${defaultScope.project_path}/projects`,
+        }}
+        onWorkspaceScopeChange={onWorkspaceScopeChange}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Choose project" }));
+    fireEvent.change(screen.getByLabelText("Project name"), {
+      target: { value: "Match analysis" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+
+    expect(onWorkspaceScopeChange).toHaveBeenCalledWith(expect.objectContaining({
+      project_path: `${defaultScope.project_path}/projects/Match analysis`,
+      access_mode: "restricted",
+      restrict_to_workspace: true,
+    }));
+  });
+
   it("uses the native folder picker for project selection on native host", async () => {
     const onWorkspaceScopeChange = vi.fn();
     const pickFolder = vi.fn().mockResolvedValue("/Users/test/native-project");

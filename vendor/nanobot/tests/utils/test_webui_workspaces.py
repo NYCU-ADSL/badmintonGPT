@@ -1,14 +1,16 @@
 import json
 
-from nanobot.security.workspace_access import default_workspace_scope
+import pytest
+
+from nanobot.security.workspace_access import WorkspaceScopeError, default_workspace_scope
 from nanobot.session.manager import SessionManager
 from nanobot.webui.workspaces import (
     WebUIWorkspaceController,
     read_webui_default_access_mode,
     read_webui_workspace_state,
     webui_workspace_state_path,
-    write_webui_default_access_mode,
     workspaces_payload,
+    write_webui_default_access_mode,
 )
 
 
@@ -84,6 +86,57 @@ def test_workspace_payload_hides_mutable_state_when_controls_unavailable(
     assert payload["default_scope"]["project_path"] == str(default.resolve())
     assert payload["controls"]["can_change_project"] is False
     assert payload["controls"]["can_use_full_access"] is False
+
+
+def test_remote_managed_projects_are_restricted_to_persistent_project_root(
+    tmp_path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("NANOBOT_WEBUI_REMOTE_PROJECTS", "1")
+    default = tmp_path / "workspace"
+    (default / "projects").mkdir(parents=True)
+    controller = WebUIWorkspaceController(
+        session_manager=None,
+        default_workspace=default,
+        default_restrict_to_workspace=True,
+    )
+
+    payload = controller.payload(controls_available=False)
+    assert payload["controls"] == {
+        "can_change_project": True,
+        "can_use_full_access": False,
+        "managed_project_root": str((default / "projects").resolve()),
+    }
+
+    project = default / "projects" / "賽事分析"
+    scope = controller.scope_for_new_chat(
+        {"workspace_scope": {"project_path": str(project), "access_mode": "restricted"}},
+        controls_available=False,
+    )
+    assert project.is_dir()
+    assert scope.project_path == project.resolve()
+    assert scope.restrict_to_workspace is True
+
+    with pytest.raises(WorkspaceScopeError):
+        controller.scope_for_new_chat(
+            {"workspace_scope": {"project_path": str(project), "access_mode": "full"}},
+            controls_available=False,
+        )
+    with pytest.raises(WorkspaceScopeError):
+        controller.scope_for_new_chat(
+            {"workspace_scope": {"project_path": str(tmp_path / "outside"), "access_mode": "restricted"}},
+            controls_available=False,
+        )
+    assert not (tmp_path / "outside").exists()
+    (default / "projects" / "link").symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(WorkspaceScopeError):
+        controller.scope_for_new_chat(
+            {"workspace_scope": {
+                "project_path": str(default / "projects" / "link" / "escaped"),
+                "access_mode": "restricted",
+            }},
+            controls_available=False,
+        )
+    assert not (tmp_path / "escaped").exists()
 
 
 def test_workspace_payload_uses_webui_default_access_mode(tmp_path, monkeypatch) -> None:

@@ -7,7 +7,7 @@ set -e
 
 NB="$HOME/.nanobot"
 WS="$NB/workspace"
-mkdir -p "$WS/skills"
+mkdir -p "$WS/skills" "$WS/projects"
 
 # Config + brain templates always win (so repo edits propagate on rebuild+restart);
 # sessions/ and memory/ live alongside and persist via the named volume.

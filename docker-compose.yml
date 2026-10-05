@@ -72,6 +72,8 @@ services:
       # so nanobot serves the WebUI without its own token/secret prompt. See the fork's trust-proxy
       # change in vendor/nanobot (vendor/README.md). Unset this to fall back to nanobot's own gate.
       NANOBOT_WEBUI_TRUST_PROXY: "1"
+      # Allow remote WebUI users to create restricted projects inside the persistent workspace.
+      NANOBOT_WEBUI_REMOTE_PROJECTS: "1"
     volumes:
       - nanobot_state:/home/nanobot/.nanobot  # persist sessions/ + memory/ across restarts
     expose:
