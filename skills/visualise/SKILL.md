@@ -1,6 +1,6 @@
 ---
 name: visualise
-description: "Render inline interactive visuals — SVG diagrams, HTML widgets, charts, and explainers — directly in the conversation. Use this skill whenever the user asks to visualize, diagram, chart, illustrate, or explain something visually, or when an explanation would genuinely benefit from a spatial/interactive diagram rather than text. Also triggers for: flowcharts, architecture diagrams, data visualizations, interactive explainers, comparison layouts, UI mockups, and any request containing 'show me', 'draw', 'map out', 'visualize', or 'diagram'. Even when the user doesn't explicitly ask for a visual, use this skill proactively when the topic has spatial, sequential, or systemic relationships that a diagram would clarify better than prose."
+description: "Render inline interactive visuals — SVG diagrams, HTML widgets, charts, and explainers — directly in the conversation. Use this skill whenever the user asks to visualize, diagram, chart, illustrate, or explain something visually, including Chinese requests such as 畫長條圖, 畫柱狀圖, 做圖表, 視覺化, or 畫圖. Also triggers for flowcharts, architecture diagrams, data visualizations, interactive explainers, comparison layouts, and UI mockups. Use proactively when a spatial, sequential, or systemic relationship is clearer as a diagram."
 ---
 
 # Inline Visualizer

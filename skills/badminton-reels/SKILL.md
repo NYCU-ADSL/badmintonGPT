@@ -34,8 +34,8 @@ Brief summary (see that skill for details and strict rules): after `generate_ree
 - `enable_anchor` controls the presenter avatar; it is enabled by default unless the user asks to disable it.
 - `language` (`zh-TW` | `en`) sets the narration script, TTS voice, and subtitle language. **Do not set it
   yourself**: the gateway fills it in automatically from the user's WebUI language (Chinese UI → `zh-TW`,
-  any other UI language → `en`), so the video's narration matches the language you reply in. Pass it
-  explicitly **only** when the user asks for a specific narration language (e.g. "narrate it in English")—an
+  any other UI language → `en`). The video service supports only these two narration languages. Pass it
+  explicitly **only** when the user asks for a specific response or narration language (e.g. "narrate it in English")—an
   explicit value always wins. `get_reel_result` echoes the `language` used; mention it briefly in the final reply.
 
 ## Example
@@ -46,6 +46,6 @@ generate_reel(match_name="Viktor_AXELSEN_LEE_Zii_Jia_EAST_VENTURES_Indonesia_Ope
 # Then poll per long-mcp-job: immediately get_reel_status → sleep(30) → check again → … → succeeded
 get_reel_result("ax-lee-001") → {ready: true, video_url: "https://.../files/ax-lee-001.mp4", language: "zh-TW", …}
 # (no `language` was passed above—the gateway filled it from the user's UI language)
-# → Final response (brief): Your highlights are ready (Traditional Chinese narration)!
+# → Final response (brief, for a Chinese UI): 精華影片已完成（繁體中文旁白）！
 # ![Highlights](https://.../files/ax-lee-001.mp4)
 ```
