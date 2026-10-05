@@ -21,6 +21,11 @@
 
 BadmintonGPT is a badminton match assistant built on [nanobot](https://github.com/HKUDS/nanobot). Ask in the WebUI, and it chooses the match database, analysis tools, web search, video retrieval, or highlight generation to answer with text, charts, and video.
 
+<video controls width="100%">
+  <source src="media/demo.mp4" type="video/mp4">
+  <a href="media/demo.mp4">Watch the demo video</a>.
+</video>
+
 ## Start here
 
 | You want to... | Go to |
