@@ -1,5 +1,3 @@
-# BadmintonGPT
-
 <p align="center">
   <img src="images/logo/lockup-horizontal.svg" alt="BadmintonGPT logo" width="430">
 </p>
