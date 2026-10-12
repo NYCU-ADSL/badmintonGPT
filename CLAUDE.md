@@ -104,29 +104,58 @@ nanobot v0.2.1 facts). Setup walkthrough: `README.md`.
 
 HuggingFace dataset `howard9199/Badminton` **+ any `--local-data DIR`** →
 `mcps/badminton-db/ingest.py` → `data/badminton.db` (SQLite). Three tables: `matches`
-(**194 folders** = 189 official + 5 NYCU practice, 2022–2024), `rallies`, `shots`.
-`matches.source` records which dataset a folder came from (`hf` = 32, `Data-old` = 162) and
-`matches.analyze_match_id` carries the CoachAI id for the `badminton-analyze` MCP (188 mapped).
+(**244 folders** = 239 official + 5 NYCU practice, 2022–2026), `rallies`, `shots`.
+`matches.source` records which dataset a folder came from (`hf` = 231, `Data-old` = 13 — the
+Data-old CSVs are on HF now, so only the 13 archive folders with no CSV at all stay local) and
+`matches.analyze_match_id` carries the CoachAI id for the `badminton-analyze` MCP (188 mapped; the
+2025/2026 games have none).
 The second source is `todo0819/Data-old.zip` (190 folders, a superset of the HF set — its 27
 overlapping folders are byte-identical and deduped away): unpack CSVs + a video manifest with
 `scripts/extract_data_old.py`, then `ingest.py --local-data data/Data-old`. The archive's 39 GB of
 `rally_video/` is **not** kept here — `scripts/extract_data_old.py --videos-to <reels>/data/Data`
 puts the ~26 GB the HF dataset lacks on the badminton-reels host (its `DataLoader` now prefers local
 files over HF, so those matches are renderable). `scripts/upload_data_old_to_hf.py` pushes the new
-CSVs to HF for a from-scratch rebuild — it needs a **write**-scoped `HF_TOKEN` (the current login is
-read-only, so this step is still pending).
+CSVs to HF for a from-scratch rebuild — it needs a **write**-scoped `HF_TOKEN` (done 2026-10-12, HF
+commit `a2de1f5`). It skips punctuation near-duplicates (`SHI_Yu Qi_…` vs `SHI_Yu_Qi_…`), and
+`ingest.py` keeps the near-duplicate with the most label CSVs: the archive's `SHI_Yu Qi_…_Final`
+twin carries only a `RallySeg.csv`, so if it wins the real 935-shot match silently disappears.
 A third set — **50 CoachAI-format games `2025game1`…`2026game23`** (`2025_2026_coachai_format.zip`
 + `homography_matrices.xlsx`) — is converted by `scripts/import_coachai_format.py` into
 `data/Data-coachai/<id>.mp4/` in the old layout (adds `end_frame_num`, derives `RallySeg.csv`,
-side labels `A`/`B` because the export has no player names; plus per-match `homography.csv` and
-`qa_notes.csv`) and is **already on HF** (commit `e9ba46b`), so an HF-only rebuild picks it up.
+real player names in UpCourt/DownCourt; plus per-match `homography.csv`, `qa_notes.csv` and
+`match_info.csv`) and is **already on HF** (commit `e9ba46b`), so an HF-only rebuild picks it up.
+The export has no names: `match_info.csv` (players, tournament, level, round, YouTube id) comes
+from `BWF_2025_2026_50_matches.xlsx`, and **A = the list's Player 1** — verified against the
+broadcast scoreboard in all 46 downloaded games where it was readable (only 2025game18/26 are
+assumed). `ingest.py` reads `match_info.csv` for `matches.player_a/_b/
+tournament/round` (the folder name `2025gameN` yields nothing). The same check found export
+errors to keep in mind: 2025game4 set 2 and 2025game11 set 2 have A/B reversed, 2025game6 set 1
+and 2025game15 set 1 misattribute points. More generally the export's per-rally scores drift
+from the broadcast by 1–3 points in many sets (seen in published and new games alike: the
+early-set scores match, later ones split differently), so a `rally_id` score is approximate —
+the clip still shows the annotated rally's frames. Their derived `RallySeg.csv` Start/End are padded like the old hand-cut segments (19 frames before
+the serve, 60 after the last hit — the medians measured on 2023 Data-old), so a clip shows the
+serve set-up and the landing. **Rally clips**: `scripts/fetch_coachai_videos.py` maps
+`BWF_2025_2026_50_matches.xlsx` (per-year row order = `gameN`, verified by scoreboard: every
+video shows the listed players) → YouTube (latest yt-dlp via `uvx`; the `~/.local/bin` one is too
+old) → `data/coachai_full_video/<id>.mp4` (720p) → clips Start..End in the 2023/2024 format
+(H.264 High crf 23, 1280x720, 30 fps, no audio) on the reels host + HF. 48 games have clips
+(4123). Missing: **`2025game26`** — its annotation is out of sync with the video (42 % of hit
+frames on court vs 88–100 % elsewhere; no constant shift fixes it; listed in the script's
+`OUT_OF_SYNC`). If YouTube answers "Sign in to confirm you're not a bot" (it did for
+2025game12/23, 2026game1/10/22 — HF commit `f51d779`), pass browser cookies **and** a JS
+runtime: `--yt-dlp "uvx --from yt-dlp[default] yt-dlp --cookies $PWD/cookies.txt --js-runtimes
+node"` (cookies alone fail with `n challenge solving failed` / `The page needs to be reloaded`;
+`cookies.txt` is gitignored — it is a login credential).
 `ingest.py` is now **decoupled from `../badminton-reels`** — it imports from the vendored
 `mcps/badminton-db/ingest_lib/` (`RallySegment`/`ShotLabel` models, `parse.extract_tournament_round`,
 a thin HF `DataLoader`) instead of injecting `$REELS_SRC` or importing `badminton.data_loader` /
 `badminton.models`. The DB build therefore needs **only `HF_TOKEN`** (no `OPENAI`/`FISH`/reels).
-`shots` now covers **138 matches** (~117k shots) and `rallies` **169**; the rest (practice clips and
-archive folders shipped without annotation) have catalog metadata only. Since one query can now span
-138 matches, **per-match questions MUST filter by `match_name`**.
+`shots` now covers **188 matches** (~161k shots) and `rallies` **218** (`2025game18` has shots but no
+rallies — its export has no scores); the rest (practice clips and archive folders shipped without
+annotation) have catalog metadata only. Since one query can now span 188 matches, **per-match
+questions MUST filter by `match_name`**. Rebuilt 2026-10-12; previous DB kept as
+`data/badminton.db.bak-20261012`.
 
 Ground truth for verification lives in `mcps/badminton-db/scripts/ground_truth.py` (in-memory oracle)
 and is asserted by `mcps/badminton-db/scripts/verify_db.py`. `scripts/test_decouple_parity.py` (same
@@ -151,9 +180,10 @@ cp .env.example .env                      # fill OPENAI_API_KEY + REELS_CF_CLIEN
 .venv/bin/python mcps/badminton-db/ingest.py                # HF only (32 folders) — leaves the merged matches out
 .venv/bin/python mcps/badminton-db/ingest.py --catalog-only # only the matches catalog
 .venv/bin/python mcps/badminton-db/ingest.py --only <folder|name> --limit N   # subset (testing)
-.venv/bin/python mcps/badminton-db/scripts/verify_db.py     # 30 assertions vs ground truth
+.venv/bin/python mcps/badminton-db/scripts/verify_db.py     # 35 assertions vs ground truth
 .venv/bin/python scripts/upload_data_old_to_hf.py --dry-run # what the HF push would upload (needs a WRITE HF_TOKEN to run for real)
 .venv/bin/python scripts/import_coachai_format.py         # 2025/2026 CoachAI zip + homography xlsx -> data/Data-coachai/ (already on HF)
+.venv/bin/python scripts/fetch_coachai_videos.py -j 3      # their YouTube videos -> rally clips on the reels host (+ --upload: HF)
 .venv/bin/python mcps/badminton-db/scripts/ground_truth.py  # recompute the oracle numbers
 .venv/bin/python mcps/badminton-db/scripts/test_decouple_parity.py  # vendored ingest_lib vs upstream reels parsing
 
@@ -195,8 +225,8 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   `command`. Only the stdio `util` server still carries an absolute python path.
 - **`rallies`/`shots` join key is `match_name` = `matches.name` WITHOUT the `.mp4` suffix.**
   Scoping a per-shot query by `matches.folder` (which has `.mp4`) returns 0 rows. Since `shots`
-  now holds **138** matches, **per-match questions MUST filter by `match_name`** or they sum across
-  all of them — and with 194 folders the same two players now appear in many matches, so narrow with
+  now holds **188** matches, **per-match questions MUST filter by `match_name`** or they sum across
+  all of them — and with 244 folders the same two players now appear in many matches, so narrow with
   `tournament`/`year`/`round` too.
 - **`analyze_match_id` is CoachAI's numeric id, not anything of ours.** The `badminton-analyze` MCP
   addresses a match by its position in `https://coachai.cs.nycu.edu.tw:55000/api/db-api/match`
@@ -213,7 +243,9 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   Genuinely new labels (`死球`, from the 2023/2024 matches) pass through untouched.
 - **A/B ↔ player name**: do NOT reconstruct it from a rally's up/down court (it flips between games).
   `mcps/badminton-db/ingest.py:derive_ab` binds A = the player whose name appears first in the
-  folder, matched case/underscore-insensitively. `matches.player_a/_b` are only filled for matches
+  folder, matched case/underscore-insensitively (falling back to the earliest name token when
+  RallySeg's word order differs from the folder's, e.g. "Kodai NARAOKA" vs `NARAOKA_Kodai_…`;
+  before that fallback such ties came out in hash-randomized `set` order and flipped between builds). `matches.player_a/_b` are only filled for matches
   that have per-shot data. (Verified: decoupled ingest of the Axelsen–Lee match → 1213 shots,
   A = `Viktor AXELSEN`, B = `LEE Zii Jia`.)
 - **Label CSVs have a few malformed rows.** `mcps/badminton-db/ingest.py` parses them
@@ -223,7 +255,15 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   helper that drops `NYCU_*` (which would break the practice-clip count). The parsing now lives in
   the vendored `mcps/badminton-db/ingest_lib/` — there is no `badminton-reels` import.
 - `has_video` comes from the HF `rally_video/` listing (videos are not downloaded); a labeled
-  rally may legitimately lack a video, so clip queries should filter `has_video=1`.
+  rally may legitimately lack a video, so clip queries should filter `has_video=1`. It is the
+  **union across sources** for the same normalized match: most archive matches' CSVs are on HF
+  now (so HF wins the dedupe) but HF lacked many of their clips, which only the Data-old
+  manifest listed. **But `has_video=1` is only true if the deployed reels can fetch the clip, and
+  reels runs in Docker reading HF + its own cache volume (`reels-hfcache` → `/app/data`), NOT the
+  host's `badminton-reels/data/Data`.** So every listed clip must be on HF: the 979 host-only
+  ones (13 archive matches) were pushed with `scripts/upload_data_old_to_hf.py --rally-videos
+  <reels>/data/Data` (HF commit `3fd851e`). Also: reels caches every file it downloads and
+  never re-checks HF — after changing a CSV on HF, delete that match's copy in the volume.
 - **Secrets**: `OPENAI_API_KEY` and the per-MCP `*_CF_CLIENT_ID/SECRET` (e.g. `REELS_CF_CLIENT_ID`)
   are read ONLY from this repo's `.env`
   (`scripts/load_env.sh`, `eval/run_eval.py`) — no fallback to other projects. nanobot resolves

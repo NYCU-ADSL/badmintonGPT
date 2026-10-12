@@ -31,7 +31,7 @@ Always access the database through **badminton-db MCP** tools (do not run shell 
 SELECT name, tournament, round, year, analyze_match_id
 FROM matches WHERE name LIKE '%AXELSEN%' ORDER BY year DESC;
 
--- Points won with a shot type by a player (the shot itself is the winner). ⚠️ Without match_name, this sums 138 matches!
+-- Points won with a shot type by a player (the shot itself is the winner). ⚠️ Without match_name, this sums 188 matches!
 SELECT COUNT(*) FROM shots
 WHERE match_name='Viktor_AXELSEN_LEE_Zii_Jia_EAST_VENTURES_Indonesia_Open_2022_Semifinals'
   AND type='殺球' AND player='A' AND win_reason IS NOT NULL;
@@ -54,9 +54,12 @@ WHERE match_name='<matches.name>' AND has_video=1 ORDER BY rally_id;
 
 > Reminder:
 > - `rallies`/`shots` use **`match_name`** (= `matches.name`, without .mp4) as the key. `matches` contains
->   **194 matches** (2022–2024); **138** have shot-by-shot `shots` and 169 have `rallies`. **For a specific match, always use**
->   `WHERE match_name = '<matches.name>'`—otherwise you sum all 138 matches (many matches share players or
+>   **244 matches** (2022–2026); **188** have shot-by-shot `shots` and 218 have `rallies`. **For a specific match, always use**
+>   `WHERE match_name = '<matches.name>'`—otherwise you sum all 188 matches (many matches share players or
 >   tournament names across years; this is the most common source of incorrect answers). First find the match_name
 >   with `name LIKE` on `matches`; the same pair of players may have multiple matches, so narrow by
 >   `tournament` / `year` / `round` as needed.
+> - The 50 **2025/2026** games (`2025gameN` / `2026gameN`): the name says nothing — read `player_a`/`player_b`,
+>   `tournament`, `round` from `matches` (names spelled like `Chou Tien Chen`; use `LIKE`). No `analyze_match_id`. All but 2025game26 have rally
+>   clips (`has_video=1`). Their rally scores can be off by a point or two vs the broadcast. Filter with `year IN (2025, 2026)`.
 > - rally_id is `set_scoreA_scoreB` (e.g. `1_05_04`) and corresponds to `video_filename`. To link a shot type to an actual video, first get rallies with files using `has_video=1`, then match `shots` by `set_no` + score.

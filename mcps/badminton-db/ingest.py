@@ -185,6 +185,11 @@ class HFSource:
         except Exception:  # noqa: BLE001  (missing file / offline)
             return None
 
+    def label_count(self, folder: str) -> int:
+        """How many label/setN.csv the folder has (from the listing; nothing downloaded)."""
+        prefix = f"Data/{folder}/label/"
+        return sum(1 for f in self._files if f.startswith(prefix) and f.endswith(".csv"))
+
     def videos(self, folder: str) -> set[str]:
         prefix = f"Data/{folder}/rally_video/"
         return {Path(f).stem for f in self._files
@@ -219,6 +224,9 @@ class LocalSource:
         p = self.root / folder / rel
         return p if p.is_file() else None
 
+    def label_count(self, folder: str) -> int:
+        return len(list((self.root / folder / "label").glob("set*.csv")))
+
     def videos(self, folder: str) -> set[str]:
         if self._videos:
             return self._videos.get(folder, set())
@@ -252,7 +260,9 @@ def derive_ab(folder: str, segments: list[RallySegment]) -> tuple[str, str]:
     the folder (the dataset's first-named convention), matching labels' roundscore_A /
     getpoint='A'. We avoid _extract_players() (first-rally court) — players switch ends.
     """
-    names = list({segments[0].up_court, segments[0].down_court})
+    # dict, not set: a set's order is hash-randomized per process, which made ties (neither
+    # name found) bind A/B differently from one build to the next.
+    names = list(dict.fromkeys([segments[0].up_court, segments[0].down_court]))
     if len(names) != 2:
         return (segments[0].up_court, segments[0].down_court)
 
@@ -263,17 +273,39 @@ def derive_ab(folder: str, segments: list[RallySegment]) -> tuple[str, str]:
 
     def idx(name: str) -> int:
         i = fn.find(_norm(name))   # case/underscore-insensitive position in folder
-        return i if i >= 0 else 10**9
+        if i >= 0:
+            return i
+        # name order differs from the folder (RallySeg "Kodai NARAOKA" vs folder
+        # "NARAOKA_Kodai_..."): fall back to the earliest of its tokens
+        hits = [fn.find(t) for t in re.split(r"[\s_]+", name.lower()) if len(t) >= 3]
+        hits = [h for h in hits if h >= 0]
+        return min(hits) if hits else 10**9
 
     a, b = sorted(names, key=idx)
     return a, b
 
 
+def match_info(src, folder: str) -> dict[str, str] | None:
+    """The folder's match_info.csv row, if it ships one (only the 2025/2026 CoachAI-format
+    games: their folder names `2025gameN` carry no players/tournament, so
+    scripts/import_coachai_format.py writes them from the BWF game list)."""
+    p = src.csv_path(folder, "match_info.csv")
+    if p is None:
+        return None
+    with open(p, encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    return rows[0] if rows else None
+
+
 def insert_match_row(cur, folder: str, dl: DataLoader,
                      player_a: str | None, player_b: str | None,
-                     source: str, analyze_id: int | None) -> None:
+                     source: str, analyze_id: int | None,
+                     info: dict[str, str] | None = None) -> None:
     name = folder.removesuffix(".mp4")
     tournament, round_name = dl._extract_tournament_round(name)
+    if info:   # match_info.csv beats parsing the folder name (and derive_ab's guess)
+        tournament, round_name = info["tournament"], info["round"]
+        player_a, player_b = info["player_a"], info["player_b"]
     is_practice = 1 if name.startswith("NYCU_Other_practice") else 0
     ym = re.search(r"(20\d{2})", name)
     year = int(ym.group(1)) if ym else 2022
@@ -286,7 +318,7 @@ def insert_match_row(cur, folder: str, dl: DataLoader,
     )
 
 
-def ingest_match(cur, folder: str, src) -> dict:
+def ingest_match(cur, folder: str, src, videos: set[str] | None = None) -> dict:
     """Write one folder's rallies + shots from `src`; return A/B + stats.
 
     Partial folders are tolerated (the Data-old archive is full of them): a folder with
@@ -294,14 +326,15 @@ def ingest_match(cur, folder: str, src) -> dict:
     rallies, one with neither yields only its catalog row. Labels are parsed
     ROW-TOLERANTLY (skip malformed rows) — unlike an all-or-nothing CSV loader, where a
     couple of bad rows would drop a whole set.
-    `has_video` comes from the source's rally_video listing (videos are never downloaded).
+    `has_video` comes from the source's rally_video listing (videos are never downloaded),
+    or from `videos` when given (the union across sources — see main()).
     """
     name = folder.removesuffix(".mp4")
 
     # rallies (RallySeg.csv) + has_video from the source's video listing
     segments: list[RallySegment] = []
     seg_csv = src.csv_path(folder, "RallySeg.csv")
-    avail = src.videos(folder)
+    avail = src.videos(folder) if videos is None else videos
     if seg_csv is not None:
         segments = parse_rally_seg(seg_csv)
         for seg in segments:
@@ -409,15 +442,36 @@ def main() -> None:
     # Plan first: an earlier source wins, so a folder present in both HF and a local dir is
     # ingested once. `seen` is keyed on the normalized name to also catch the archive's
     # punctuation near-duplicates (SHI_Yu Qi_... vs SHI_Yu_Qi_...).
+    # Within one source, a near-duplicate pair keeps the variant with the most label CSVs
+    # (`SHI_Yu Qi_..._Final` carries only a RallySeg.csv; sorting alone would pick it over
+    # the fully labelled `SHI_Yu_Qi_..._Final` and silently drop 935 shots).
     seen: set[str] = set()
     catalog: list[tuple[str, object]] = []      # (folder, source) in ingest order
     for src in sources:
+        best: dict[str, str] = {}
         for folder in src.folders():
+            key = norm_name(folder)
+            if key not in best or src.label_count(folder) > src.label_count(best[key]):
+                best[key] = folder
+        for folder in sorted(best.values()):
             key = norm_name(folder)
             if key in seen:
                 continue
             seen.add(key)
             catalog.append((folder, src))
+    # has_video = union of every source's clip listing for the same normalized match: the
+    # CSVs of most archive matches are on HF now (so HF wins the dedupe above), but HF lacks
+    # many of their rally clips, which live on the reels host (listed by the Data-old
+    # manifest; reels' DataLoader prefers local files, so those rallies DO render).
+    # Taking only the winning source's listing dropped ~1k rallies' has_video.
+    variants: dict[str, list[tuple[object, str]]] = {}
+    for s in sources:
+        for f in s.folders():
+            variants.setdefault(norm_name(f), []).append((s, f))
+
+    def videos_for(folder: str) -> set[str]:
+        return set().union(*(s.videos(f) for s, f in variants.get(norm_name(folder), [])))
+
     print(f"[1/2] matches catalog: {len(catalog)} folders from "
           f"{', '.join(getattr(s, 'label', '?') for s in sources)}")
 
@@ -431,7 +485,7 @@ def main() -> None:
     for i, (folder, src) in enumerate(targets, 1):
         short = folder.removesuffix(".mp4")[:55]
         try:
-            info = ingest_match(cur, folder, src)
+            info = ingest_match(cur, folder, src, videos_for(folder))
             ab_by_folder[folder] = (info["player_a"], info["player_b"])
             stats.append(info)
             conn.commit()  # persist per match
@@ -447,7 +501,7 @@ def main() -> None:
     for folder, src in catalog:
         pa, pb = ab_by_folder.get(folder, (None, None))
         insert_match_row(cur, folder, dl, pa, pb, getattr(src, "label", "?"),
-                         analyze_ids.get(norm_name(folder)))
+                         analyze_ids.get(norm_name(folder)), match_info(src, folder))
     conn.commit()
 
     m = cur.execute("SELECT COUNT(*) FROM matches").fetchone()[0]

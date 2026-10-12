@@ -42,18 +42,32 @@ def main() -> None:
     q = lambda sql, p=(): db.execute(sql, p).fetchall()
     one = lambda sql, p=(): db.execute(sql, p).fetchone()[0]
 
-    # catalog — HF (32) + the merged Data-old archive (162 more; the archive's other 28
-    # folders are the HF ones again, deduped on the normalized name)
-    check("matches total", one("SELECT COUNT(*) FROM matches"), 194)
-    check("matches official", one("SELECT COUNT(*) FROM matches WHERE is_practice=0"), 189)
+    # catalog — 194 (HF's original 32 + the merged Data-old archive) + the 50 CoachAI-format
+    # 2025/2026 games. The Data-old CSVs are now on HF too, so HF is listed first and claims
+    # every folder that has a CSV there; only the 13 archive folders that ship no CSV at all
+    # (catalog-only) are still sourced from the local Data-old dir.
+    check("matches total", one("SELECT COUNT(*) FROM matches"), 244)
+    check("matches official", one("SELECT COUNT(*) FROM matches WHERE is_practice=0"), 239)
     check("matches practice", one("SELECT COUNT(*) FROM matches WHERE is_practice=1"), 5)
-    check("matches from hf", one("SELECT COUNT(*) FROM matches WHERE source='hf'"), 32)
+    check("matches from hf", one("SELECT COUNT(*) FROM matches WHERE source='hf'"), 231)
     check("matches from Data-old",
-          one("SELECT COUNT(*) FROM matches WHERE source='Data-old'"), 162)
+          one("SELECT COUNT(*) FROM matches WHERE source='Data-old'"), 13)
     check("every match has a source",
           one("SELECT COUNT(*) FROM matches WHERE source IS NULL"), 0)
-    check("years within 2022-2024",
-          one("SELECT COUNT(*) FROM matches WHERE year NOT BETWEEN 2022 AND 2024"), 0)
+    check("years within 2022-2026",
+          one("SELECT COUNT(*) FROM matches WHERE year NOT BETWEEN 2022 AND 2026"), 0)
+    check("2025/2026 CoachAI-format games",
+          one("SELECT COUNT(*) FROM matches WHERE name GLOB '202[56]game*' AND year IN (2025, 2026)"),
+          50)
+    # their players/tournament/round come from match_info.csv (the BWF game list), not the
+    # folder name; A = the list's Player 1 (checked against the broadcast scoreboard)
+    check("2025/2026 games with real players + tournament", one(
+        "SELECT COUNT(*) FROM matches WHERE name GLOB '202[56]game*' AND player_a NOT IN ('A','B') "
+        "AND player_b NOT IN ('A','B') AND tournament != name AND round != ''"), 50)
+    check("2025game1 = Sung Shuo Yun (A) vs Line Christophersen", one(
+        "SELECT player_a || ' / ' || player_b || ' / ' || tournament || ' ' || round "
+        "FROM matches WHERE name='2025game1'"),
+        "Sung Shuo Yun / Line Christophersen / DAIHATSU Indonesia Masters 2025 R16")
 
     # Q1 Axelsen matches
     check("Q1 Axelsen matches",
@@ -128,9 +142,19 @@ def main() -> None:
     # ships RallySeg.csv has rallies (the rest are catalog-only: practice clips + folders
     # the archive carries with no annotation at all)
     check("matches with per-shot data", one(
-        "SELECT COUNT(DISTINCT match_name) FROM shots"), 138)
+        "SELECT COUNT(DISTINCT match_name) FROM shots"), 188)
+    # 2025game18's export has no score data, so no RallySeg (shots only; see its qa_notes.csv)
     check("matches with rallies", one(
-        "SELECT COUNT(DISTINCT match_name) FROM rallies"), 169)
+        "SELECT COUNT(DISTINCT match_name) FROM rallies"), 218)
+    # 2025/2026 rally clips (scripts/fetch_coachai_videos.py, cut from the BWF TV YouTube
+    # videos): every rally of 48 of the 49 games with rallies. Not 2025game26 (annotation
+    # out of sync with the video).
+    check("2025/2026 rallies with video", one(
+        "SELECT COUNT(*) FROM rallies WHERE match_name GLOB '202[56]game*' AND has_video=1"),
+        4123)
+    check("2025/2026 games with video", one(
+        "SELECT COUNT(DISTINCT match_name) FROM rallies "
+        "WHERE match_name GLOB '202[56]game*' AND has_video=1"), 48)
 
     # shot types stay a closed Chinese enum: one Data-old label CSV is mojibake upstream
     # and ingest.clean_shot_type folds it into 未知球種 (see that helper's comment).

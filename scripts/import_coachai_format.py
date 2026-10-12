@@ -12,7 +12,12 @@ Data-old, so `ingest.py --local-data` and the HF upload treat them like any othe
                             last shot (its end is not recorded). Every other cell verbatim.
   <id>.mp4/RallySeg.csv     derived — the export has none. One row per rally with a
                             resolved winner (getpoint_player): Score = set_AA_BB post-rally
-                            (the old convention), Start/End = first/last hit frame_num.
+                            (the old convention), Start/End = first/last hit frame_num
+                            padded like the old hand-cut segments (measured on 1028
+                            rallies of the 2023 Data-old matches: Start a median 19
+                            frames before the serve, End 60 after the last hit, so the
+                            clip shows the serve set-up and the shuttle landing), clamped
+                            to not overlap the neighbouring rallies.
                             The export carries no player names, so UpCourt/DownCourt are
                             the side labels "A"/"B", placed per rally by mean hit_y (the
                             smaller image y is the far = up court). A rally where only one
@@ -26,6 +31,15 @@ Data-old, so `ingest.py --local-data` and the HF upload treat them like any othe
   <id>.mp4/homography.csv   new: the game's row from the xlsx (image -> court 3x3 + the 4
                             court corners), cells copied as their exact stored strings.
   <id>.mp4/qa_notes.csv     new: the export's own data-quality notes, kept as provenance.
+  <id>.mp4/match_info.csv   new: who/where from BWF_2025_2026_50_matches.xlsx (the game list
+                            the export was made from; game N of a year = its Nth row that
+                            year): player_a/player_b, tournament, level, round, year, the
+                            YouTube video id. With it, RallySeg's UpCourt/DownCourt carry the
+                            real names instead of the side labels. A = the sheet's Player 1:
+                            checked against the broadcast scoreboard in all 41 games where a
+                            lopsided score was on screen (scripts/fetch_coachai_videos.py
+                            downloads the videos). ingest.py reads this file for
+                            matches.player_a/_b/tournament/round.
 
 ingest.py reads only RallySeg.csv + label/set{1,2,3}.csv; set4.csv (stray post-match
 fragments, never scored) and the two new files ride along untouched.
@@ -63,7 +77,10 @@ OLD_HEADER = [
     "opponent_location_area", "opponent_location_x", "opponent_location_y", "db",
 ]
 RALLYSEG_HEADER = ["Score", "UpCourt", "DownCourt", "Start", "End", "Comment"]
+MATCH_INFO_HEADER = ["id", "player_a", "player_b", "tournament", "level", "round", "year",
+                     "youtube_id"]
 SET_RE = re.compile(r"^set(\d+)\.csv$")
+PAD_BEFORE, PAD_AFTER = 19, 60   # frames; medians of the 2023 Data-old RallySeg vs labels
 
 
 def read_csv_bytes(raw: bytes) -> list[dict[str, str]]:
@@ -129,7 +146,8 @@ def rally_segments(set_no: int, rows: list[dict[str, str]],
                    h: list[float] | None) -> list[list]:
     """RallySeg rows for one set: only rallies whose winner (hence post-score) is known."""
     segs = []
-    for shots in group_rallies(rows).values():
+    rallies = list(group_rallies(rows).values())
+    for i, shots in enumerate(rallies):
         last = shots[-1]
         if not last["getpoint_player"]:
             continue
@@ -140,7 +158,13 @@ def rally_segments(set_no: int, rows: list[dict[str, str]],
             up = _up_by_homography(shots, h)
             down = {"A": "B", "B": "A"}.get(up, "")
         score = f"{set_no}_{int(last['roundscore_A']):02d}_{int(last['roundscore_B']):02d}"
-        segs.append([score, up, down, shots[0]["frame_num"], last["frame_num"], "0"])
+        first_hit, last_hit = int(shots[0]["frame_num"]), int(last["frame_num"])
+        start, end = max(0, first_hit - PAD_BEFORE), last_hit + PAD_AFTER
+        if i > 0:                                # never reach into the neighbours' hits
+            start = max(start, int(rallies[i - 1][-1]["frame_num"]) + 1)
+        if i + 1 < len(rallies):
+            end = min(end, int(rallies[i + 1][0]["frame_num"]) - 1)
+        segs.append([score, up, down, str(start), str(end), "0"])
     return segs
 
 
@@ -179,6 +203,26 @@ def read_xlsx(path: Path) -> list[list[str]]:
     return [r + [""] * (width - len(r)) for r in rows if any(r)]
 
 
+def match_info_by_id(path: Path) -> dict[str, dict[str, str]]:
+    """{game id -> MATCH_INFO_HEADER row} from the BWF game list's first sheet (`總表_50場`)."""
+    rows = read_xlsx(path)
+    hi = next(i for i, r in enumerate(rows) if r and r[0].startswith("序號"))
+    col = {k: next(i for i, h in enumerate(rows[hi]) if h.startswith(k))
+           for k in ("年度", "賽事", "等級", "輪次", "選手 1", "選手 2", "影片 ID")}
+    out, per_year = {}, defaultdict(int)
+    for r in rows[hi + 1:]:
+        if not r[col["影片 ID"]]:
+            continue
+        year = str(int(float(r[col["年度"]])))
+        per_year[year] += 1
+        gid = f"{year}game{per_year[year]}"
+        out[gid] = {"id": gid, "player_a": r[col["選手 1"]].strip(),
+                    "player_b": r[col["選手 2"]].strip(), "tournament": r[col["賽事"]].strip(),
+                    "level": r[col["等級"]].strip(), "round": r[col["輪次"]].strip(),
+                    "year": year, "youtube_id": r[col["影片 ID"]].strip()}
+    return out
+
+
 def homography_by_id(path: Path) -> tuple[list[str], dict[str, list[str]]]:
     """{game id -> row}. 2025 rows name the game `gameN`, 2026 rows `2026gameN` -> unify."""
     header, *rows = read_xlsx(path)
@@ -198,11 +242,13 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--zip", default=str(REPO / "2025_2026_coachai_format.zip"))
     ap.add_argument("--homography", default=str(REPO / "homography_matrices.xlsx"))
+    ap.add_argument("--matches", default=str(REPO / "BWF_2025_2026_50_matches.xlsx"))
     ap.add_argument("--out", default=str(REPO / "data" / "Data-coachai"))
     args = ap.parse_args()
 
     out = Path(args.out)
     h_header, homs = homography_by_id(Path(args.homography))
+    infos = match_info_by_id(Path(args.matches)) if Path(args.matches).is_file() else {}
 
     games: dict[str, dict[str, bytes]] = defaultdict(dict)
     with zipfile.ZipFile(args.zip) as zf:
@@ -237,6 +283,12 @@ def main() -> None:
             segs += rally_segments(set_no, rows, h)
             n_shots += len(rows)
             sets.append(set_no)
+        info = infos.get(gid)
+        if info:
+            names = {"A": info["player_a"], "B": info["player_b"]}
+            segs = [[sc, names.get(up, up), names.get(down, down), *rest]
+                    for sc, up, down, *rest in segs]
+            write_csv(folder / "match_info.csv", MATCH_INFO_HEADER, [info])
         if segs:
             write_csv(folder / "RallySeg.csv", RALLYSEG_HEADER, segs)
         if "qa_notes.csv" in files:
@@ -245,7 +297,8 @@ def main() -> None:
         if gid in homs:
             write_csv(folder / "homography.csv", h_header, [[gid, *homs[gid]]])
         print(f"  {gid:<11} sets={sets} shots={n_shots} rallyseg={len(segs)}"
-              f"{'' if gid in homs else ' NO-HOMOGRAPHY'}")
+              f"{'' if gid in homs else ' NO-HOMOGRAPHY'}"
+              f"{'  A=' + info['player_a'] + ' B=' + info['player_b'] if info else ' NO-MATCH-INFO'}")
 
 
 if __name__ == "__main__":
