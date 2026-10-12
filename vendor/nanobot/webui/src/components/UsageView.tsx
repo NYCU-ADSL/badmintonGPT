@@ -50,10 +50,10 @@ export function UsageView({
   const quota = usage?.quota_usd ?? null;
   const spent = usage?.spent_usd ?? 0;
   const remaining = usage?.remaining_usd ?? null;
-  const pct = quota && quota > 0 ? Math.min(100, (spent / quota) * 100) : 0;
+  const left = remaining ?? (quota != null ? Math.max(0, quota - spent) : 0);
+  const leftPct = quota && quota > 0 ? Math.max(0, Math.min(100, (left / quota) * 100)) : 0;
   const llm = usage?.breakdown?.llm;
   const jobs = usage?.breakdown?.jobs ?? [];
-  const recent = usage?.breakdown?.recent_jobs ?? [];
   const daily = usage?.breakdown?.daily ?? [];
   const dailyMax = Math.max(0.0001, ...daily.map((d) => d.cost_usd));
 
@@ -165,21 +165,18 @@ export function UsageView({
                       role="progressbar"
                       aria-valuemin={0}
                       aria-valuemax={100}
-                      aria-valuenow={Math.round(pct)}
-                      aria-label={t("usage.spentOf", { spent: usd(spent), quota: usd(quota) })}
+                      aria-valuenow={Math.round(leftPct)}
+                      aria-label={t("usage.remainingOf", { remaining: usd(left), quota: usd(quota) })}
                       className="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-muted"
                     >
                       <div
                         className={cn(
                           "h-full rounded-full transition-[width] duration-500",
-                          pct >= 100 ? "bg-destructive" : pct >= 80 ? "bg-amber-500" : "bg-brand",
+                          leftPct <= 0 ? "bg-destructive" : leftPct <= 20 ? "bg-amber-500" : "bg-brand",
                         )}
-                        style={{ width: `${pct}%` }}
+                        style={{ width: `${leftPct}%` }}
                       />
                     </div>
-                    <p className="mt-2 text-[12.5px] text-muted-foreground">
-                      {t("usage.spentOf", { spent: usd(spent), quota: usd(quota) })}
-                    </p>
                     {usage.exhausted ? (
                       <p className="mt-3 text-[13px] text-destructive">{t("usage.exhaustedHint")}</p>
                     ) : null}
@@ -244,29 +241,6 @@ export function UsageView({
                           />
                         </span>
                         <span className="text-right tabular-nums">{usd(d.cost_usd)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {recent.length > 0 ? (
-                <section className="rounded-[18px] border border-border/55 bg-card/70 p-5">
-                  <h2 className="text-[13px] font-semibold">{t("usage.recentJobs")}</h2>
-                  <ul className="mt-3 divide-y divide-border/50">
-                    {recent.map((j) => (
-                      <li
-                        key={`${j.server}:${j.job_id}`}
-                        className="flex items-center justify-between gap-3 py-2 text-[12.5px]"
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate font-mono text-[11.5px]">{j.job_id}</span>
-                          <span className="text-muted-foreground">
-                            {serverLabel(j.server, t)} ·{" "}
-                            {new Date(j.created_at * 1000).toLocaleString(locale)}
-                          </span>
-                        </span>
-                        <span className="shrink-0 tabular-nums">{usd(j.cost_usd, 4)}</span>
                       </li>
                     ))}
                   </ul>

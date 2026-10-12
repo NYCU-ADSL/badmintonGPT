@@ -793,7 +793,7 @@
     "balance": "額度",
     "remaining": "剩餘額度",
     "spentTotal": "累計使用",
-    "spentOf": "已使用 {{spent}} / {{quota}}",
+    "remainingOf": "剩餘 {{remaining}} / {{quota}}",
     "sidebarRemaining": "剩餘 {{amount}}",
     "unlimitedHint": "此帳號在白名單內，沒有使用量限制。",
     "exhaustedHint": "額度已用完，新訊息會暫停，直到管理員提高額度。",
@@ -820,7 +820,6 @@
       "reels": "精華影片"
     },
     "daily": "每日花費（UTC）",
-    "recentJobs": "最近的精華影片工作",
     "pricingNote": "對話模型 {{model}}：每 1M 輸入 tokens ${{input}}、快取 ${{cached}}、輸出 ${{output}}。精華影片依實際 API 成本（腳本模型＋旁白語音）計費。",
     "updateNote": "數字會在每次回覆後更新。"
   }

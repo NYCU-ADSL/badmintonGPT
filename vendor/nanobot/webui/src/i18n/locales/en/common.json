@@ -793,7 +793,7 @@
     "balance": "Balance",
     "remaining": "Remaining credit",
     "spentTotal": "Total spent",
-    "spentOf": "{{spent}} of {{quota}} used",
+    "remainingOf": "{{remaining}} of {{quota}} left",
     "sidebarRemaining": "{{amount}} left",
     "unlimitedHint": "This account is on the whitelist and has no usage limit.",
     "exhaustedHint": "The allowance is used up. New messages are paused until the administrator raises it.",
@@ -820,7 +820,6 @@
       "reels": "Reels"
     },
     "daily": "Daily spend (UTC)",
-    "recentJobs": "Recent reel jobs",
     "pricingNote": "Chat model {{model}}: ${{input}} / 1M input tokens, ${{cached}} / 1M cached, ${{output}} / 1M output. Reels are charged their actual API cost (script model + narration voice).",
     "updateNote": "Figures update after each reply."
   }
