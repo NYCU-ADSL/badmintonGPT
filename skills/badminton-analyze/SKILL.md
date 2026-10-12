@@ -1,9 +1,10 @@
 ---
 name: badminton-analyze
 description: >-
-  Analyze badminton singles matches with badminton-analyze MCP tools. Use when the user provides
-  a match_id and requests shot effectiveness, lost-point locations, rally rest times, running
-  distance, backcourt usage, shot height, post-smash movement, or statistics verification.
+  Analyze badminton singles matches with badminton-analyze MCP tools. Use when the user wants a
+  match's shot effectiveness, lost-point locations, rally rest times, running distance, backcourt
+  usage, shot height, post-smash movement, or statistics verification — for a CoachAI match_id
+  (matches.analyze_match_id) or a 2025/2026 Plan 3 game_id (2025gameN / 2026gameN).
 ---
 
 # Badminton singles match analysis
@@ -19,11 +20,21 @@ Produce verifiable tactical analysis from match data returned by the MCP Server.
 
 ## Before starting analysis
 
-- If the user has provided a `match_id`, use it directly without asking again.
-- If `match_id` is missing, ask the user to provide it first.
+- `match_id` is **CoachAI's numeric id**, stored in badminton-db as `matches.analyze_match_id` — not
+  our match name (passing a name returns `Failed to fetch set data: 400`). Look it up with
+  badminton-db first; if the user already gave a numeric `match_id`, use it directly without asking again.
+- If neither a `match_id` nor an identifiable match is available, ask the user first.
 - Keep `match_id` as a string; do not guess or substitute it.
 - Always use `"single"` for `match_type` unless the user explicitly requests another scope.
-- If a tool returns an `error`, do not invent values; explain the failure and what data is missing.
+- If the match is `2025gameN` or `2026gameN` (`analyze_match_id` is NULL for these), it is Plan 3
+  local CSV data: do not pass it to the legacy API tools, and do not add `match_type`. See Plan 3 below.
+- If a tool result has `isError=true`, do not invent values. If the content contains
+  `BADMINTON_TOOL_ERROR:`, parse the JSON after the marker for `error.code`, `message`, and
+  `retryable`; explain the safe message to the user, and include `error_id` when operators may need
+  to trace it.
+- `retryable=true` only means a limited number of retries is appropriate; never resend indefinitely.
+  A session 404 must be fixed by the MCP client clearing the old session and re-initializing, not by
+  the model calling the same tool repeatedly.
 
 ## Available tools
 
@@ -37,12 +48,35 @@ Produce verifiable tactical analysis from match data returned by the MCP Server.
 | `get_shot_win_rate` | Calculate attempts, winners, and win_rate for each shot type |
 | `get_smash_followup_speed` | Calculate movement speed toward the service line or central area after a smash |
 | `verify_match_statistics` | Recalculate from raw match data and verify the highest or lowest statistics |
+| `get_plan3_shot_win_rate` | Shot-type winner rate for Plan 3 (2025–2026 auto-annotated CSV) games |
+| `get_plan3_rally_rest_time` | Rally rest time for Plan 3 (2025–2026 auto-annotated CSV) games |
 
 These are the public MCP tool names. Do not use `register_*_tools`; those are internal Python registration functions.
+All tools are **synchronous** — no job polling.
+
+## Plan 3 (2025–2026 auto-annotated data)
+
+When the match is `2025gameN` or `2026gameN`, use only these two Plan 3 tools, with the game id
+(= `matches.name`) as `game_id`:
+
+```json
+{ "game_id": "2025game1" }
+```
+
+- Shot effectiveness: `get_plan3_shot_win_rate`
+- Rally rest time: `get_plan3_rally_rest_time`
+
+Plan 3 data has no reliable final landing location, shot height, or player/opponent stance data.
+Therefore do not use it for lost-point locations, shot height, running distance, backcourt stance, or
+post-smash movement; state directly that the data is insufficient, and do not substitute legacy API
+match data. `verify_match_statistics` does not cover Plan 3 games either.
+
+Plan 3 results carry `"data_source": "plan3_csv"` and the same shape as their legacy counterparts
+(`summary` / `details` / `data_quality`). Their A/B binding equals ours (A = `matches.player_a`).
 
 ## Tool selection
 
-When the user specifies an analysis, call only the relevant tools. For a full match analysis, call the first seven analysis tools and use `verify_match_statistics` to verify important extreme-value conclusions according to the rules below.
+When the user specifies an analysis, call only the relevant tools. For a full match analysis, call the first seven analysis tools and use `verify_match_statistics` to verify important extreme-value conclusions according to the rules below. For a full Plan 3 analysis, call the two Plan 3 tools and say which metrics are unavailable.
 
 ### Shot winner rate
 
@@ -57,7 +91,7 @@ Call:
 
 Use these fields from `get_shot_win_rate`:
 
-- `players`: mapping from A and B to actual player names.
+- `players`: mapping from A and B (always the literal `"Player A"`/`"Player B"` — see Response format).
 - `summary`: `attempts`, `winners`, and `win_rate` by player and shot type.
 - `data_quality`: total rallies, valid rallies, total shots, valid shots, and skipped counts.
 
@@ -130,11 +164,12 @@ Official statistics tools may return `data_quality`. When analyzing:
 
 ## Response format
 
-First use `players` to replace A and B with actual names, then summarize:
+The `players` field is always the literal `"Player A"`/`"Player B"` (legacy and Plan 3 alike). First
+replace A and B with the real names from badminton-db `matches.player_a` / `matches.player_b`, then summarize:
 
 1. Answer the user's specific question first.
 2. Support conclusions with a few key numbers, including counts, proportions, and units.
 3. Compare players using the same metrics and data scope.
 4. If details are long, extract only rallies supporting the conclusion; do not dump the entire raw JSON.
 5. Clearly distinguish direct tool results from tactical interpretations based on them.
-6. For the three metrics supported by `verify_match_statistics`, include verification results with any formal "highest" or "lowest" conclusion; for other metrics, include source-tool values and valid sample counts.
+6. For the three metrics supported by `verify_match_statistics`, include verification results with any formal "highest" or "lowest" conclusion; for other metrics (and all Plan 3 results), include source-tool values and valid sample counts.

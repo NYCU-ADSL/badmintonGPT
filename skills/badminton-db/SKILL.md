@@ -60,6 +60,6 @@ WHERE match_name='<matches.name>' AND has_video=1 ORDER BY rally_id;
 >   with `name LIKE` on `matches`; the same pair of players may have multiple matches, so narrow by
 >   `tournament` / `year` / `round` as needed.
 > - The 50 **2025/2026** games (`2025gameN` / `2026gameN`): the name says nothing — read `player_a`/`player_b`,
->   `tournament`, `round` from `matches` (names spelled like `Chou Tien Chen`; use `LIKE`). No `analyze_match_id`. All but 2025game26 have rally
+>   `tournament`, `round` from `matches` (names spelled like `Chou Tien Chen`; use `LIKE`). No `analyze_match_id` — badminton-analyze serves them only via its Plan 3 tools (`game_id` = the name; winner rate + rest time). All but 2025game26 have rally
 >   clips (`has_video=1`). Their rally scores can be off by a point or two vs the broadcast. Filter with `year IN (2025, 2026)`.
 > - rally_id is `set_scoreA_scoreB` (e.g. `1_05_04`) and corresponds to `video_filename`. To link a shot type to an actual video, first get rallies with files using `has_video=1`, then match `shots` by `set_no` + score.

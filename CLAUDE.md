@@ -41,8 +41,10 @@ repo's own MCPs live under `mcps/`, each self-contained:
 - **`badminton-analyze`** — a **remote** MCP (CoachAI, `coachai.cs.nycu.edu.tw/mcp`, bearer token)
   giving **per-match advanced analytics**: `get_backcourt_count`, `get_shot_height`,
   `get_lost_point_distribution`, `get_shot_win_rate`, `get_rally_rest_time`,
-  `get_running_distance`, `get_smash_followup_speed`, `verify_match_statistics`. All **synchronous**
-  (no job polling). Every tool keys off **`match_id`, a numeric CoachAI id — NOT our folder name**
+  `get_running_distance`, `get_smash_followup_speed`, `verify_match_statistics`, plus the **Plan 3**
+  pair `get_plan3_shot_win_rate` / `get_plan3_rally_rest_time` for the 2025/2026 games (they take
+  `game_id` = our `2025gameN`/`2026gameN` name, no `match_type`; only those two metrics exist for them —
+  CoachAI's A/B equals ours, verified on 2025game1). All **synchronous** (no job polling). The other eight key off **`match_id`, a numeric CoachAI id — NOT our folder name**
   (passing a name 400s); it lives in `matches.analyze_match_id` (see Gotchas). This repo neither
   implements nor containerizes it — config points at the remote URL with an
   `Authorization: Bearer ${ANALYZE_MCP_TOKEN}` header. Playbook: `skills/badminton-analyze/`.

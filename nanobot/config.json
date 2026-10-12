@@ -623,7 +623,9 @@
           "get_running_distance",
           "get_shot_win_rate",
           "get_smash_followup_speed",
-          "verify_match_statistics"
+          "verify_match_statistics",
+          "get_plan3_shot_win_rate",
+          "get_plan3_rally_rest_time"
         ]
     },
       "util": {
