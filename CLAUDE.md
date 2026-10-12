@@ -410,7 +410,8 @@ which the badminton-reels server reports as `usage.cost_usd` on its job tools (n
 `usage.py` change deployed; older reels servers report nothing → reels are free). Users only see
 their own sessions/projects/cron jobs; the ledger is `~/.nanobot/accounts.db` (volume).
 - Shared agent memory is OFF on purpose (`NANOBOT_DISABLE_SHARED_MEMORY=1`, `dream.enabled: false`):
-  upstream injects `memory/history.jsonl` into every session's prompt = cross-user leak. Don't
+  upstream injects `memory/history.jsonl` **and `memory/MEMORY.md`** into every session's prompt =
+  cross-user leak (the fork skips both; a stale MEMORY.md kept steering answers until 2026-10-13). Don't
   re-enable it without per-user memory.
 - Pre-accounts sessions have no owner → invisible until `NANOBOT_ACCOUNTS_LEGACY_OWNER` adopts them.
 - Unattributed LLM calls (no session owner: e.g. idle auto-compaction outside a turn) are not

@@ -209,6 +209,23 @@ class TestBundledToolContract:
         assert "Do not use `exec` as a universal workaround" in prompt
 
 
+class TestSharedMemoryDisabled:
+    def _write_memory(self, tmp_path):
+        (tmp_path / "memory").mkdir()
+        (tmp_path / "memory" / "MEMORY.md").write_text("another user's clip notes", encoding="utf-8")
+
+    def test_memory_md_injected_by_default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("NANOBOT_DISABLE_SHARED_MEMORY", raising=False)
+        self._write_memory(tmp_path)
+        assert "another user's clip notes" in _builder(tmp_path).build_system_prompt()
+
+    def test_memory_md_skipped_when_shared_memory_disabled(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NANOBOT_DISABLE_SHARED_MEMORY", "1")
+        self._write_memory(tmp_path)
+        prompt = _builder(tmp_path).build_system_prompt()
+        assert "another user's clip notes" not in prompt
+
+
 # ---------------------------------------------------------------------------
 # _build_user_content
 # ---------------------------------------------------------------------------

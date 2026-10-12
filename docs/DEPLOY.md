@@ -223,8 +223,8 @@ e-mail:
   before accounts (`workspace/projects/<name>`) are likewise hidden; new ones live under
   `workspace/projects/<user>/`.
 - **Shared memory is off** (`NANOBOT_DISABLE_SHARED_MEMORY=1`, `dream.enabled: false`): nanobot's
-  `memory/history.jsonl` is injected into *every* session's prompt, which would leak one user's
-  conversations to another. Each chat still keeps its own compaction summary. The agent can no
+  `memory/history.jsonl` and `memory/MEMORY.md` are injected into *every* session's prompt, which
+  would leak one user's conversations to another. Each chat still keeps its own compaction summary. The agent can no
   longer edit `SOUL.md` / `USER.md` / `memory/` / `skills/`, and cannot read `sessions/`.
 - **Not isolated (known):** files the agent writes at the workspace root outside a project are
   visible to other users' agents; keep per-user work inside projects.

@@ -81,7 +81,9 @@ class ContextBuilder:
 
         parts.append(render_template("agent/tool_contract.md"))
 
-        memory = self.memory.get_memory_context()
+        # [badmintonGPT fork] memory/MEMORY.md is one workspace-wide file (written by Dream from
+        # every session's history), so it is as cross-user as history.jsonl — skip it too.
+        memory = "" if shared_memory_disabled() else self.memory.get_memory_context()
         if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
             parts.append(f"# Memory\n\n{memory}")
 

@@ -44,7 +44,7 @@ Backend (Python):
   read-only), `webui/workspaces.py` (remote projects under `projects/<user>/`),
   `webui/sidebar_state.py` (per-user file), `agent/tools/cron.py` (own jobs only).
   `NANOBOT_DISABLE_SHARED_MEMORY=1` stops `Consolidator.archive` writing the shared
-  `history.jsonl`, `context.py` injecting it, and the stale `dream` cron job running
+  `history.jsonl`, `context.py` injecting it (and the workspace-wide `memory/MEMORY.md`), and the stale `dream` cron job running
   (`cli/commands.py`). WebUI: `components/UsageView.tsx`, a sidebar balance button, restricted
   Settings (Appearance + Speech), account error banners. Ops: `python -m nanobot.accounts`.
 - **remote restricted projects** (`nanobot/webui/workspaces.py`, opt-in
