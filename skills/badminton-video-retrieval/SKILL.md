@@ -40,8 +40,14 @@ to a preview plus a saved-file path (`Full output saved to: …/tool-results/...
   (for example, `"smash winner to the deep diagonal corner"`). **If the user asks in Chinese or another language,
   translate what they want into English before sending it as `query`**; more specific descriptions yield more
   accurate matches. (Still reply to the user in their language; only the MCP `query` is in English.)
-- `return_mode`: `"best"` (default, returns the best single verified result) or `"all"` (returns all displayed top results).
-  Use `best` for a single clip and `all` for multiple candidates.
+- `return_mode`: `"best"` (default) or `"top_k"` — the server rejects anything else (e.g. `"all"`).
+  `best` → `best_result` (+ `top_results`); `top_k` → `results` (+ `count`), up to 5 hits.
+  Use `best` for a single clip and `top_k` for multiple candidates.
+- Each hit carries `match_name` (= `matches.name`), `set_number` and `rally_number` (the N-th rally of that
+  set, 1-based — **not** a reels/badminton-db `rally_id`). Hits usually come from several different matches,
+  and the search does **not** understand player or match names in `query` (it matches the described play).
+- **To make a highlight from retrieved clips** (or any shot-type/scene highlight request): follow the
+  **badminton-reels** skill, "Choosing rallies" — it converts these hits to `rally_ids` via badminton-db.
 - Results are usually in each hit's `video_url` field, formatted as
   `https://video-retrieval.nycu-cgvlab.org/files/<long base64 string>`—**note that this URL does not end
   in .mp4** (the extension is encoded in base64). The server returns `Content-Type: video/mp4` and the video
@@ -56,7 +62,8 @@ to a preview plus a saved-file path (`Full output saved to: …/tool-results/...
 - Auxiliary tools: `list_milvus_collections` (available collections), `get_service_health` (service/model readiness)—
   use only for diagnosis or questions about supported data or available video collections.
 - Tool responsibilities: **find/search existing clips** → this skill; **generate a new highlight edit** →
-  badminton-reels; **shot-by-shot statistics/data** → badminton-db.
+  badminton-reels (for a shot-type/scene highlight it calls this skill first to pick the rallies);
+  **shot-by-shot statistics/data** → badminton-db.
 
 ## Example
 ```
