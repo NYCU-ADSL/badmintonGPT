@@ -115,6 +115,11 @@ puts the ~26 GB the HF dataset lacks on the badminton-reels host (its `DataLoade
 files over HF, so those matches are renderable). `scripts/upload_data_old_to_hf.py` pushes the new
 CSVs to HF for a from-scratch rebuild — it needs a **write**-scoped `HF_TOKEN` (the current login is
 read-only, so this step is still pending).
+A third set — **50 CoachAI-format games `2025game1`…`2026game23`** (`2025_2026_coachai_format.zip`
++ `homography_matrices.xlsx`) — is converted by `scripts/import_coachai_format.py` into
+`data/Data-coachai/<id>.mp4/` in the old layout (adds `end_frame_num`, derives `RallySeg.csv`,
+side labels `A`/`B` because the export has no player names; plus per-match `homography.csv` and
+`qa_notes.csv`) and is **already on HF** (commit `e9ba46b`), so an HF-only rebuild picks it up.
 `ingest.py` is now **decoupled from `../badminton-reels`** — it imports from the vendored
 `mcps/badminton-db/ingest_lib/` (`RallySegment`/`ShotLabel` models, `parse.extract_tournament_round`,
 a thin HF `DataLoader`) instead of injecting `$REELS_SRC` or importing `badminton.data_loader` /
@@ -148,6 +153,7 @@ cp .env.example .env                      # fill OPENAI_API_KEY + REELS_CF_CLIEN
 .venv/bin/python mcps/badminton-db/ingest.py --only <folder|name> --limit N   # subset (testing)
 .venv/bin/python mcps/badminton-db/scripts/verify_db.py     # 30 assertions vs ground truth
 .venv/bin/python scripts/upload_data_old_to_hf.py --dry-run # what the HF push would upload (needs a WRITE HF_TOKEN to run for real)
+.venv/bin/python scripts/import_coachai_format.py         # 2025/2026 CoachAI zip + homography xlsx -> data/Data-coachai/ (already on HF)
 .venv/bin/python mcps/badminton-db/scripts/ground_truth.py  # recompute the oracle numbers
 .venv/bin/python mcps/badminton-db/scripts/test_decouple_parity.py  # vendored ingest_lib vs upstream reels parsing
 

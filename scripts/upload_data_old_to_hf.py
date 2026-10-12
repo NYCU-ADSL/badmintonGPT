@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Upload the merged Data-old CSVs to the HuggingFace dataset.
+"""Upload a local dataset dir's CSVs (Data-old, Data-coachai, …) to the HuggingFace dataset.
 
 Why: `ingest.py --local-data data/Data-old` merges the archive on whatever machine holds
 the extracted CSVs. Pushing those CSVs to the dataset makes the merged DB reproducible
 from HF alone (`docker compose --profile ingest run --rm ingest`), the way the original
 27 matches already are.
 
-Only `RallySeg.csv` + `label/set[123].csv` are uploaded (~22 MB). The rally videos are NOT
+Only the CSVs are uploaded: `RallySeg.csv` + `label/set[1-4].csv`, plus the per-match
+`homography.csv` / `qa_notes.csv` that scripts/import_coachai_format.py writes (~22 MB for
+Data-old). The rally videos are NOT
 uploaded — they live on the badminton-reels host (see scripts/extract_data_old.py
 --videos-to). Consequence: a rebuild from HF alone leaves `has_video=0` for these matches
 unless data/Data-old/rally_video_manifest.txt is also present; pass --local-data as well
@@ -18,6 +20,8 @@ anonymously, so a read-only setup will fail here with 401/403.
 Usage:
   scripts/upload_data_old_to_hf.py --dry-run     # list what would be uploaded
   scripts/upload_data_old_to_hf.py               # upload
+  scripts/upload_data_old_to_hf.py --src data/Data-coachai \
+      --message "Add 2025/2026 CoachAI-format games"   # the 2025gameN/2026gameN set
 """
 from __future__ import annotations
 
@@ -37,6 +41,7 @@ def main() -> None:
     ap.add_argument("--src", default=str(REPO / "data" / "Data-old"))
     ap.add_argument("--repo-id", default=REPO_ID)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--message", default="Add Data-old match annotations (labels + RallySeg)")
     args = ap.parse_args()
 
     from huggingface_hub import HfApi
@@ -74,8 +79,9 @@ def main() -> None:
         folder_path=str(src),
         path_in_repo="Data",
         allow_patterns=["*/RallySeg.csv", "*/label/set1.csv",
-                        "*/label/set2.csv", "*/label/set3.csv"],
-        commit_message="Add Data-old match annotations (labels + RallySeg)",
+                        "*/label/set2.csv", "*/label/set3.csv", "*/label/set4.csv",
+                        "*/homography.csv", "*/qa_notes.csv"],
+        commit_message=args.message,
     )
     print("uploaded. Verify: python -c \"from huggingface_hub import HfApi;"
           " print(len(HfApi().list_repo_files('%s', repo_type='dataset')))\"" % args.repo_id)
