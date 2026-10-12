@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      Public welcome page. Cloudflare Access bypasses ONLY this path; a Redirect Rule sends
+      cookie-less visitors of "/" here, and the sign-in button goes to "/?login" (a query string,
+      so the rule does not bounce it back) where Access takes over. Must stay self-contained:
+      every other path (assets, /brand/*, api) is still behind Access for anonymous visitors.
+      See docs/DEPLOY.md "Welcome page".
+    -->
+    <title>BadmintonGPT</title>
+    <meta name="description" content="BadmintonGPT — AI badminton match analyst." />
+    <!-- favicon = public/brand/mark-small-noframe-green.svg (same as index.html), inlined -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDEyMCAxMjAiIGZpbGw9Im5vbmUiPgo8ZyB0cmFuc2Zvcm09InJvdGF0ZSgtMTIgNjAgNjApIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPGxpbmUgeDE9IjMwIiB5MT0iNDIiIHgyPSI3NCIgeTI9IjQyIiBzdHJva2U9IiMzZmMxNjgiIHN0cm9rZS13aWR0aD0iOCI+PC9saW5lPgogICAgPGxpbmUgeDE9IjIwIiB5MT0iNjAiIHgyPSI3MCIgeTI9IjYwIiBzdHJva2U9IiMzZmMxNjgiIHN0cm9rZS13aWR0aD0iOCI+PC9saW5lPgogICAgPGxpbmUgeDE9IjM0IiB5MT0iNzgiIHgyPSI3MCIgeTI9Ijc4IiBzdHJva2U9IiMzZmMxNjgiIHN0cm9rZS13aWR0aD0iOCIgb3BhY2l0eT0iMC41Ij48L2xpbmU+CiAgICA8Y2lyY2xlIGN4PSI5NSIgY3k9IjYwIiByPSIxMSIgZmlsbD0iIzNmYzE2OCI+PC9jaXJjbGU+CiAgICAKICA8L2c+Cjwvc3ZnPg==" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #ecf4ef;
+        --bg-deep: #dcebe2;
+        --ink: #232a25;
+        --ink-soft: #55625a;
+        --title: #173c2a;
+        --brand: #15724a;
+        --brand-hover: #0f5c3b;
+        --on-brand: #ffffff;
+        --card: rgba(255, 255, 255, 0.72);
+        --card-line: rgba(21, 114, 74, 0.14);
+        --line: rgba(23, 60, 42, 0.12);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #102019;
+          --bg-deep: #0b1712;
+          --ink: #dde6e0;
+          --ink-soft: #9fb1a6;
+          --title: #f4f9f6;
+          --brand: #2dbd7e;
+          --brand-hover: #4fd096;
+          --on-brand: #06150d;
+          --card: rgba(22, 36, 29, 0.78);
+          --card-line: rgba(45, 189, 126, 0.18);
+          --line: rgba(221, 230, 224, 0.1);
+        }
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        background:
+          radial-gradient(1200px 520px at 85% -10%, var(--bg-deep), transparent 70%),
+          var(--bg);
+        color: var(--ink);
+        font-family: "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, "Helvetica Neue", Arial, "PingFang TC", "Microsoft JhengHei", sans-serif;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+      }
+      .wrap {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding-inline: max(20px, env(safe-area-inset-left, 0px));
+      }
+
+      /* court lines in the background — the page's one decorative motif */
+      .court {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        opacity: 0.55;
+      }
+      .court svg { width: 100%; height: 100%; }
+      .court rect, .court line { stroke: var(--line); stroke-width: 2; fill: none; }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-block: 20px;
+      }
+      .lang {
+        display: inline-flex;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 3px;
+        background: var(--card);
+      }
+      .lang button {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        border: 0;
+        background: transparent;
+        color: var(--ink-soft);
+        padding: 4px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .lang button[aria-pressed="true"] {
+        background: var(--brand);
+        color: var(--on-brand);
+      }
+
+      .logo { display: block; height: 34px; width: auto; user-select: none; }
+      .logo-dark { display: none; }
+      @media (prefers-color-scheme: dark) {
+        .logo-light { display: none; }
+        .logo-dark { display: block; }
+      }
+
+      .hero {
+        padding-block: 56px 40px;
+        max-width: 720px;
+      }
+      .hero .logo { height: clamp(52px, 9vw, 76px); margin-bottom: 28px; }
+      h1 {
+        font-size: clamp(30px, 5.2vw, 46px);
+        line-height: 1.2;
+        font-weight: 900;
+        color: var(--title);
+        margin: 0 0 16px;
+        letter-spacing: -0.01em;
+        text-wrap: balance;
+      }
+      .intro {
+        font-size: clamp(16px, 2.2vw, 18px);
+        color: var(--ink-soft);
+        margin: 0 0 32px;
+        max-width: 620px;
+      }
+      .cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--brand);
+        color: var(--on-brand);
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 17px;
+        padding: 14px 28px;
+        border-radius: 999px;
+        box-shadow: 0 8px 24px -10px var(--brand);
+        transition: background 0.15s ease, transform 0.15s ease;
+      }
+      .cta:hover { background: var(--brand-hover); transform: translateY(-1px); }
+      .cta:focus-visible { outline: 3px solid var(--title); outline-offset: 3px; }
+      .cta svg { width: 18px; height: 18px; }
+      .note { font-size: 13px; color: var(--ink-soft); margin: 14px 0 0; }
+
+      .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+        padding-block: 24px 56px;
+        margin: 0;
+        list-style: none;
+        padding-inline: 0;
+      }
+      .feature {
+        background: var(--card);
+        border: 1px solid var(--card-line);
+        border-radius: 18px;
+        padding: 22px 20px;
+        backdrop-filter: blur(6px);
+      }
+      .feature .icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        background: color-mix(in srgb, var(--brand) 14%, transparent);
+        color: var(--brand);
+        margin-bottom: 14px;
+      }
+      .feature .icon svg { width: 22px; height: 22px; }
+      .feature h2 { font-size: 17px; font-weight: 700; color: var(--title); margin: 0 0 6px; }
+      .feature p { font-size: 14px; color: var(--ink-soft); margin: 0; }
+
+      footer {
+        border-top: 1px solid var(--line);
+        padding-block: 20px 28px;
+        font-size: 13px;
+        color: var(--ink-soft);
+      }
+
+      [data-lang="en"] .zh, [data-lang="zh-TW"] .en { display: none !important; }
+
+      @media (max-width: 520px) {
+        .hero { padding-block: 28px 24px; }
+        header .logo { height: 28px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .cta { transition: none; }
+      }
+    </style>
+  </head>
+  <body data-lang="zh-TW">
+    <div class="court" aria-hidden="true">
+      <svg viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice">
+        <rect x="560" y="40" width="400" height="520" />
+        <line x1="560" y1="300" x2="960" y2="300" />
+        <line x1="760" y1="40" x2="760" y2="230" />
+        <line x1="760" y1="370" x2="760" y2="560" />
+        <line x1="560" y1="230" x2="960" y2="230" />
+        <line x1="560" y1="370" x2="960" y2="370" />
+        <line x1="585" y1="40" x2="585" y2="560" />
+        <line x1="935" y1="40" x2="935" y2="560" />
+        <line x1="560" y1="70" x2="960" y2="70" />
+        <line x1="560" y1="530" x2="960" y2="530" />
+      </svg>
+    </div>
+
+
+    <div class="wrap">
+      <header>
+        <span></span>
+        <div class="lang" role="group" aria-label="Language">
+          <button type="button" data-set-lang="zh-TW" aria-pressed="true">中文</button>
+          <button type="button" data-set-lang="en" aria-pressed="false">English</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero">
+          <!-- Logo = the sidebar's public/brand/lockup-horizontal{,-dark}.svg, inlined byte-for-byte
+               (src/tests/welcome-page.test.ts fails if they drift). -->
+          <img class="logo logo-light" alt="BadmintonGPT" src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB3aWR0aD0iNjYwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDY2MCAxMjAiIGZpbGw9Im5vbmUiPgoKPGcgdHJhbnNmb3JtPSJyb3RhdGUoLTEyIDYwIDYwKSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj4KICAgIDxsaW5lIHgxPSIzMCIgeTE9IjQyIiB4Mj0iNzQiIHkyPSI0MiIgc3Ryb2tlPSIjM2ZjMTY4IiBzdHJva2Utd2lkdGg9IjgiPjwvbGluZT4KICAgIDxsaW5lIHgxPSIyMCIgeTE9IjYwIiB4Mj0iNzAiIHkyPSI2MCIgc3Ryb2tlPSIjM2ZjMTY4IiBzdHJva2Utd2lkdGg9IjgiPjwvbGluZT4KICAgIDxsaW5lIHgxPSIzNCIgeTE9Ijc4IiB4Mj0iNzAiIHkyPSI3OCIgc3Ryb2tlPSIjM2ZjMTY4IiBzdHJva2Utd2lkdGg9IjgiIG9wYWNpdHk9IjAuNSI+PC9saW5lPgogICAgPGNpcmNsZSBjeD0iOTUiIGN5PSI2MCIgcj0iMTEiIGZpbGw9IiMzZmMxNjgiPjwvY2lyY2xlPgogICAgPHBhdGggZD0iTTc1IDQ4IFY0MCBIODMgTTEwNyA0MCBIMTE1IFY0OCBNNzUgNzIgVjgwIEg4MyBNMTA3IDgwIEgxMTUgVjcyIiBmaWxsPSJub25lIiBzdHJva2U9IiMzZmMxNjgiIHN0cm9rZS13aWR0aD0iNSIgb3BhY2l0eT0iMC45Ij48L3BhdGg+CiAgPC9nPgogIDx0ZXh0IGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksIC1hcHBsZS1zeXN0ZW0sICdTZWdvZSBVSScsIFJvYm90bywgJ0hlbHZldGljYSBOZXVlJywgQXJpYWwsIHNhbnMtc2VyaWYiIHg9IjE1MiIgeT0iODMiIGZvbnQtc2l6ZT0iNjQiIGZvbnQtd2VpZ2h0PSI2MDAiIGxldHRlci1zcGFjaW5nPSItMS42IiBmaWxsPSIjMTcyMjFjIj5CYWRtaW50b248dHNwYW4gZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iIzNmYzE2OCI+R1BUPC90c3Bhbj48L3RleHQ+Cjwvc3ZnPg==" />
+          <img class="logo logo-dark" alt="BadmintonGPT" src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+CjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB3aWR0aD0iNjYwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDY2MCAxMjAiIGZpbGw9Im5vbmUiPgoKPGcgdHJhbnNmb3JtPSJyb3RhdGUoLTEyIDYwIDYwKSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj4KICAgIDxsaW5lIHgxPSIzMCIgeTE9IjQyIiB4Mj0iNzQiIHkyPSI0MiIgc3Ryb2tlPSIjM2ZjMTY4IiBzdHJva2Utd2lkdGg9IjgiPjwvbGluZT4KICAgIDxsaW5lIHgxPSIyMCIgeTE9IjYwIiB4Mj0iNzAiIHkyPSI2MCIgc3Ryb2tlPSIjM2ZjMTY4IiBzdHJva2Utd2lkdGg9IjgiPjwvbGluZT4KICAgIDxsaW5lIHgxPSIzNCIgeTE9Ijc4IiB4Mj0iNzAiIHkyPSI3OCIgc3Ryb2tlPSIjM2ZjMTY4IiBzdHJva2Utd2lkdGg9IjgiIG9wYWNpdHk9IjAuNSI+PC9saW5lPgogICAgPGNpcmNsZSBjeD0iOTUiIGN5PSI2MCIgcj0iMTEiIGZpbGw9IiMzZmMxNjgiPjwvY2lyY2xlPgogICAgPHBhdGggZD0iTTc1IDQ4IFY0MCBIODMgTTEwNyA0MCBIMTE1IFY0OCBNNzUgNzIgVjgwIEg4MyBNMTA3IDgwIEgxMTUgVjcyIiBmaWxsPSJub25lIiBzdHJva2U9IiMzZmMxNjgiIHN0cm9rZS13aWR0aD0iNSIgb3BhY2l0eT0iMC45Ij48L3BhdGg+CiAgPC9nPgogIDx0ZXh0IGZvbnQtZmFtaWx5PSJzeXN0ZW0tdWksIC1hcHBsZS1zeXN0ZW0sICdTZWdvZSBVSScsIFJvYm90bywgJ0hlbHZldGljYSBOZXVlJywgQXJpYWwsIHNhbnMtc2VyaWYiIHg9IjE1MiIgeT0iODMiIGZvbnQtc2l6ZT0iNjQiIGZvbnQtd2VpZ2h0PSI2MDAiIGxldHRlci1zcGFjaW5nPSItMS42IiBmaWxsPSIjZmZmZmZmIj5CYWRtaW50b248dHNwYW4gZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iIzNmYzE2OCI+R1BUPC90c3Bhbj48L3RleHQ+Cjwvc3ZnPg==" />
+          <h1>
+            <span class="zh">你的 AI 羽球比賽分析師</span>
+            <span class="en">Your AI badminton match analyst</span>
+          </h1>
+          <p class="intro">
+            <span class="zh">用一句話提問，就能查詢 2022–2026 年國際賽事的逐拍數據、取得專業戰術分析，還能自動生成附旁白的精華影片。</span>
+            <span class="en">Ask in plain language to explore shot-by-shot data from international matches (2022–2026), get in-depth tactical analysis, and generate narrated highlight reels.</span>
+          </p>
+          <a class="cta" href="/?login">
+            <span class="zh">登入開始使用</span>
+            <span class="en">Sign in to get started</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </a>
+          <p class="note">
+            <span class="zh">透過 Cloudflare 安全登入</span>
+            <span class="en">Secure sign-in via Cloudflare</span>
+          </p>
+        </section>
+
+        <ul class="features">
+          <li class="feature">
+            <div class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+            </div>
+            <h2><span class="zh">比賽數據查詢</span><span class="en">Match data, on demand</span></h2>
+            <p>
+              <span class="zh">收錄 240 多場比賽，比分、球種、得失分原因逐拍可查，直接用問的就好。</span>
+              <span class="en">240+ matches with every shot, score and point outcome — just ask.</span>
+            </p>
+          </li>
+          <li class="feature">
+            <div class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg>
+            </div>
+            <h2><span class="zh">AI 精華影片</span><span class="en">AI highlight reels</span></h2>
+            <p>
+              <span class="zh">挑出精彩回合，自動配上中英文旁白與字幕，生成可分享的精華短片。</span>
+              <span class="en">Picks the best rallies and adds narration and subtitles in Chinese or English.</span>
+            </p>
+          </li>
+          <li class="feature">
+            <div class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>
+            </div>
+            <h2><span class="zh">進階戰術分析</span><span class="en">Advanced tactics</span></h2>
+            <p>
+              <span class="zh">跑動距離、擊球高度、各球種致勝率、失分落點與回合休息時間。</span>
+              <span class="en">Running distance, shot height, win rate by shot type, lost-point zones and rest times.</span>
+            </p>
+          </li>
+          <li class="feature">
+            <div class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            </div>
+            <h2><span class="zh">片段語意搜尋</span><span class="en">Find any rally</span></h2>
+            <p>
+              <span class="zh">描述想看的球，例如「網前撲球得分」，立刻找出對應的比賽片段。</span>
+              <span class="en">Describe a play — “a net kill to win the point” — and get the matching clips.</span>
+            </p>
+          </li>
+        </ul>
+      </main>
+
+      <footer>
+        <span class="zh">BadmintonGPT · 國立陽明交通大學</span>
+        <span class="en">BadmintonGPT · National Yang Ming Chiao Tung University</span>
+      </footer>
+    </div>
+
+    <script>
+      // Shares the WebUI's locale key so the language picked here carries into the app.
+      (function () {
+        var KEY = "nanobot.locale";
+        function detect() {
+          try {
+            var saved = localStorage.getItem(KEY);
+            if (saved) return /^zh/i.test(saved) ? "zh-TW" : "en";
+          } catch (e) {}
+          var langs = navigator.languages || [navigator.language || ""];
+          for (var i = 0; i < langs.length; i++) {
+            if (/^zh/i.test(langs[i])) return "zh-TW";
+            if (/^en/i.test(langs[i])) return "en";
+          }
+          return "zh-TW";
+        }
+        function apply(lang, persist) {
+          document.body.setAttribute("data-lang", lang);
+          document.documentElement.lang = lang;
+          var btns = document.querySelectorAll("[data-set-lang]");
+          for (var i = 0; i < btns.length; i++) {
+            btns[i].setAttribute("aria-pressed", String(btns[i].getAttribute("data-set-lang") === lang));
+          }
+          if (persist) {
+            try { localStorage.setItem(KEY, lang); } catch (e) {}
+          }
+        }
+        apply(detect(), false);
+        document.addEventListener("click", function (ev) {
+          var b = ev.target.closest && ev.target.closest("[data-set-lang]");
+          if (b) apply(b.getAttribute("data-set-lang"), true);
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -56,6 +56,32 @@ These are account-bound and done once in the Cloudflare dashboard.
    the One-time PIN or Google login method) and put the unlimited users in
    `NANOBOT_ACCOUNTS_WHITELIST` instead. The policy must identify a **person** (an e-mail) — a
    service-token-only policy has no e-mail, so the gateway answers `401 not signed in`.
+4. **Welcome page (optional, same hostname).** Signed-out visitors of `/` see a public bilingual
+   welcome page (`vendor/nanobot/webui/public/welcome.html`, served by the gateway like any WebUI
+   static file); its sign-in button goes to `/?login`, where Access takes over. Two dashboard pieces:
+   - **Access bypass for that one path**: Zero Trust → **Access → Applications** → *Add* →
+     Self-hosted → name `BadmintonGPT welcome`, domain `badmintongpt.<your-zone>`, **path
+     `welcome.html`** → policy action **Bypass**, *Include → Everyone*. The most specific path wins,
+     so every other path stays behind the main application. The page must stay self-contained
+     (inline CSS/SVG/JS) — anything else it referenced would be blocked for anonymous visitors.
+   - **Redirect Rule** (zone `<your-zone>` → **Rules → Redirect Rules** → *Create rule*), custom
+     filter expression:
+     ```
+     (http.host eq "badmintongpt.<your-zone>" and http.request.uri.path eq "/"
+      and http.request.uri.query eq "" and not http.cookie contains "CF_Authorization")
+     ```
+     → *Static*, URL `https://badmintongpt.<your-zone>/welcome.html`, status **302** (never 301 —
+     browsers cache a 301 and would bounce signed-in users too), *Preserve query string* off.
+     Single Redirects run before Access, so the cookie-less visitor never hits the Access login.
+     The `?login` query on the button is what keeps the rule from bouncing it back. A visitor with
+     an expired `CF_Authorization` cookie skips the welcome page and lands on the Access login —
+     harmless. If the rule is misconfigured, the failure mode is today's behaviour (Access login
+     first); nothing else becomes public.
+
+   Verify (no cookie): `curl -sI https://badmintongpt.<your-zone>/` → `302` to `/welcome.html`;
+   `curl -sI https://badmintongpt.<your-zone>/welcome.html` → `200`;
+   `curl -sI 'https://badmintongpt.<your-zone>/?login'` → redirect to `<team>.cloudflareaccess.com`.
+
 > This repo's `REMOTE_MCP_SERVER_GUIDE.md` covers the same Tunnel+Access concepts for the
 > *systemd* path; here cloudflared runs in a container and the tunnel is token-based.
 

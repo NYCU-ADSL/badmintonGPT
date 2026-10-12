@@ -116,6 +116,13 @@ Frontend (WebUI, `vendor/nanobot/webui/`):
   `settings/SettingsView.tsx`, `index.html` title/favicon, and the user-visible brand strings +
   badminton empty-state greetings across the nine `webui/src/i18n/locales/*/common.json` (the literal
   `` `nanobot gateway` `` command string is preserved). Skin-only.
+- **public welcome page** — `webui/public/welcome.html` (self-contained bilingual landing page,
+  shares the WebUI's `nanobot.locale` key; the sidebar's `brand/lockup-horizontal{,-dark}.svg` +
+  favicon inlined as data URIs, kept byte-identical by `src/tests/welcome-page.test.ts`) +
+  `channels/websocket.py` `_serve_static` now sends `Cache-Control: no-cache` for every `.html`
+  (was: only `index.html`; anything else got `immutable`, so welcome-page edits would never reach
+  browsers). Reached via a Cloudflare Redirect Rule + an Access bypass on that path — see
+  `docs/DEPLOY.md` step 1.4.
 - **badminton rally thinking animation** — `webui/src/components/BadmintonRallyThinking.tsx` (a
   decorative rally driven by a single rAF engine; `prefers-reduced-motion` renders a static scene),
   its `brt-*` rules in `globals.css`, mounted in `thread/AgentActivityCluster.tsx` gated on

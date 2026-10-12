@@ -1462,8 +1462,9 @@ class WebSocketChannel(BaseChannel):
             ctype = "application/octet-stream"
         if ctype.startswith("text/") or ctype in {"application/javascript", "application/json"}:
             ctype = f"{ctype}; charset=utf-8"
-        # Hash-named build assets are cache-friendly; index.html must stay fresh.
-        if candidate.name == "index.html":
+        # Hash-named build assets are cache-friendly; HTML pages (index.html, the public
+        # welcome.html) are not content-hashed and must stay fresh.
+        if candidate.suffix == ".html":
             cache = "no-cache"
         else:
             cache = "public, max-age=31536000, immutable"
