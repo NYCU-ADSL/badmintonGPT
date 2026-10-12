@@ -299,6 +299,10 @@ There is no lint/test framework; verification = `verify_db.py` (data) + `run_eva
   boundary ...)` — this is exactly what breaks reel generation, since the agent loads the
   `badminton-reels` SKILL.md on demand. Fix: `scripts/sync_skills.sh` (host) / entrypoint `cp -r`
   (Docker) copy the dirs in-bounds. Cost: edits aren't live until re-copied.
+  Both also **move any skill dir not in the repo** to `~/.nanobot/skills-pruned/`: the built-in
+  `skill-creator` lets the agent write skills into the (persistent, all-user) workspace, and one such
+  `badminton-tactical-rally-video-search` made every video-retrieval answer re-verify hits with a
+  chain of badminton-db queries.
 
 ## nanobot v0.2.1 runtime facts (verified in source/logs — do not re-litigate)
 

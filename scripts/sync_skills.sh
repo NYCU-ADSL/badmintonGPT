@@ -24,3 +24,18 @@ for d in "$REPO"/skills/*/; do
     cp -r "$d" "$WS/skills/$s"
     echo "synced skill: $WS/skills/$s"
 done
+
+# The repo is the only source of skills: move runtime-written ones (built-in
+# skill-creator) out of the workspace so they cannot override the repo playbooks.
+# Moved, not deleted, so they are recoverable from $NB/skills-pruned/.
+NB="$(dirname "$WS")"
+for d in "$WS"/skills/*/; do
+    [ -d "$d" ] || continue
+    s="$(basename "$d")"
+    if [ ! -d "$REPO/skills/$s" ]; then
+        mkdir -p "$NB/skills-pruned"
+        rm -rf "$NB/skills-pruned/$s"
+        mv "$WS/skills/$s" "$NB/skills-pruned/$s"
+        echo "pruned non-repo skill: $s -> $NB/skills-pruned/$s"
+    fi
+done
