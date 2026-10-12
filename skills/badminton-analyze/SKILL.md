@@ -105,7 +105,36 @@ Use these fields from `get_shot_win_rate`:
 - `details`: the `lose zone` for each rally.
 - `data_quality`: valid and skipped rally counts.
 
-Valid zone codes are strings from `"1"` to `"16"`. Without a complete zone mapping, retain the numeric codes; do not invent zone names.
+Valid zone codes are strings from `"1"` to `"16"`. They are the same court-area codes as badminton-db
+`shots.hit_area` / `landing_area` (our DB-side recount of a match's lost-point zones reproduces this
+tool's counts). The layout is **not** a 4×4 grid in reading order. It is a 3×3 in-court grid plus 7
+out-of-bounds zones, numbered from the viewpoint of the player standing in that half and facing the net:
+
+```
+              net
+   10 |  2 |  7 |  1 | 16     front court
+   11 |  6 |  8 |  5 | 15     mid court
+   12 |  4 |  9 |  3 | 14     rear court
+                13            behind the baseline
+ (left out) left mid right (right out)
+```
+
+- 1–9 are inside the singles court: 7/8/9 is the centre column; odd zones 1/5/3 are on the player's
+  right, even zones 2/6/4 on the player's left.
+- 10–16 are out of bounds: 10/11/12 outside the left sideline, 14/15/16 outside the right sideline,
+  13 behind the baseline.
+- Both halves use the same player-relative numbering, so they mirror on screen (the far player faces
+  the camera, so the far half's zone 1 appears on the left of the frame).
+- The layout was inferred from ~250k labelled hit/landing coordinates in the raw CSVs; no official
+  mapping has been published and exact boundaries are unknown. Say so if precision matters.
+- A lost-point zone is the landing code of the rally-ending shot, and that shot may be the player's
+  **own** error, not the opponent's winner. A shot that goes out gets an out zone (10–16); a shot into
+  the net still gets a front-court code (7/1/2). For example, a player's net shots that hit the net
+  can make zone 1 their top lost-point zone. Before turning a zone into advice such as "attack this
+  zone", check in badminton-db who hit the last shot and its `lose_reason`.
+
+When drawing a court or heat map, always use this layout. Never place zones 1–16 in a 4×4 grid in
+numeric order.
 
 ### Rally rest time
 

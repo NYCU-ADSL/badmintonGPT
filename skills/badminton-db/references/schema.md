@@ -27,6 +27,8 @@ shots(match_name, set_no, rally, ball_round, player, server, type,
   - player / getpoint_player : 'A' | 'B' (player=the hitter; getpoint_player=the rally winner)
   - type        : shot type (Chinese enum; see below)
   - aroundhead/backhand : 0/1
+  - hit_area / landing_area : court-area code 1–16 where the shot was hit / where it landed
+                  (layout in "Court areas" below; NOT a 4×4 grid)
   - win_reason  : non-NULL when this hitter makes the winning shot (e.g. 落地致勝 / 對手出界)
   - lose_reason : non-NULL when this hitter loses the point through an error (e.g. 出界 / 掛網)
   - roundscore_a/b : score at the time of the shot
@@ -41,6 +43,31 @@ shots(match_name, set_no, rally, ball_round, player, server, type,
 - `win_reason`: 對手出界、落地致勝、對手未過網、對手掛網、對手落點判斷失誤
 
 These are literal stored values; retain them in queries. For example, `殺球` means smash, `挑球` means lift, `放小球` means net shot, `出界` means out of bounds, `掛網` means into the net, and `未知球種` means unknown shot type.
+
+## Court areas (`hit_area` / `landing_area`)
+
+Codes 1–16, numbered from the viewpoint of the player standing in that half and facing the net. The
+same codes are used by badminton-analyze's lost-point zones.
+
+```
+              net
+   10 |  2 |  7 |  1 | 16     front court
+   11 |  6 |  8 |  5 | 15     mid court
+   12 |  4 |  9 |  3 | 14     rear court
+                13            behind the baseline
+ (left out) left mid right (right out)
+```
+
+- 1–9 are inside the singles court as a 3×3 grid: 7/8/9 is the centre column; odd zones 1/5/3 are on
+  the player's right, even zones 2/6/4 on the player's left.
+- 10–16 are out of bounds: 10/11/12 outside the left sideline, 14/15/16 outside the right sideline,
+  13 behind the baseline. The 2025/2026 games use only 1–9.
+- `hit_area` is in the hitter's half. `landing_area` is usually in the opponent's half, but errors
+  differ: shots with `lose_reason='出界'` land in 10–16, and shots with `lose_reason='掛網'` get a
+  front-court code (7/1/2) that does not say which side of the net they fell on.
+- Inferred from ~250k labelled coordinates in the raw CSVs (hit and landing agree; the 2025/2026
+  export has the same 1–9 layout). There is no official mapping and exact boundaries are unknown.
+- When drawing a court, always use this layout. Never place 1–16 in a 4×4 grid in numeric order.
 
 ## Important conventions
 
