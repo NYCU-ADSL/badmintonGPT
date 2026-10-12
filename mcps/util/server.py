@@ -4,8 +4,12 @@
 Currently exposes a single `sleep` tool so an agent can pace a polling loop
 (e.g. "check status -> sleep -> check again") without busy-spinning. Keep this
 server dependency-free and read-only; it must never touch external state.
+
+`sleep` is async (asyncio.sleep): every chat session shares this one stdio
+process, so a blocking time.sleep would queue concurrent sessions' polls behind
+each other (3 x sleep(30) > toolTimeout 70).
 """
-import time
+import asyncio
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
@@ -17,7 +21,7 @@ MAX_SLEEP_SECONDS = 60
 
 
 @mcp.tool()
-def sleep(
+async def sleep(
     seconds: Annotated[int, Field(
         description="Number of seconds to pause. Values are clamped to "
                     "[0, 60]; use ~20-30 to space out a polling loop.")],
@@ -29,7 +33,7 @@ def sleep(
     again. Returns {"slept": <actual seconds slept>}.
     """
     n = max(0, min(int(seconds), MAX_SLEEP_SECONDS))
-    time.sleep(n)
+    await asyncio.sleep(n)
     return {
         "slept": n,
         "reminder": (
