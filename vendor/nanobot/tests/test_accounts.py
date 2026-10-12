@@ -71,6 +71,23 @@ def test_pricing_prefix_cached_and_fallback(ledger, monkeypatch):
     assert accounts.llm_cost_usd("mystery", usage) == pytest.approx(1.0 + 0.2)
 
 
+def test_pricing_long_context_tier(ledger, monkeypatch):
+    # gpt-6-luna: 0.10 / 0.01 cached / 0.50; all three double once input exceeds 272k tokens
+    short = {"prompt_tokens": 272_000, "cached_tokens": 72_000, "completion_tokens": 100_000}
+    # 0.2M * 0.10 + 0.072M * 0.01 + 0.1M * 0.50
+    assert accounts.llm_cost_usd("gpt-6-luna", short) == pytest.approx(0.02 + 0.00072 + 0.05)
+    long = {"prompt_tokens": 400_000, "cached_tokens": 100_000, "completion_tokens": 100_000}
+    # 2 * (0.3M * 0.10 + 0.1M * 0.01 + 0.1M * 0.50)
+    assert accounts.llm_cost_usd("openai/gpt-6-luna", long) == pytest.approx(2 * (0.03 + 0.001 + 0.05))
+    # models without a tier are unaffected
+    assert accounts.llm_cost_usd("gpt-5.5", long) == pytest.approx(1.5 + 0.05 + 3.0)
+    monkeypatch.setenv("NANOBOT_ACCOUNTS_PRICES", json.dumps({"gpt-5.5": {
+        "input": 5, "cached_input": 0.5, "output": 30,
+        "long_context_threshold": 272_000, "long_context_multiplier": 2,
+    }}))
+    assert accounts.llm_cost_usd("gpt-5.5", long) == pytest.approx(2 * (1.5 + 0.05 + 3.0))
+
+
 def test_quota_lifetime_and_override(ledger):
     user = accounts.account_for_email("student@uni.edu")
     status = accounts.quota_status(user)

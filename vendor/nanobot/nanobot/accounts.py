@@ -51,8 +51,14 @@ _TRUTHY = {"1", "true", "yes", "on"}
 
 # USD per 1M tokens. Matched by longest model-name prefix (provider prefixes like "openai/" are
 # stripped first). Override / extend with NANOBOT_ACCOUNTS_PRICES.
+# Optional long-context tier: a call whose input (prompt_tokens, cached included) exceeds
+# `long_context_threshold` tokens bills all three rates at `long_context_multiplier` times.
 _DEFAULT_PRICES: dict[str, dict[str, float]] = {
     "gpt-5.5": {"input": 5.00, "cached_input": 0.50, "output": 30.00},
+    "gpt-6-luna": {
+        "input": 0.10, "cached_input": 0.01, "output": 0.50,
+        "long_context_threshold": 272_000, "long_context_multiplier": 2.0,
+    },
     "gpt-5.6-luna": {"input": 0.20, "cached_input": 0.02, "output": 1.20},
     "gpt-5.1": {"input": 1.25, "cached_input": 0.125, "output": 10.00},
     "gpt-5": {"input": 1.25, "cached_input": 0.125, "output": 10.00},
@@ -60,6 +66,9 @@ _DEFAULT_PRICES: dict[str, dict[str, float]] = {
 # Unknown models are billed at the most expensive default so a misconfigured price table can
 # never make usage free.
 _FALLBACK_PRICE = {"input": 5.00, "cached_input": 0.50, "output": 30.00}
+_PRICE_KEYS = (
+    "input", "cached_input", "output", "long_context_threshold", "long_context_multiplier",
+)
 
 
 def accounts_enabled() -> bool:
@@ -213,8 +222,7 @@ def _price_table() -> dict[str, dict[str, float]]:
                 for model, price in extra.items():
                     if isinstance(price, dict):
                         table[str(model).lower()] = {
-                            k: float(price[k]) for k in ("input", "cached_input", "output")
-                            if k in price
+                            k: float(price[k]) for k in _PRICE_KEYS if k in price
                         }
         except (ValueError, TypeError) as exc:
             logger.warning("invalid NANOBOT_ACCOUNTS_PRICES ignored: {}", exc)
@@ -242,7 +250,11 @@ def llm_cost_usd(model: str | None, usage: dict[str, Any]) -> float:
     completion = int(usage.get("completion_tokens") or 0)
     cached = min(int(usage.get("cached_tokens") or 0), prompt)
     price = price_for_model(model)
-    return (
+    threshold = price.get("long_context_threshold")
+    multiplier = 1.0
+    if threshold and prompt > threshold:
+        multiplier = price.get("long_context_multiplier", 1.0)
+    return multiplier * (
         (prompt - cached) * price["input"]
         + cached * price["cached_input"]
         + completion * price["output"]

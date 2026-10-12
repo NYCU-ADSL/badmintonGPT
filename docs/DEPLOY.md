@@ -196,7 +196,8 @@ e-mail:
 
 - **What counts toward the quota:** every chat-model call charged to the user's session (agent
   turns, context compaction, title generation, subagents) at the per-1M-token prices
-  (`gpt-5.5`: $5 input / $0.50 cached / $30 output; override with `NANOBOT_ACCOUNTS_PRICES`), plus
+  (`gpt-5.5`: $5 input / $0.50 cached / $30 output; `gpt-6-luna`: $0.10 / $0.01 / $0.50, all
+  doubled for a call with >272k input tokens; override with `NANOBOT_ACCOUNTS_PRICES`), plus
   every reel's **actual** API cost as reported by the reels server (`usage.cost_usd` on
   `generate_reel` / `get_reel_status` / `get_reel_result` — its script-model tokens and Fish TTS
   bytes). Video retrieval, CoachAI analytics and message TTS are not billed.
