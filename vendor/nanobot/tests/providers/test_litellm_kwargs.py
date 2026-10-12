@@ -655,6 +655,36 @@ async def test_direct_openai_gpt5_uses_responses_api() -> None:
 
 
 @pytest.mark.asyncio
+async def test_direct_openai_gpt6_uses_responses_api_without_temperature() -> None:
+    # gpt-6-luna reasons by default: Chat Completions 400s on tools unless
+    # reasoning_effort="none", and Responses rejects temperature.
+    mock_chat = AsyncMock(return_value=_fake_chat_response())
+    mock_responses = AsyncMock(return_value=_fake_responses_response("from responses"))
+    spec = find_by_name("openai")
+
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
+        client_instance = MockClient.return_value
+        client_instance.chat.completions.create = mock_chat
+        client_instance.responses.create = mock_responses
+
+        provider = OpenAICompatProvider(
+            api_key="sk-test-key",
+            default_model="gpt-6-luna",
+            spec=spec,
+        )
+        result = await provider.chat(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-6-luna",
+            temperature=0.1,
+        )
+
+    assert result.content == "from responses"
+    mock_responses.assert_awaited_once()
+    mock_chat.assert_not_awaited()
+    assert "temperature" not in mock_responses.call_args.kwargs
+
+
+@pytest.mark.asyncio
 async def test_direct_openai_reasoning_prefers_responses_api() -> None:
     mock_chat = AsyncMock(return_value=_fake_chat_response())
     mock_responses = AsyncMock(return_value=_fake_responses_response("reasoned"))
