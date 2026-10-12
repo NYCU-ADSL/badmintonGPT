@@ -12,6 +12,7 @@ import type {
   SettingsUpdate,
   SidebarStatePayload,
   SlashCommand,
+  UsagePayload,
   WebSearchSettingsUpdate,
   WorkspacesPayload,
   WebuiThreadPersistedPayload,
@@ -434,4 +435,9 @@ export async function updateImageGenerationSettings(
     `${base}/api/settings/image-generation/update?${query}`,
     token,
   );
+}
+
+/** [badmintonGPT fork] The signed-in account's quota and spend (NANOBOT_ACCOUNTS). */
+export async function fetchUsage(token: string, base: string = ""): Promise<UsagePayload> {
+  return request<UsagePayload>(`${base}/api/usage`, token);
 }

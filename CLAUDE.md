@@ -393,6 +393,23 @@ host/dev, rebuild directly: `( cd vendor/nanobot/webui && bun run build )` → o
 `vendor/nanobot/nanobot/web/dist`. Full list of fork changes + the upstream-merge workflow:
 `vendor/README.md`.
 
+## Accounts, quotas, per-user conversations
+
+The Docker deploy runs the fork's `NANOBOT_ACCOUNTS=1` (`vendor/nanobot/nanobot/accounts.py`; full
+ops guide in `docs/DEPLOY.md` "Accounts & quotas"). Cloudflare Access is the **login** (let anyone
+in who may sign up); `NANOBOT_ACCOUNTS_WHITELIST` decides who is **unlimited** and may use Settings.
+Everyone else has a lifetime `NANOBOT_ACCOUNTS_QUOTA_USD` (default $3.00) covering chat-model tokens
+(priced per model, `gpt-5.5` = $5 / $0.50 cached / $30 per 1M) **and** each reel's real API cost,
+which the badminton-reels server reports as `usage.cost_usd` on its job tools (needs the reels-side
+`usage.py` change deployed; older reels servers report nothing → reels are free). Users only see
+their own sessions/projects/cron jobs; the ledger is `~/.nanobot/accounts.db` (volume).
+- Shared agent memory is OFF on purpose (`NANOBOT_DISABLE_SHARED_MEMORY=1`, `dream.enabled: false`):
+  upstream injects `memory/history.jsonl` into every session's prompt = cross-user leak. Don't
+  re-enable it without per-user memory.
+- Pre-accounts sessions have no owner → invisible until `NANOBOT_ACCOUNTS_LEGACY_OWNER` adopts them.
+- Unattributed LLM calls (no session owner: e.g. idle auto-compaction outside a turn) are not
+  billed to anyone.
+
 ## Message TTS (WebUI speaker button)
 
 A speaker button beside each assistant reply's copy button reads the reply aloud (plain prose only —

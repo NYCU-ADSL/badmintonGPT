@@ -47,6 +47,15 @@ export function clearSavedSecret(): void {
   }
 }
 
+/** Cloudflare Access's logout endpoint, served by the edge on the app's own hostname. */
+export const ACCESS_LOGOUT_PATH = "/cdn-cgi/access/logout";
+
+/** [badmintonGPT fork] Sign out of Cloudflare Access (clears its CF_Authorization cookie, then
+ *  shows the Access login page) — the real logout when the gateway runs NANOBOT_ACCOUNTS. */
+export function redirectToAccessLogout(): void {
+  window.location.assign(ACCESS_LOGOUT_PATH);
+}
+
 /**
  * Fetch a short-lived token + the WebSocket path from the gateway's
  * ``/webui/bootstrap`` endpoint.

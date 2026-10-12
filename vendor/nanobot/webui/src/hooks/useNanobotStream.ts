@@ -725,6 +725,18 @@ export function useNanobotStream(
         return;
       }
 
+      if (
+        ev.event === "error" &&
+        (ev.detail === "quota_exhausted" ||
+          ev.detail === "chat_forbidden" ||
+          ev.detail === "command_forbidden")
+      ) {
+        // [badmintonGPT fork] the gateway refused the turn (NANOBOT_ACCOUNTS); no turn_end will
+        // follow, so stop the loading indicator here. The banner comes from client.onError.
+        setIsStreaming(false);
+        return;
+      }
+
       if (ev.event === "turn_end") {
         if ("goal_state" in ev && ev.goal_state != null && typeof ev.goal_state === "object") {
           setGoalState(ev.goal_state);

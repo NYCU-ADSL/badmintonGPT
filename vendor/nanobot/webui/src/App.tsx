@@ -6,6 +6,7 @@ import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { SessionSearchDialog } from "@/components/SessionSearchDialog";
 import { SettingsView, type SettingsSectionKey } from "@/components/settings/SettingsView";
+import { UsageView } from "@/components/UsageView";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
@@ -19,12 +20,15 @@ import {
   deriveWsUrl,
   fetchBootstrap,
   loadSavedSecret,
+  redirectToAccessLogout,
   saveSecret,
 } from "@/lib/bootstrap";
 import { deriveTitle } from "@/lib/format";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import type {
+  AccountInfo,
+  UsagePayload,
   ChatSummary,
   RuntimeSurface,
   SettingsPayload,
@@ -33,7 +37,7 @@ import type {
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fetchSettings, fetchWorkspaces } from "@/lib/api";
+import { fetchSettings, fetchUsage, fetchWorkspaces } from "@/lib/api";
 import {
   createRuntimeHost,
   toRuntimeSurface,
@@ -51,6 +55,8 @@ type BootState =
       tokenExpiresAt: number;
       modelName: string | null;
       runtimeSurface: RuntimeSurface;
+      /** [badmintonGPT fork] signed-in account (NANOBOT_ACCOUNTS), null when the gateway has none. */
+      account: AccountInfo | null;
     };
 
 const SIDEBAR_STORAGE_KEY = "nanobot-webui.sidebar";
@@ -60,7 +66,7 @@ const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings" | "apps";
+type ShellView = "chat" | "settings" | "apps" | "usage";
 
 function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
   return Date.now() + Math.max(0, expiresInSeconds) * 1000;
@@ -273,6 +279,7 @@ export default function App() {
                         tokenExpiresAt,
                         modelName: refreshed.model_name ?? current.modelName,
                         runtimeSurface: refreshedSurface,
+                        account: refreshed.account ?? current.account,
                       }
                     : current,
                 );
@@ -291,6 +298,7 @@ export default function App() {
             tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
             modelName: boot.model_name ?? null,
             runtimeSurface,
+            account: boot.account ?? null,
           });
         } catch (e) {
           if (cancelled) return;
@@ -334,6 +342,7 @@ export default function App() {
                 tokenExpiresAt,
                 modelName: boot.model_name ?? current.modelName,
                 runtimeSurface,
+                account: boot.account ?? current.account,
               }
             : current,
         );
@@ -400,6 +409,12 @@ export default function App() {
       state.client.close();
     }
     clearSavedSecret();
+    // [badmintonGPT fork] With accounts the login is Cloudflare Access, not a nanobot secret:
+    // the secret prompt would be a dead end and the Access session would survive a reload.
+    if (state.status === "ready" && state.account) {
+      redirectToAccessLogout();
+      return;
+    }
     setState({ status: "auth" });
   };
 
@@ -411,6 +426,7 @@ export default function App() {
     >
       <Shell
         runtimeSurface={state.runtimeSurface}
+        account={state.account}
         onModelNameChange={handleModelNameChange}
         onLogout={handleLogout}
       />
@@ -420,10 +436,12 @@ export default function App() {
 
 function Shell({
   runtimeSurface,
+  account,
   onModelNameChange,
   onLogout,
 }: {
   runtimeSurface: RuntimeSurface;
+  account: AccountInfo | null;
   onModelNameChange: (modelName: string | null) => void;
   onLogout: () => void;
 }) {
@@ -467,7 +485,33 @@ function Shell({
   const runningChatIdsRef = useRef<Set<string>>(new Set());
   const activeChatIdRef = useRef<string | null>(null);
 
+  // [badmintonGPT fork] non-whitelisted accounts cannot read the (global) Settings API.
+  const settingsRestricted = account != null && !account.can_manage_settings;
+  const [usage, setUsage] = useState<UsagePayload | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
+  const refreshUsage = useCallback(() => {
+    if (!account) return;
+    setUsageLoading(true);
+    fetchUsage(token)
+      .then((payload) => {
+        setUsage(payload);
+        setUsageError(null);
+      })
+      .catch((e) => setUsageError((e as Error).message))
+      .finally(() => setUsageLoading(false));
+  }, [account, token]);
+
   useEffect(() => {
+    refreshUsage();
+    // Spend changes when a turn finishes; refresh then (cheap: one small JSON request).
+    return client.onRunStatus((_chatId, startedAt) => {
+      if (startedAt == null) refreshUsage();
+    });
+  }, [client, refreshUsage]);
+
+  useEffect(() => {
+    if (settingsRestricted) return;
     let cancelled = false;
     fetchSettings(token)
       .then((payload) => {
@@ -479,7 +523,7 @@ function Shell({
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [settingsRestricted, token]);
 
   useEffect(() => {
     try {
@@ -891,10 +935,17 @@ function Shell({
 
   const onOpenSettings = useCallback((section: SettingsSectionKey = "overview") => {
     setSessionSearchOpen(false);
-    setSettingsInitialSection(section);
+    setSettingsInitialSection(settingsRestricted ? "appearance" : section);
     setView("settings");
     setMobileSidebarOpen(false);
-  }, []);
+  }, [settingsRestricted]);
+
+  const onOpenUsage = useCallback(() => {
+    setSessionSearchOpen(false);
+    setView("usage");
+    setMobileSidebarOpen(false);
+    refreshUsage();
+  }, [refreshUsage]);
 
   const onOpenApps = useCallback(() => {
     setSessionSearchOpen(false);
@@ -1031,6 +1082,10 @@ function Shell({
       });
       return;
     }
+    if (view === "usage") {
+      document.title = t("app.documentTitle.chat", { title: t("usage.title") });
+      return;
+    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -1051,9 +1106,12 @@ function Shell({
     onRequestRenameProject,
     onNewChatInProject,
     onOpenSettings,
-    onOpenApps,
+    onOpenApps: settingsRestricted ? undefined : onOpenApps,
+    onOpenUsage: account ? onOpenUsage : undefined,
+    usage: account ? usage ?? { enabled: true, ...account } : null,
     onOpenSearch: onOpenSessionSearch,
-    activeUtility: view === "apps" ? "apps" as const : null,
+    activeUtility:
+      view === "apps" ? "apps" as const : view === "usage" ? "usage" as const : null,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
@@ -1194,9 +1252,22 @@ function Shell({
                 settingsSnapshot={settingsSnapshot}
               />
             </div>
-            {view !== "chat" && (
+            {view === "usage" && (
+              <div className="absolute inset-0 flex flex-col">
+                <UsageView
+                  usage={usage}
+                  loading={usageLoading}
+                  error={usageError}
+                  onRefresh={refreshUsage}
+                  onBackToChat={onBackToChat}
+                  onToggleSidebar={toggleSidebar}
+                />
+              </div>
+            )}
+            {(view === "settings" || view === "apps") && (
               <div className="absolute inset-0 flex flex-col">
                 <SettingsView
+                  restricted={settingsRestricted}
                   theme={theme}
                   initialSection={settingsInitialSection}
                   showSidebar={view === "settings"}

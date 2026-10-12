@@ -341,6 +341,7 @@ class MCPToolWrapper(_SessionHealer, Tool):
     ):
         self._session = session
         self._link = link
+        self._server_name = server_name
         self._original_name = tool_def.name
         self._name = _sanitize_name(f"mcp_{server_name}_{tool_def.name}")
         self._description = tool_def.description or tool_def.name
@@ -369,6 +370,15 @@ class MCPToolWrapper(_SessionHealer, Tool):
                 "MCP tool '{}': language={!r} filled from UI locale", self._name, filled["language"]
             )
             kwargs = filled
+
+        # [badmintonGPT fork] per-account quota: once spent, refuse calls that can start new paid
+        # work; status/result polls (get_*/list_*) still run so in-flight jobs get metered.
+        if not self._original_name.startswith(("get_", "list_")):
+            from nanobot.accounts import mcp_call_refusal
+
+            refused = mcp_call_refusal()
+            if refused is not None:
+                return refused
 
         for attempt in range(2):  # At most 1 retry
             try:
@@ -427,7 +437,17 @@ class MCPToolWrapper(_SessionHealer, Tool):
                         parts.append(block.text)
                     else:
                         parts.append(str(block))
-                return "\n".join(parts) or "(no output)"
+                text = "\n".join(parts) or "(no output)"
+                # [badmintonGPT fork] charge jobs that self-report {"job_id", "usage.cost_usd"}.
+                from nanobot.accounts import record_mcp_result
+
+                record_mcp_result(
+                    self._server_name,
+                    self._original_name,
+                    text,
+                    structured=getattr(result, "structuredContent", None),
+                )
+                return text
 
         return "(MCP tool call failed)"  # Unreachable, but satisfies type checkers
 

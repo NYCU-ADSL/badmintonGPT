@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 import tiktoken
 from loguru import logger
 
+from nanobot.accounts import shared_memory_disabled
 from nanobot.agent.runner import AgentRunner, AgentRunSpec
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.session.manager import Session
@@ -660,9 +661,17 @@ class Consolidator:
             if response.finish_reason == "error":
                 raise RuntimeError(f"LLM returned error: {response.content}")
             summary = response.content or "[no summary]"
-            self.store.append_history(summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
+            # [badmintonGPT fork] NANOBOT_DISABLE_SHARED_MEMORY: history.jsonl is shared by every
+            # session (and fed to every prompt as "Recent History"), so with multiple users it
+            # leaks conversations across accounts. The summary still reaches the caller, which
+            # keeps it in this session's own metadata (_last_summary).
+            if not shared_memory_disabled():
+                self.store.append_history(summary, max_chars=_ARCHIVE_SUMMARY_MAX_CHARS)
             return summary
         except Exception:
+            if shared_memory_disabled():
+                logger.warning("Consolidation LLM call failed; shared history is disabled")
+                return None
             logger.warning("Consolidation LLM call failed, raw-dumping to history")
             self.store.raw_archive(messages)
             return None

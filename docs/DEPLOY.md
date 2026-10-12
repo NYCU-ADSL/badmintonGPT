@@ -51,7 +51,11 @@ These are account-bound and done once in the Cloudflare dashboard.
    **no** auth). Zero Trust → **Access → Applications** → *Add* → Self-hosted → domain
    `badmintongpt.<your-zone>` → add a policy (your email / IdP group, or a service token). Without
    this, anyone who learns the hostname reaches the WebUI.
-
+   With accounts on (the default, see [Accounts & quotas](#accounts--quotas)) Access is the **login**,
+   not the whitelist: let in everyone who should be able to sign up (e.g. *Include → Everyone* with
+   the One-time PIN or Google login method) and put the unlimited users in
+   `NANOBOT_ACCOUNTS_WHITELIST` instead. The policy must identify a **person** (an e-mail) — a
+   service-token-only policy has no e-mail, so the gateway answers `401 not signed in`.
 > This repo's `REMOTE_MCP_SERVER_GUIDE.md` covers the same Tunnel+Access concepts for the
 > *systemd* path; here cloudflared runs in a container and the tunnel is token-based.
 
@@ -61,7 +65,8 @@ These are account-bound and done once in the Cloudflare dashboard.
 
 ```bash
 cp .env.example .env
-# Fill in: OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET, TUNNEL_TOKEN
+# Fill in: OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET, TUNNEL_TOKEN,
+#          NANOBOT_ACCOUNTS_WHITELIST (+ recommended CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD)
 #          (for the DB build also: HF_TOKEN)
 ```
 
@@ -148,6 +153,54 @@ In the browser, confirm the **tool-progress bar** renders during a reel render �
   `uv tool upgrade nanobot-ai` does not affect the served dist (it's baked into the pinned image).
 - **Monitoring / uptime + public status page:** stand up Gatus alongside this stack (one container,
   monitors as YAML; status page at `badmintongpt-status.<zone>`) — see [`MONITORING.md`](MONITORING.md).
+
+---
+
+## Accounts & quotas
+
+The gateway runs with `NANOBOT_ACCOUNTS=1` (fork module `vendor/nanobot/nanobot/accounts.py`).
+Every WebUI request carries the Cloudflare Access identity, and the gateway keys everything on that
+e-mail:
+
+| | Whitelisted (`NANOBOT_ACCOUNTS_WHITELIST`) | Everyone else |
+|---|---|---|
+| Usage limit | none | lifetime `NANOBOT_ACCOUNTS_QUOTA_USD` (default **$3.00**) |
+| Settings / Apps / `/restart` `/model` `/dream*` `/pairing` | yes | no (403 / refused) — only Appearance + Speech |
+| Conversations, projects, pins & titles, cron jobs | own only | own only |
+
+- **What counts toward the quota:** every chat-model call charged to the user's session (agent
+  turns, context compaction, title generation, subagents) at the per-1M-token prices
+  (`gpt-5.5`: $5 input / $0.50 cached / $30 output; override with `NANOBOT_ACCOUNTS_PRICES`), plus
+  every reel's **actual** API cost as reported by the reels server (`usage.cost_usd` on
+  `generate_reel` / `get_reel_status` / `get_reel_result` — its script-model tokens and Fish TTS
+  bytes). Video retrieval, CoachAI analytics and message TTS are not billed.
+- **Enforcement:** a turn is refused up front once the allowance is spent (the WebUI shows *Usage
+  limit reached*); a turn that crosses the line mid-way stops at its next model call, and new
+  paid MCP jobs are refused (status/result polls still run so in-flight reels are metered). So
+  the overshoot is at most one model call / one reel.
+- **Usage page:** sidebar → the gauge button (shows the remaining balance) → spend, token counts,
+  reels, daily spend. `GET /api/usage` returns the same JSON.
+- **Ledger:** SQLite at `~/.nanobot/accounts.db` in the `nanobot_state` volume (session owners,
+  per-call usage, per-job reel costs). Admin CLI:
+
+  ```bash
+  docker compose exec gateway python -m nanobot.accounts list
+  docker compose exec gateway python -m nanobot.accounts set-quota someone@example.org 10   # raise one user
+  docker compose exec gateway python -m nanobot.accounts reset-quota someone@example.org    # back to default
+  ```
+- **Identity:** by default the `Cf-Access-Authenticated-User-Email` header is trusted (safe only
+  because `8765` is `expose`-only and only cloudflared reaches it). Set `CF_ACCESS_TEAM_DOMAIN` +
+  `CF_ACCESS_AUD` to verify the `Cf-Access-Jwt-Assertion` signature instead (recommended).
+- **Existing conversations** (created before accounts) have no owner and are hidden from everyone
+  until `NANOBOT_ACCOUNTS_LEGACY_OWNER=<e-mail>` adopts them at the next start. Projects created
+  before accounts (`workspace/projects/<name>`) are likewise hidden; new ones live under
+  `workspace/projects/<user>/`.
+- **Shared memory is off** (`NANOBOT_DISABLE_SHARED_MEMORY=1`, `dream.enabled: false`): nanobot's
+  `memory/history.jsonl` is injected into *every* session's prompt, which would leak one user's
+  conversations to another. Each chat still keeps its own compaction summary. The agent can no
+  longer edit `SOUL.md` / `USER.md` / `memory/` / `skills/`, and cannot read `sessions/`.
+- **Not isolated (known):** files the agent writes at the workspace root outside a project are
+  visible to other users' agents; keep per-user work inside projects.
 
 ---
 

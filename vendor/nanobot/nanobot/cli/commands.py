@@ -981,6 +981,13 @@ def _run_gateway(
 
         # Dream is an internal job — run directly, not through the agent loop.
         if job.name == "dream":
+            # [badmintonGPT fork] a dream job registered before dream was disabled stays in the
+            # cron store; honour the current config (and NANOBOT_DISABLE_SHARED_MEMORY) here.
+            from nanobot.accounts import shared_memory_disabled
+
+            if not config.agents.defaults.dream.enabled or shared_memory_disabled():
+                logger.info("Dream cron job skipped (dream disabled)")
+                return None
             try:
                 await agent.dream.run()
                 logger.info("Dream cron job completed")

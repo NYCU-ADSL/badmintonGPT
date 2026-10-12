@@ -157,6 +157,8 @@ vi.mock("@/lib/bootstrap", () => ({
   loadSavedSecret: vi.fn(() => ""),
   saveSecret: vi.fn(),
   clearSavedSecret: vi.fn(),
+  redirectToAccessLogout: vi.fn(),
+  getTtsBootstrapDefaults: vi.fn(() => ({})),
 }));
 
 vi.mock("@/lib/nanobot-client", () => {
@@ -185,7 +187,7 @@ vi.mock("@/lib/nanobot-client", () => {
   return { NanobotClient: MockClient };
 });
 
-import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
+import { deriveWsUrl, fetchBootstrap, redirectToAccessLogout } from "@/lib/bootstrap";
 import App from "@/App";
 
 describe("App layout", () => {
@@ -217,6 +219,45 @@ describe("App layout", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("signs out of Cloudflare Access instead of showing the secret prompt (accounts mode)", async () => {
+    vi.mocked(redirectToAccessLogout).mockClear();
+    vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
+      token: "tok",
+      ws_path: "/",
+      expires_in: 300,
+      account: {
+        email: "alice@uni.edu",
+        whitelisted: false,
+        unlimited: false,
+        quota_usd: 3,
+        spent_usd: 0.5,
+        remaining_usd: 2.5,
+        exhausted: false,
+        can_manage_settings: false,
+      },
+    });
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Settings" })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+
+    expect(redirectToAccessLogout).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/tokenIssueSecret/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the secret prompt on sign-out when the gateway has no accounts", async () => {
+    vi.mocked(redirectToAccessLogout).mockClear();
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Settings" })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+
+    expect(redirectToAccessLogout).not.toHaveBeenCalled();
+    expect(await screen.findByText(/tokenIssueSecret/)).toBeInTheDocument();
   });
 
   it("keeps sidebar layout out of the main thread width contract", async () => {

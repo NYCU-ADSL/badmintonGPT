@@ -759,6 +759,18 @@
     "workspaceScopeRejected": {
       "title": "工作區未變更",
       "body": "閘道拒絕了要求的專案或存取權限，badmintonGPT 已繼續使用先前的工作區。"
+    },
+    "quotaExhausted": {
+      "title": "已達使用額度",
+      "body": "此帳號已用完 ${{quota}} 的額度，新訊息已暫停。如需提高額度，請聯絡管理員。"
+    },
+    "chatForbidden": {
+      "title": "無法開啟對話",
+      "body": "這個對話屬於其他帳號。"
+    },
+    "commandForbidden": {
+      "title": "不允許使用此指令",
+      "body": "{{command}} 會影響整個服務，僅限管理員使用。"
     }
   },
   "workspace": {
@@ -774,5 +786,42 @@
   },
   "visualizer": {
     "generating": "視覺化產生中…"
+  },
+  "usage": {
+    "title": "使用量",
+    "refresh": "重新整理",
+    "balance": "額度",
+    "remaining": "剩餘額度",
+    "spentTotal": "累計使用",
+    "spentOf": "已使用 {{spent}} / {{quota}}",
+    "sidebarRemaining": "剩餘 {{amount}}",
+    "unlimitedHint": "此帳號在白名單內，沒有使用量限制。",
+    "exhaustedHint": "額度已用完，新訊息會暫停，直到管理員提高額度。",
+    "disabled": "此伺服器未啟用使用量追蹤。",
+    "plan": {
+      "unlimited": "無限制",
+      "quota": "{{quota}} 額度",
+      "exhausted": "已達上限"
+    },
+    "llm": {
+      "title": "對話模型",
+      "calls": "模型呼叫次數",
+      "input": "輸入 tokens",
+      "cached": "快取輸入 tokens",
+      "output": "輸出 tokens"
+    },
+    "jobs": {
+      "title": "精華影片",
+      "none": "尚未產生精華影片。",
+      "count_one": "{{count}} 支",
+      "count_other": "{{count}} 支"
+    },
+    "servers": {
+      "reels": "精華影片"
+    },
+    "daily": "每日花費（UTC）",
+    "recentJobs": "最近的精華影片工作",
+    "pricingNote": "對話模型 {{model}}：每 1M 輸入 tokens ${{input}}、快取 ${{cached}}、輸出 ${{output}}。精華影片依實際 API 成本（腳本模型＋旁白語音）計費。",
+    "updateNote": "數字會在每次回覆後更新。"
   }
 }

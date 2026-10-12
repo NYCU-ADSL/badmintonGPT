@@ -26,6 +26,27 @@ Backend (Python):
   `AGENTS.md`; `read_file` can read agent workspace skills when a project is selected.
   Write/edit tools remain restricted to the selected project. This keeps visualise and the
   badminton playbooks callable from the project groups.
+- **accounts, quotas & per-user isolation** (opt-in `NANOBOT_ACCOUNTS=1`; new module
+  `nanobot/accounts.py`, tests `tests/test_accounts.py` + `tests/channels/test_websocket_accounts.py`)
+  — identity = the Cloudflare Access e-mail (`Cf-Access-Authenticated-User-Email`, or the verified
+  `Cf-Access-Jwt-Assertion` when `CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD` are set). SQLite ledger
+  `~/.nanobot/accounts.db`: session owners, per-call LLM usage, per-job MCP costs.
+  `channels/websocket.py` requires an identity for bootstrap/API/WS, claims new chats for their
+  creator and filters/404s every session route, attach and message by owner; adds
+  `GET /api/usage`, `account` in bootstrap, 403 on `/api/settings*` and refusal of
+  `/restart` `/model` `/dream*` `/pairing` for non-whitelisted accounts, and refuses turns once the
+  quota is spent (`error` event `quota_exhausted`). Metering: `providers/base.py`
+  `_safe_chat`/`_safe_chat_stream` (refuse when exhausted, record `usage` after) and
+  `agent/tools/mcp.py` (charges any result carrying `{"job_id", "usage": {"cost_usd"}}` — the
+  reels contract — once per job, monotonic). `openai_responses/parsing.py` now keeps
+  `cached_tokens`. Isolation beyond the chat list: `agent/tools/filesystem.py` + `sandbox.py`
+  (no `sessions/`, `memory/history.jsonl` or other users' `projects/<user>/`; shared config
+  read-only), `webui/workspaces.py` (remote projects under `projects/<user>/`),
+  `webui/sidebar_state.py` (per-user file), `agent/tools/cron.py` (own jobs only).
+  `NANOBOT_DISABLE_SHARED_MEMORY=1` stops `Consolidator.archive` writing the shared
+  `history.jsonl`, `context.py` injecting it, and the stale `dream` cron job running
+  (`cli/commands.py`). WebUI: `components/UsageView.tsx`, a sidebar balance button, restricted
+  Settings (Appearance + Speech), account error banners. Ops: `python -m nanobot.accounts`.
 - **remote restricted projects** (`nanobot/webui/workspaces.py`, opt-in
   `NANOBOT_WEBUI_REMOTE_PROJECTS=1`) — lets the Cloudflare Access WebUI create and select
   one-level project directories under the persistent agent workspace's `projects/` directory.

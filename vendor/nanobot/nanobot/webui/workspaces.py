@@ -10,6 +10,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.accounts import webui_project_root
 from nanobot.config.paths import get_webui_dir
 from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
@@ -157,7 +158,7 @@ def workspaces_payload(
             "can_change_project": controls_available or remote_projects,
             "can_use_full_access": controls_available,
             "managed_project_root": (
-                str((default_workspace / "projects").resolve())
+                str(webui_project_root(default_workspace))
                 if remote_projects and not controls_available else None
             ),
         },
@@ -239,7 +240,8 @@ class WebUIWorkspaceController:
 
     def _validate_remote_project(self, scope: WorkspaceScope) -> None:
         """Remote project selection stays in the persisted, restricted project directory."""
-        root = (self._default_workspace / "projects").resolve()
+        # [badmintonGPT fork] per-account subdirectory when NANOBOT_ACCOUNTS is on.
+        root = webui_project_root(self._default_workspace)
         path = scope.project_path
         if (
             scope.access_mode != "restricted"
@@ -261,7 +263,7 @@ class WebUIWorkspaceController:
             return
         self._validate_remote_project(build_workspace_scope(path, "restricted"))
         try:
-            path.mkdir(exist_ok=True)
+            path.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise WorkspaceScopeError("could not create remote project", status=400) from exc
 

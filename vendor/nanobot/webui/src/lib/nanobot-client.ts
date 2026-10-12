@@ -86,7 +86,11 @@ export type StreamError =
    * Typically means the user attached images whose base64 size exceeded
    * ``maxMessageBytes`` on the server. */
   | { kind: "message_too_big" }
-  | { kind: "workspace_scope_rejected"; reason?: string; chatId?: string };
+  | { kind: "workspace_scope_rejected"; reason?: string; chatId?: string }
+  /** [badmintonGPT fork] NANOBOT_ACCOUNTS rejections. */
+  | { kind: "quota_exhausted"; chatId?: string; quotaUsd?: number | null; spentUsd?: number }
+  | { kind: "chat_forbidden"; chatId?: string }
+  | { kind: "command_forbidden"; chatId?: string; command?: string };
 
 type ErrorHandler = (error: StreamError) => void;
 
@@ -440,6 +444,23 @@ export class NanobotClient {
         clearTimeout(this.pendingNewChat.timer);
         this.pendingNewChat.reject(new Error(`workspace_scope_rejected:${parsed.reason || ""}`));
         this.pendingNewChat = null;
+      }
+    }
+
+    if (parsed.event === "error") {
+      // [badmintonGPT fork] account rejections surface as a banner above the composer.
+      const err = parsed;
+      if (err.detail === "quota_exhausted") {
+        this.emitError({
+          kind: "quota_exhausted",
+          chatId: err.chat_id,
+          quotaUsd: err.quota_usd,
+          spentUsd: err.spent_usd,
+        });
+      } else if (err.detail === "chat_forbidden") {
+        this.emitError({ kind: "chat_forbidden", chatId: err.chat_id });
+      } else if (err.detail === "command_forbidden") {
+        this.emitError({ kind: "command_forbidden", chatId: err.chat_id, command: err.command });
       }
     }
 

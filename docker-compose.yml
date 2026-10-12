@@ -7,7 +7,7 @@
 #
 # Required in .env:  OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET,
 #                    VIDEO_RETRIEVAL_CF_CLIENT_ID, VIDEO_RETRIEVAL_CF_CLIENT_SECRET,
-#                    ANALYZE_MCP_TOKEN, TUNNEL_TOKEN
+#                    ANALYZE_MCP_TOKEN, TUNNEL_TOKEN, NANOBOT_ACCOUNTS_WHITELIST
 # Build the DB once: docker compose --profile ingest run --rm ingest   (needs HF_TOKEN)
 # Bring it up:       docker compose up -d --build
 
@@ -74,6 +74,19 @@ services:
       NANOBOT_WEBUI_TRUST_PROXY: "1"
       # Allow remote WebUI users to create restricted projects inside the persistent workspace.
       NANOBOT_WEBUI_REMOTE_PROJECTS: "1"
+      # Accounts (fork, nanobot/accounts.py): each Cloudflare Access user sees only their own chats and
+      # projects; whitelisted e-mails are unlimited + may use Settings, everyone else has a lifetime
+      # quota covering chat-model tokens and reel API cost. Ledger: ~/.nanobot/accounts.db (volume).
+      NANOBOT_ACCOUNTS: "1"
+      NANOBOT_ACCOUNTS_WHITELIST: ${NANOBOT_ACCOUNTS_WHITELIST:?set NANOBOT_ACCOUNTS_WHITELIST in .env}
+      NANOBOT_ACCOUNTS_QUOTA_USD: ${NANOBOT_ACCOUNTS_QUOTA_USD:-3.00}
+      NANOBOT_ACCOUNTS_LEGACY_OWNER: ${NANOBOT_ACCOUNTS_LEGACY_OWNER:-}
+      NANOBOT_ACCOUNTS_PRICES: ${NANOBOT_ACCOUNTS_PRICES:-}
+      # Optional but recommended: verify the Access JWT instead of trusting the e-mail header.
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      # The shared memory/history.jsonl would carry one user's conversations into everyone's prompt.
+      NANOBOT_DISABLE_SHARED_MEMORY: "1"
     volumes:
       - nanobot_state:/home/nanobot/.nanobot  # persist sessions/ + memory/ across restarts
     expose:

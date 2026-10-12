@@ -276,6 +276,9 @@ interface SettingsViewProps {
   onRestart?: () => void;
   isRestarting?: boolean;
   hostChromeInset?: boolean;
+  /** [badmintonGPT fork] Non-whitelisted account (NANOBOT_ACCOUNTS): only the browser-local
+   *  Appearance + Speech preferences — the gateway's Settings API answers 403. */
+  restricted?: boolean;
 }
 
 function readLocalPreferences(): LocalPreferences {
@@ -324,6 +327,7 @@ export function SettingsView({
   onRestart,
   isRestarting = false,
   hostChromeInset = false,
+  restricted = false,
 }: SettingsViewProps) {
   const { t } = useTranslation();
   const { token } = useClient();
@@ -349,7 +353,9 @@ export function SettingsView({
   const [networkSafetySaving, setNetworkSafetySaving] = useState(false);
   const [hostEngineApplying, setHostEngineApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<SettingsSectionKey>(initialSection);
+  const [activeSection, setActiveSection] = useState<SettingsSectionKey>(
+    restricted ? "appearance" : initialSection,
+  );
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [providerQuery, setProviderQuery] = useState("");
   const [appsQuery, setAppsQuery] = useState("");
@@ -465,6 +471,10 @@ export function SettingsView({
   }, [onSettingsChange]);
 
   useEffect(() => {
+    if (restricted) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     fetchSettings(token)
@@ -483,10 +493,10 @@ export function SettingsView({
     return () => {
       cancelled = true;
     };
-  }, [applyPayload, token]);
+  }, [applyPayload, restricted, token]);
 
   useEffect(() => {
-    if (activeSection !== "apps") return;
+    if (activeSection !== "apps" || restricted) return;
     let cancelled = false;
     setCliAppsLoading(true);
     fetchCliApps(token)
@@ -1318,6 +1328,7 @@ export function SettingsView({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,hsl(var(--muted))_0%,hsl(var(--background))_42%)] md:flex-row">
       {showSidebar ? (
         <SettingsSidebar
+          items={restricted ? RESTRICTED_NAV_ITEMS : SETTINGS_NAV_ITEMS}
           activeSection={activeSection}
           onSelectSection={setActiveSection}
           onBackToChat={onBackToChat}
@@ -1353,7 +1364,14 @@ export function SettingsView({
             </h1>
           </div>
 
-          {loading ? (
+          {restricted ? (
+            <AppearanceSettings
+              theme={theme}
+              onToggleTheme={onToggleTheme}
+              localPrefs={localPrefs}
+              onChangeLocalPrefs={setLocalPrefs}
+            />
+          ) : loading ? (
             <div className="flex h-48 items-center justify-center rounded-[24px] border border-border/50 bg-card/75 text-sm text-muted-foreground shadow-[0_20px_70px_rgba(15,23,42,0.07)]">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               {t("settings.status.loading")}
@@ -1390,6 +1408,8 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
 ];
 
+const RESTRICTED_NAV_ITEMS = SETTINGS_NAV_ITEMS.filter((item) => item.key === "appearance");
+
 function visibleWebuiDefaultAccessMode(mode: string | null | undefined): WebuiDefaultAccessMode {
   return mode === "full" ? "full" : "default";
 }
@@ -1399,12 +1419,14 @@ function titleForSection(section: SettingsSectionKey): string {
 }
 
 function SettingsSidebar({
+  items,
   activeSection,
   onSelectSection,
   onBackToChat,
   onLogout,
   hostChromeInset,
 }: {
+  items: typeof SETTINGS_NAV_ITEMS;
   activeSection: SettingsSectionKey;
   onSelectSection: (section: SettingsSectionKey) => void;
   onBackToChat: () => void;
@@ -1437,7 +1459,7 @@ function SettingsSidebar({
         aria-label={t("settings.sidebar.ariaLabel")}
         className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:block md:space-y-1 md:overflow-visible md:px-0 md:pb-0"
       >
-        {SETTINGS_NAV_ITEMS.map(({ key, icon: Icon, fallback }) => {
+        {items.map(({ key, icon: Icon, fallback }) => {
           const active = key === activeSection;
           return (
             <button
