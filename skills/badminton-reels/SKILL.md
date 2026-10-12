@@ -35,14 +35,9 @@ Brief summary (see that skill for details and strict rules): after `generate_ree
      `rally_number`.
   2. **Convert hits to reels `rally_ids` with badminton-db.** A hit's `rally_number` is the N-th rally of that
      set (1-based), **not** a reels id; reels ids are `"<set>_<scoreA:02>_<scoreB:02>"` (e.g. `"2_16_07"`).
-     Never pass `rally_number`, `parent_id` or the clip filename as a rally id. One query maps all hits:
-     ```sql
-     SELECT match_name, set_no, n AS rally_number, rally_id, has_video
-     FROM (SELECT match_name, set_no, rally_id, has_video,
-                  ROW_NUMBER() OVER (PARTITION BY match_name, set_no ORDER BY start_frame) AS n
-           FROM rallies WHERE match_name IN ('<match A>', '<match B>'))
-     WHERE (match_name, set_no, n) IN (VALUES ('<match A>', 2, 23), ('<match B>', 3, 36))
-     ```
+     Never pass `rally_number`, `parent_id` or the clip filename as a rally id. Map **all** hits with the
+     **single "hit lookup" query** in the badminton-video-retrieval skill ("Answering" section) — it returns
+     `rally_id`, `has_video`, player names and the shot sequence; do not run extra per-hit queries.
      Keep only rows with `has_video = 1` (an explicit rally without a clip is not filtered out by reels).
      A hit with no row is not in the rally catalog → drop it.
   3. **One match per reel.** `match_name` takes a single match, but retrieval hits usually span several
@@ -94,7 +89,7 @@ start_video_retrieval(query="smash winner from the back court", return_mode="top
 # poll per long-mcp-job → get_video_retrieval_result("vr-7") → read_file the saved output:
 #   hits: (AN_Se_Young_TAI_Tzu_Ying_Korea_Open_2023_F, set 2, rally 33),
 #         (Akane_YAMAGUCHI_CHEN_Yu_Fei_China_Open_2023_SF, set 2, rally 23), (…_China_Open_2023_SF, set 1, rally 37), …
-query(<the mapping SQL above with those hits>)
+query(<the video-retrieval skill's hit-lookup SQL with those hits>)   # one call for all hits
 → (…Korea_Open_2023_F, 2, 33, "2_20_13", 1), (…China_Open_2023_SF, 2, 23, "2_16_07", 1), (…China_Open_2023_SF, 1, 37, "1_18_19", 1)
 # China Open SF has the most usable hits → one reel for it
 generate_reel(match_name="Akane_YAMAGUCHI_CHEN_Yu_Fei_China_Open_2023_SF", rally_ids=["2_16_07", "1_18_19"])

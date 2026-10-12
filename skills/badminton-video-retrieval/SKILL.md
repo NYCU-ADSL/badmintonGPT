@@ -44,10 +44,41 @@ to a preview plus a saved-file path (`Full output saved to: …/tool-results/...
   `best` → `best_result` (+ `top_results`); `top_k` → `results` (+ `count`), up to 5 hits.
   Use `best` for a single clip and `top_k` for multiple candidates.
 - Each hit carries `match_name` (= `matches.name`), `set_number` and `rally_number` (the N-th rally of that
-  set, 1-based — **not** a reels/badminton-db `rally_id`). Hits usually come from several different matches,
-  and the search does **not** understand player or match names in `query` (it matches the described play).
+  set, 1-based — **not** a reels/badminton-db `rally_id`; it equals `shots.rally`). Hits usually come from
+  several different matches, and the search does **not** reliably filter by player or match names in `query`
+  (it matches the described play). `winner_player` is a court side (`"Bottom-court Player"`), not a name.
 - **To make a highlight from retrieved clips** (or any shot-type/scene highlight request): follow the
-  **badminton-reels** skill, "Choosing rallies" — it converts these hits to `rally_ids` via badminton-db.
+  **badminton-reels** skill, "Choosing rallies" — it converts these hits to `rally_ids` with the hit lookup below.
+- `return_mode="top_k"` returns at most 5 hits. For an exhaustive ask ("all of X's smash clips"), say that
+  retrieval shows the best few and offer a full list from badminton-db; do not verify hits one by one to fake completeness.
+
+## Answering: the hits are the answer (badminton-db at most once)
+- **Default: no badminton-db.** Answer from the result itself: `match_name` (readable as players + event),
+  set/rally, `llm_reason` / `analysis.Narrative` for why it fits, and `video_url`. The retrieval server
+  already ranked and LLM-verified the hits; do not re-verify the tactic shot by shot.
+- **Use badminton-db only when** the user named a player/match (you must show which side they are and
+  drop hits where they are not the one doing the play), or the hits feed `generate_reel`. Then run
+  **exactly one** query covering **all** hits — it returns names, `rally_id`, `has_video`, the winner side
+  and the shot sequence (`A:發短球 > B:放小球 > …`, `player` = hitter). Do not `describe_table`, do not
+  improvise joins on scores, and do not query per hit:
+  ```sql
+  SELECT h.match_name, h.set_no, h.n AS rally_number, h.rally_id, h.has_video,
+         m.player_a, m.player_b,
+         (SELECT MAX(getpoint_player) FROM shots s
+           WHERE s.match_name = h.match_name AND s.set_no = h.set_no AND s.rally = h.n) AS winner,
+         (SELECT GROUP_CONCAT(player || ':' || type, ' > ')
+            FROM (SELECT player, type FROM shots s
+                   WHERE s.match_name = h.match_name AND s.set_no = h.set_no AND s.rally = h.n
+                   ORDER BY ball_round)) AS shots
+  FROM (SELECT match_name, set_no, rally_id, has_video,
+               ROW_NUMBER() OVER (PARTITION BY match_name, set_no ORDER BY start_frame) AS n
+        FROM rallies WHERE match_name IN ('<match A>', '<match B>')) h
+  JOIN matches m ON m.name = h.match_name
+  WHERE (h.match_name, h.set_no, h.n) IN (VALUES ('<match A>', 2, 23), ('<match B>', 3, 36))
+  ```
+  (`winner`/hitter `A`/`B` → `player_a`/`player_b`.) A hit with no row → present it from the hit alone,
+  noting it could not be checked. If no hit features the named player, say so in one line and offer a
+  badminton-db search instead of chaining more queries.
 - Results are usually in each hit's `video_url` field, formatted as
   `https://video-retrieval.nycu-cgvlab.org/files/<long base64 string>`—**note that this URL does not end
   in .mp4** (the extension is encoded in base64). The server returns `Content-Type: video/mp4` and the video
@@ -57,8 +88,7 @@ to a preview plus a saved-file path (`Full output saved to: …/tool-results/...
   `![Clip.mp4](video_url)` (the leading `!` is required). The WebUI recognizes .mp4 in the alt text and
   embeds a `<video>` player, playable directly like highlight videos. **Do not** use `![Clip](video_url)`
   (no .mp4 in the alt text → only a download link, no playback), a bare URL, or a plain `[Clip](video_url)` link.
-  (The alt text is only for WebUI recognition; it is not displayed as subtitles.) If a result refers to a
-  clip from a match already in the database (match/rally references), use badminton-db to add match context.
+  (The alt text is only for WebUI recognition; it is not displayed as subtitles.)
 - Auxiliary tools: `list_milvus_collections` (available collections), `get_service_health` (service/model readiness)—
   use only for diagnosis or questions about supported data or available video collections.
 - Tool responsibilities: **find/search existing clips** → this skill; **generate a new highlight edit** →
