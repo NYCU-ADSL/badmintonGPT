@@ -141,7 +141,10 @@ Frontend (WebUI, `vendor/nanobot/webui/`):
   live inline iframes (`VisualWidget.tsx`, `lib/visualizer-events.ts`, routed in
   `MarkdownTextRenderer.tsx` gated on `!streaming`, with a `sendPrompt` bridge in `ThreadShell.tsx`).
   **Deliberately NOT security-hardened** (project decision): `sandbox="allow-scripts
-  allow-same-origin"`, no CSP.
+  allow-same-origin"`, no CSP. On reload, `nanobot/webui/transcript.py`
+  `demote_interrupted_assistant` keeps a text segment holding a visualizer fence as an answer
+  even when tool calls follow it (e.g. `complete_goal`); upstream folds such text into the
+  reasoning, which the live view never does, so charts used to jump into the thinking section.
 - **court theme** — the「淡綠場館 / Ball-in」home redesign: pale-green court tokens in `globals.css`,
   `--brand` tokens (+ `brand` colour in `tailwind.config.js`), court-line utilities + Ball-in
   keyframes, `thread/CourtBackdrop.tsx`, greened composer/accents, `Noto Sans TC`. Skin-only.

@@ -273,6 +273,42 @@ def test_replay_keeps_interrupted_pre_tool_text_in_activity() -> None:
     assert msgs[2]["content"] == "Done. Open index.html to play."
 
 
+def test_replay_keeps_chart_before_tool_in_answer() -> None:
+    # [badmintonGPT fork] a chart followed by more tool calls stays an answer bubble on replay,
+    # as it is live; plain narration after it is still folded into the activity.
+    chart = "Win rates by zone:\n\n```visualizer\n<div>chart</div>\n```"
+    msgs = replay_transcript_to_ui_messages([
+        {"event": "delta", "chat_id": "t-chart", "text": chart},
+        {"event": "stream_end", "chat_id": "t-chart"},
+        {
+            "event": "message",
+            "chat_id": "t-chart",
+            "text": 'complete_goal("done")',
+            "kind": "tool_hint",
+        },
+        {"event": "delta", "chat_id": "t-chart", "text": "Checking one more thing."},
+        {"event": "stream_end", "chat_id": "t-chart"},
+        {
+            "event": "message",
+            "chat_id": "t-chart",
+            "text": 'query("SELECT 1")',
+            "kind": "tool_hint",
+        },
+        {"event": "stream_end", "chat_id": "t-chart", "text": "The analysis is complete."},
+        {"event": "turn_end", "chat_id": "t-chart"},
+    ])
+
+    assert [m.get("kind") or m["role"] for m in msgs] == [
+        "assistant", "trace", "assistant", "trace", "assistant",
+    ]
+    assert msgs[0]["content"] == chart
+    assert not msgs[0].get("reasoning")
+    assert "isStreaming" not in msgs[0]
+    assert msgs[2]["content"] == ""
+    assert msgs[2]["reasoning"] == "Checking one more thing."
+    assert msgs[4]["content"] == "The analysis is complete."
+
+
 def test_replay_tool_events_dedupes_finish_after_start() -> None:
     msgs = replay_transcript_to_ui_messages([
         {
