@@ -496,6 +496,29 @@
         "build": "Which match should we break down?",
         "tackle": "Ready to talk badminton? 🏸"
       },
+      "examples": {
+        "label": "Try asking",
+        "data": {
+          "title": "Match data",
+          "prompt": "Axelsen vs Lee Zii Jia, 2022 Indonesia Open semifinal: how many points did each win with a smash?"
+        },
+        "reel": {
+          "title": "AI highlight reels",
+          "prompt": "Make a highlight reel of the 2022 BWF World Tour Finals men's singles final, Axelsen vs Ginting"
+        },
+        "chart": {
+          "title": "Instant charts",
+          "prompt": "Draw a bar chart comparing Axelsen's and Lee Zii Jia's points by shot type in the 2022 Indonesia Open semifinal"
+        },
+        "analysis": {
+          "title": "Advanced tactics",
+          "prompt": "In the 2022 Indonesia Open semifinal, Axelsen vs Lee Zii Jia — how fast did each recover after smashing?"
+        },
+        "search": {
+          "title": "Find any rally",
+          "prompt": "Find me a rally won with a net kill"
+        }
+      },
       "quickActions": {
         "plan": {
           "title": "Create a project plan",

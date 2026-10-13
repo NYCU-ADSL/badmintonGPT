@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ThreadComposer } from "@/components/thread/ThreadComposer";
+import { ExamplePrompts } from "@/components/thread/ExamplePrompts";
+import { ThreadComposer, type ComposerPrefill } from "@/components/thread/ThreadComposer";
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadViewport } from "@/components/thread/ThreadViewport";
@@ -172,6 +173,10 @@ export function ThreadShell({
   const [settings, setSettings] = useState<SettingsPayload | null>(settingsSnapshot);
   const [heroGreetingKey, setHeroGreetingKey] = useState(randomHeroGreetingKey);
   const [scrollToBottomSignal, setScrollToBottomSignal] = useState(0);
+  const [composerPrefill, setComposerPrefill] = useState<ComposerPrefill | null>(null);
+  const pickExample = useCallback((text: string) => {
+    setComposerPrefill((prev) => ({ id: (prev?.id ?? 0) + 1, text }));
+  }, []);
   const pendingFirstRef = useRef<PendingFirstMessage | null>(null);
   const messageCacheRef = useRef<Map<string, UIMessage[]>>(new Map());
   /** Last chatId we associated with the in-memory thread (for cache-on-switch). */
@@ -520,6 +525,7 @@ export function ThreadShell({
           cliApps={cliApps}
           mcpPresets={mcpPresets}
           onStop={stop}
+          prefill={composerPrefill}
           runStartedAt={runStartedAt}
           goalState={goalState}
           workspaceScope={workspaceScope}
@@ -544,6 +550,7 @@ export function ThreadShell({
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
           variant="hero"
+          prefill={composerPrefill}
           slashCommands={slashCommands}
           cliApps={cliApps}
           mcpPresets={mcpPresets}
@@ -557,6 +564,9 @@ export function ThreadShell({
           onWorkspaceScopeChange={onWorkspaceScopeChange}
         />
       )}
+      {showHeroComposer && !booting ? (
+        <ExamplePrompts className="mt-4" onPick={pickExample} />
+      ) : null}
     </>
   );
 

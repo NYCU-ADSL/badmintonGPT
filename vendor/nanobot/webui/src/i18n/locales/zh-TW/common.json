@@ -496,6 +496,29 @@
         "build": "想拆解哪一場比賽？",
         "tackle": "準備好聊羽球了嗎？🏸"
       },
+      "examples": {
+        "label": "試試這些問題",
+        "data": {
+          "title": "比賽數據查詢",
+          "prompt": "2022 印尼公開賽四強 Axelsen 對 Lee Zii Jia，兩人各用殺球拿下幾分？"
+        },
+        "reel": {
+          "title": "AI 精華影片",
+          "prompt": "幫我做 2022 世界羽聯年終總決賽男單冠軍戰 Axelsen 對 Ginting 的精華影片"
+        },
+        "chart": {
+          "title": "一句話畫出圖表",
+          "prompt": "畫長條圖比較 2022 印尼公開賽四強 Axelsen 和 Lee Zii Jia 各球種的得分數"
+        },
+        "analysis": {
+          "title": "進階戰術分析",
+          "prompt": "2022 印尼公開賽四強 Axelsen 對 Lee Zii Jia 這場，兩人殺球後的回位速度如何？"
+        },
+        "search": {
+          "title": "片段語意搜尋",
+          "prompt": "幫我找一球網前撲球得分的片段"
+        }
+      },
       "quickActions": {
         "plan": {
           "title": "建立專案計畫",

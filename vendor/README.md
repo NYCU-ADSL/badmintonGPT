@@ -135,6 +135,15 @@ Frontend (WebUI, `vendor/nanobot/webui/`):
   decorative rally driven by a single rAF engine; `prefers-reduced-motion` renders a static scene),
   its `brt-*` rules in `globals.css`, mounted in `thread/AgentActivityCluster.tsx` gated on
   `isTurnStreaming`. Skin-only.
+- **home example questions** — `thread/ExamplePrompts.tsx`: one example per feature (data, reel,
+  chart, analysis, rally search; the questions `public/welcome.html` demonstrates), one per row
+  below the composer of an empty chat, rendered from `ThreadShell.tsx`. The list scrolls on its
+  own and its height follows the screen height. Picking one only fills the input via
+  `ThreadComposer`'s `prefill` prop (ignored at mount, so it never comes back after sending); the
+  user still presses send. `ThreadViewport.tsx` puts the empty-chat greeting in flow above the
+  composer (upstream: absolutely positioned), so the taller block scrolls instead of pushing the
+  greeting off a short phone screen. Strings in `thread.empty.examples` (en, zh-TW). Test:
+  `tests/example-prompts.test.tsx`.
 - **animated boot splash** — `webui/index.html` lock-on mark with a play-once gate (intro played
   once AND app mounted), `prefers-reduced-motion` static fallback. Skin-only.
 - **visualizer fences** — renders ```` ```visualizer ```` fences (the `skills/visualise` output) as
