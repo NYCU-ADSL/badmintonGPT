@@ -899,6 +899,10 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/webui/sidebar-state/update":
             return self._handle_webui_sidebar_state_update(request)
 
+        # [badmintonGPT fork] NANOBOT_ACCOUNTS_INVITE_REQUIRED: activate this account
+        if got == "/api/invite/redeem":
+            return self._handle_invite_redeem(request)
+
         # [badmintonGPT fork] link-only puzzle page (public/puzzle.html)
         if got == "/api/puzzle":
             return self._handle_puzzle(request, submit=False)
@@ -907,6 +911,43 @@ class WebSocketChannel(BaseChannel):
             return self._handle_puzzle(request, submit=True)
 
         return None
+
+    def _handle_invite_redeem(self, request: WsRequest) -> Response:
+        """``GET /api/invite/redeem?code=`` — activate the caller's account. [badmintonGPT fork]
+
+        GET-only like every route here. 200 ``{"ok": true, "account": ...}`` once the account is
+        active; 400 ``invalid`` / ``full`` / ``empty``; 429 + ``Retry-After`` while cooling down
+        after repeated wrong codes.
+        """
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        account = self._request_account()
+        if account is None:
+            return _http_error(401, "not signed in")
+        code = _query_first(_parse_query(request.path), "code") or ""
+        if len(code) > accounts.MAX_INVITE_CODE_CHARS * 4:
+            return _http_error(413, "code too long")
+        if accounts.is_activated(account):
+            return _http_json_response({"ok": True, "account": self._account_payload(account)})
+        if not accounts.normalize_invite_code(code):
+            return _http_response(
+                json.dumps({"ok": False, "reason": "empty"}).encode("utf-8"),
+                status=400,
+                content_type="application/json; charset=utf-8",
+            )
+        result = accounts.ledger().redeem_invite(account.email, code)
+        if result["ok"]:
+            logger.info("account {} activated with an invite code", account.email)
+            return _http_json_response({"ok": True, "account": self._account_payload(account)})
+        body = json.dumps({"ok": False, **result}).encode("utf-8")
+        if result["reason"] == "cooldown":
+            return _http_response(
+                body,
+                status=429,
+                content_type="application/json; charset=utf-8",
+                extra_headers=[("Retry-After", str(result["retry_after_s"]))],
+            )
+        return _http_response(body, status=400, content_type="application/json; charset=utf-8")
 
     def _handle_puzzle(self, request: WsRequest, *, submit: bool) -> Response:
         """``GET /api/puzzle`` (status) / ``GET /api/puzzle/answer?answer=`` (check one answer).
@@ -1815,6 +1856,9 @@ class WebSocketChannel(BaseChannel):
             )
             return True
         status = accounts.quota_status(account)
+        if status["invite_required"]:
+            await self._send_event(connection, "error", detail="invite_required", chat_id=chat_id)
+            return True
         if status["exhausted"]:
             await self._send_event(
                 connection,

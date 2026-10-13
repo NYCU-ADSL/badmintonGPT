@@ -47,6 +47,15 @@ Backend (Python):
   `history.jsonl`, `context.py` injecting it (and the workspace-wide `memory/MEMORY.md`), and the stale `dream` cron job running
   (`cli/commands.py`). WebUI: `components/UsageView.tsx`, a sidebar balance button, restricted
   Settings (Appearance + Speech), account error banners. Ops: `python -m nanobot.accounts`.
+  **Invite codes** (opt-in `NANOBOT_ACCOUNTS_INVITE_REQUIRED=1`): ledger table `invites` (shared
+  codes, optional `max_uses`) + `users.activated_at`/`invite_*` columns, added by
+  `Ledger._migrate`, which activates every account already there. Until a non-whitelisted
+  account redeems a code, `quota_status` reports `invite_required`, `_reject_for_account` sends
+  `error` `invite_required`, and `llm_call_refusal`/`mcp_call_refusal` refuse; `GET
+  /api/invite/redeem?code=` redeems (wrong codes cool down, 429 + `Retry-After`). WebUI:
+  `components/InviteGate.tsx` replaces the app in `App.tsx` while `account.invite_required`.
+  CLI: `invite create|list|disable`, `activate`. Tests: `tests/invite-gate.test.tsx` + the two
+  Python suites above.
 - **link-only puzzle page** (`webui/public/puzzle.html`, `nanobot/puzzle.py`, routes in
   `channels/websocket.py` `_handle_puzzle`; tests `tests/test_puzzle.py` +
   `tests/channels/test_websocket_accounts.py`) — a static answer page nothing links to, behind

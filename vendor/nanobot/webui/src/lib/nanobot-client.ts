@@ -90,6 +90,7 @@ export type StreamError =
   /** [badmintonGPT fork] NANOBOT_ACCOUNTS rejections. */
   | { kind: "quota_exhausted"; chatId?: string; quotaUsd?: number | null; spentUsd?: number }
   | { kind: "chat_forbidden"; chatId?: string }
+  | { kind: "invite_required"; chatId?: string }
   | { kind: "command_forbidden"; chatId?: string; command?: string };
 
 type ErrorHandler = (error: StreamError) => void;
@@ -459,6 +460,8 @@ export class NanobotClient {
         });
       } else if (err.detail === "chat_forbidden") {
         this.emitError({ kind: "chat_forbidden", chatId: err.chat_id });
+      } else if (err.detail === "invite_required") {
+        this.emitError({ kind: "invite_required", chatId: err.chat_id });
       } else if (err.detail === "command_forbidden") {
         this.emitError({ kind: "command_forbidden", chatId: err.chat_id, command: err.command });
       }

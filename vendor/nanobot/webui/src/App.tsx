@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Menu, Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { DeleteConfirm } from "@/components/DeleteConfirm";
+import { InviteGate } from "@/components/InviteGate";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { SessionSearchDialog } from "@/components/SessionSearchDialog";
@@ -417,6 +418,20 @@ export default function App() {
     }
     setState({ status: "auth" });
   };
+
+  // [badmintonGPT fork] NANOBOT_ACCOUNTS_INVITE_REQUIRED: a new account redeems a code first.
+  if (state.account?.invite_required) {
+    return (
+      <InviteGate
+        token={state.token}
+        email={state.account.email}
+        onActivated={(account) =>
+          setState((current) => (current.status === "ready" ? { ...current, account } : current))
+        }
+        onLogout={handleLogout}
+      />
+    );
+  }
 
   return (
     <ClientProvider

@@ -74,6 +74,11 @@ function resolveCopy(
           quota: (error.quotaUsd ?? 0).toFixed(2),
         }),
       };
+    case "invite_required":
+      return {
+        title: t("errors.inviteRequired.title"),
+        body: t("errors.inviteRequired.body"),
+      };
     case "chat_forbidden":
       return {
         title: t("errors.chatForbidden.title"),

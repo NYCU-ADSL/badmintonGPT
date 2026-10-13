@@ -16,6 +16,19 @@
       "submit": "Connect",
       "invalid": "Invalid password. Try again."
     },
+    "invite": {
+      "title": "Enter your invite code",
+      "hint": "BadmintonGPT is invite-only for now. Enter your invite code to get started.",
+      "signedInAs": "Signed in as {{email}}",
+      "placeholder": "Invite code",
+      "submit": "Get started",
+      "checking": "Checking…",
+      "invalid": "That invite code isn't valid. Please check it and try again.",
+      "full": "This invite code has no places left. Ask whoever invited you for a new one.",
+      "cooldown": "Too many attempts. Try again in {{seconds}} s.",
+      "failed": "Couldn't submit. Please try again.",
+      "switchAccount": "Sign in with another account"
+    },
     "account": {
       "section": "Account",
       "logoutHint": "Disconnect this browser from the gateway.",
@@ -786,6 +799,10 @@
     "quotaExhausted": {
       "title": "Usage limit reached",
       "body": "This account has used its ${{quota}} allowance, so new messages are paused. Contact the administrator to raise it."
+    },
+    "inviteRequired": {
+      "title": "Invite code required",
+      "body": "This account isn't activated yet. Reload the page and enter an invite code."
     },
     "chatForbidden": {
       "title": "Conversation unavailable",

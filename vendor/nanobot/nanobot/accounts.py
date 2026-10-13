@@ -10,7 +10,11 @@ which authenticates every request and forwards the user's identity. With account
   owner of the session it ran for;
 * accounts on the whitelist are unlimited; everyone else gets a lifetime quota
   (``NANOBOT_ACCOUNTS_QUOTA_USD``, default 3.00) and is refused new turns / LLM calls / tool
-  calls once it is spent.
+  calls once it is spent;
+* with ``NANOBOT_ACCOUNTS_INVITE_REQUIRED`` a new account must redeem an invite code once before
+  it may chat (refused like an exhausted quota until then). Codes are shared, not per person, and
+  may cap how many accounts can redeem them. Accounts that existed when this feature was added
+  are activated by the migration; whitelisted accounts never need a code.
 
 Environment:
 
@@ -22,6 +26,7 @@ Environment:
                                      "output": $/1M}}`` merged over the built-in table; key ``"*"``
                                      is the fallback for unknown models.
 ``NANOBOT_ACCOUNTS_LEGACY_OWNER``    e-mail that adopts sessions created before accounts existed.
+``NANOBOT_ACCOUNTS_INVITE_REQUIRED`` ``1`` = new accounts need an invite code (``invite`` CLI).
 ``NANOBOT_ACCOUNTS_LOCAL_USER``      identity for header-less loopback requests (host/dev mode),
                                      default ``local@localhost`` (whitelisted).
 ``CF_ACCESS_TEAM_DOMAIN`` + ``CF_ACCESS_AUD``
@@ -38,6 +43,7 @@ import re
 import sqlite3
 import threading
 import time
+import unicodedata
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,6 +88,28 @@ def quota_usd() -> float:
     except ValueError:
         logger.warning("invalid NANOBOT_ACCOUNTS_QUOTA_USD={!r}; using 3.00", raw)
         return 3.00
+
+
+def invite_required() -> bool:
+    return os.environ.get("NANOBOT_ACCOUNTS_INVITE_REQUIRED", "").strip().lower() in _TRUTHY
+
+
+def normalize_invite_code(value: Any) -> str:
+    """NFKC (full-width → half-width), no whitespace, case-folded: 「開門 碼」 == 「開門碼」."""
+    if not isinstance(value, str):
+        return ""
+    return "".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+# Wrong invite codes: the first few are free, then each one adds half a minute to the wait.
+INVITE_FREE_WRONG = 3
+INVITE_COOLDOWN_PER_WRONG_S = 30.0
+MAX_INVITE_CODE_CHARS = 64
+
+
+def invite_cooldown_s(wrong_count: int) -> float:
+    """Wait after the n-th wrong code: none for the first two, then 30 s, 60 s, 90 s, ..."""
+    return max(0, wrong_count - INVITE_FREE_WRONG + 1) * INVITE_COOLDOWN_PER_WRONG_S
 
 
 def normalize_email(value: Any) -> str | None:
@@ -301,7 +329,22 @@ CREATE TABLE IF NOT EXISTS mcp_jobs (
     PRIMARY KEY (server, job_id)
 );
 CREATE INDEX IF NOT EXISTS mcp_jobs_email ON mcp_jobs(email);
+CREATE TABLE IF NOT EXISTS invites (
+    code       TEXT PRIMARY KEY,
+    max_uses   INTEGER,
+    uses       INTEGER NOT NULL DEFAULT 0,
+    disabled   INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
 """
+
+# Columns added to ``users`` after the first release; added in place by ``Ledger._migrate``.
+_USER_COLUMNS = {
+    "activated_at": "REAL",
+    "invite_code": "TEXT",
+    "invite_wrong": "INTEGER NOT NULL DEFAULT 0",
+    "invite_locked_until": "REAL NOT NULL DEFAULT 0",
+}
 
 
 class Ledger:
@@ -314,7 +357,17 @@ class Ledger:
         self._db = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(_SCHEMA)
+        self._migrate()
         self._owner_cache: dict[str, str] = {}
+
+    def _migrate(self) -> None:
+        have = {row[1] for row in self._db.execute("PRAGMA table_info(users)")}
+        for name, decl in _USER_COLUMNS.items():
+            if name not in have:
+                self._db.execute(f"ALTER TABLE users ADD COLUMN {name} {decl}")
+        if "activated_at" not in have:
+            # Invite codes arrived after these accounts signed up: they keep their access.
+            self._db.execute("UPDATE users SET activated_at = first_seen")
 
     def close(self) -> None:
         with self._lock:
@@ -347,6 +400,109 @@ class Ledger:
                 "quota_override_usd = excluded.quota_override_usd",
                 (email, now, now, value),
             )
+
+    # -- invites ------------------------------------------------------------
+
+    def is_activated(self, email: str) -> bool:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT activated_at FROM users WHERE email = ?", (email,)
+            ).fetchone()
+        return bool(row and row[0] is not None)
+
+    def activate(self, email: str, code: str | None = None, *, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO users(email, first_seen, last_seen, activated_at, invite_code) "
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET "
+                "activated_at = COALESCE(users.activated_at, excluded.activated_at), "
+                "invite_code = COALESCE(users.invite_code, excluded.invite_code)",
+                (email, now, now, now, code),
+            )
+
+    def invite_wait_s(self, email: str, *, now: float | None = None) -> int:
+        now = time.time() if now is None else now
+        with self._lock:
+            row = self._db.execute(
+                "SELECT invite_locked_until FROM users WHERE email = ?", (email,)
+            ).fetchone()
+        return max(0, round(float(row[0]) - now)) if row else 0
+
+    def redeem_invite(self, email: str, code: str, *, now: float | None = None) -> dict[str, Any]:
+        """Activate *email* with *code*. ``{"ok", "reason", "retry_after_s"}``; reasons:
+        ``already_active``, ``cooldown``, ``invalid`` (unknown or disabled), ``full``."""
+        now = time.time() if now is None else now
+        normalized = normalize_invite_code(code)
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO users(email, first_seen, last_seen) VALUES (?, ?, ?) "
+                "ON CONFLICT(email) DO NOTHING",
+                (email, now, now),
+            )
+            activated, wrong, locked_until = self._db.execute(
+                "SELECT activated_at, invite_wrong, invite_locked_until FROM users WHERE email = ?",
+                (email,),
+            ).fetchone()
+            if activated is not None:
+                return {"ok": True, "reason": "already_active", "retry_after_s": 0}
+            if now < float(locked_until):
+                return {"ok": False, "reason": "cooldown", "retry_after_s": round(locked_until - now)}
+            row = self._db.execute(
+                "SELECT max_uses, uses, disabled FROM invites WHERE code = ?", (normalized,)
+            ).fetchone()
+            if row is None or row[2]:
+                wrong = int(wrong) + 1
+                locked_until = now + invite_cooldown_s(wrong)
+                self._db.execute(
+                    "UPDATE users SET invite_wrong = ?, invite_locked_until = ? WHERE email = ?",
+                    (wrong, locked_until, email),
+                )
+                return {
+                    "ok": False, "reason": "invalid",
+                    "retry_after_s": max(0, round(locked_until - now)),
+                }
+            max_uses, uses = row[0], int(row[1])
+            if max_uses is not None and uses >= int(max_uses):
+                return {"ok": False, "reason": "full", "retry_after_s": 0}
+            self._db.execute("UPDATE invites SET uses = uses + 1 WHERE code = ?", (normalized,))
+            self._db.execute(
+                "UPDATE users SET activated_at = ?, invite_code = ?, invite_wrong = 0, "
+                "invite_locked_until = 0 WHERE email = ?",
+                (now, normalized, email),
+            )
+        return {"ok": True, "reason": "redeemed", "retry_after_s": 0}
+
+    def create_invite(self, code: str, max_uses: int | None = None) -> str:
+        normalized = normalize_invite_code(code)
+        if not normalized or len(normalized) > MAX_INVITE_CODE_CHARS:
+            raise ValueError(f"invite code must be 1-{MAX_INVITE_CODE_CHARS} characters")
+        if max_uses is not None and max_uses < 1:
+            raise ValueError("max_uses must be at least 1 (omit it for unlimited)")
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO invites(code, max_uses, created_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(code) DO UPDATE SET max_uses = excluded.max_uses, disabled = 0",
+                (normalized, max_uses, time.time()),
+            )
+        return normalized
+
+    def disable_invite(self, code: str) -> bool:
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE invites SET disabled = 1 WHERE code = ?", (normalize_invite_code(code),)
+            )
+        return cur.rowcount > 0
+
+    def list_invites(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT code, max_uses, uses, disabled, created_at FROM invites ORDER BY created_at"
+            ).fetchall()
+        return [
+            {"code": c, "max_uses": m, "uses": int(u), "disabled": bool(d), "created_at": float(t)}
+            for c, m, u, d, t in rows
+        ]
 
     # -- session ownership --------------------------------------------------
 
@@ -544,6 +700,13 @@ def account_quota(account: Account) -> float | None:
     return override if override is not None else quota_usd()
 
 
+def is_activated(account: Account) -> bool:
+    """False only while an invite is required and this account has not redeemed one."""
+    if not invite_required() or account.whitelisted:
+        return True
+    return ledger().is_activated(account.email)
+
+
 def quota_status(account: Account) -> dict[str, Any]:
     spent = ledger().spent_usd(account.email)
     quota = account_quota(account)
@@ -556,6 +719,7 @@ def quota_status(account: Account) -> dict[str, Any]:
         "spent_usd": round(spent, 6),
         "remaining_usd": None if remaining is None else round(remaining, 6),
         "exhausted": quota is not None and spent >= quota,
+        "invite_required": not is_activated(account),
     }
 
 
@@ -629,12 +793,26 @@ def _current_session_key() -> str | None:
     return ctx.session_key if ctx else None
 
 
-def llm_call_refusal() -> str | None:
-    """Message to return instead of calling the LLM when the current account is out of quota."""
-    email = current_account_email()
-    if email and is_exhausted(email):
+INVITE_REQUIRED_MESSAGE = (
+    "Invite code required: this account has not been activated yet. "
+    "Enter an invite code in the WebUI to start."
+)
+
+
+def _refusal(email: str | None) -> str | None:
+    if not email:
+        return None
+    if not is_activated(account_for_email(email)):
+        return INVITE_REQUIRED_MESSAGE
+    if is_exhausted(email):
         return quota_exhausted_message(email)
     return None
+
+
+def llm_call_refusal() -> str | None:
+    """Message to return instead of calling the LLM when the current account is out of quota
+    (or still needs an invite code)."""
+    return _refusal(current_account_email())
 
 
 def record_llm_usage(model: str | None, usage: dict[str, Any] | None) -> None:
@@ -658,10 +836,8 @@ def record_llm_usage(model: str | None, usage: dict[str, Any] | None) -> None:
 
 def mcp_call_refusal() -> str | None:
     """Refuse MCP tool calls (e.g. starting a paid reel render) once the quota is spent."""
-    email = current_account_email()
-    if email and is_exhausted(email):
-        return f"Error: {quota_exhausted_message(email)}"
-    return None
+    reason = _refusal(current_account_email())
+    return f"Error: {reason}" if reason else None
 
 
 def _find_job_usage(obj: Any, depth: int = 0) -> tuple[str, float, dict[str, Any]] | None:
@@ -775,6 +951,9 @@ def private_path_violation(path: Path, agent_workspace: Path | None, *, write: b
 # docker compose exec gateway python -m nanobot.accounts list
 # docker compose exec gateway python -m nanobot.accounts set-quota someone@example.org 10
 # docker compose exec gateway python -m nanobot.accounts reset-quota someone@example.org
+# docker compose exec gateway python -m nanobot.accounts invite create <code> [--max-uses N]
+# docker compose exec gateway python -m nanobot.accounts invite list | disable <code>
+# docker compose exec gateway python -m nanobot.accounts activate someone@example.org
 
 
 def _cli(argv: list[str] | None = None) -> int:
@@ -788,6 +967,18 @@ def _cli(argv: list[str] | None = None) -> int:
     p_set.add_argument("usd", type=float)
     p_reset = sub.add_parser("reset-quota", help="drop an account's override (back to default)")
     p_reset.add_argument("email")
+    p_act = sub.add_parser("activate", help="let one account in without an invite code")
+    p_act.add_argument("email")
+    p_inv = sub.add_parser("invite", help="manage shared invite codes")
+    inv = p_inv.add_subparsers(dest="invite_cmd", required=True)
+    p_create = inv.add_parser("create", help="add a code (or re-enable / change its cap)")
+    p_create.add_argument("code")
+    p_create.add_argument(
+        "--max-uses", type=int, default=None, help="how many accounts may redeem it (default: no limit)"
+    )
+    inv.add_parser("list", help="every code with its uses")
+    p_disable = inv.add_parser("disable", help="stop accepting a code (redeemed accounts keep access)")
+    p_disable.add_argument("code")
     args = parser.parse_args(argv)
 
     led = ledger()
@@ -799,12 +990,39 @@ def _cli(argv: list[str] | None = None) -> int:
             status = quota_status(account_for_email(email))
             quota = "-" if status["quota_usd"] is None else f"${status['quota_usd']:.2f}"
             plan = "unlimited" if status["unlimited"] else ("EXHAUSTED" if status["exhausted"] else "quota")
+            if status["invite_required"]:
+                plan = "NO INVITE"
             print(f"{email:40} {plan:10} {'$%.4f' % status['spent_usd']:>10} {quota:>10}")
+        return 0
+    if args.cmd == "invite":
+        if args.invite_cmd == "create":
+            try:
+                code = led.create_invite(args.code, args.max_uses)
+            except ValueError as exc:
+                parser.error(str(exc))
+            cap = "unlimited" if args.max_uses is None else str(args.max_uses)
+            print(f"invite {code!r}: max uses {cap}")
+            if not invite_required():
+                print("note: NANOBOT_ACCOUNTS_INVITE_REQUIRED is off, so no code is asked for yet")
+            return 0
+        if args.invite_cmd == "disable":
+            if not led.disable_invite(args.code):
+                parser.error(f"no such invite: {args.code!r}")
+            print(f"invite {normalize_invite_code(args.code)!r} disabled")
+            return 0
+        print(f"{'code':24} {'uses':>6} {'max':>9} status")
+        for row in led.list_invites():
+            cap = "unlimited" if row["max_uses"] is None else str(row["max_uses"])
+            state = "disabled" if row["disabled"] else "active"
+            print(f"{row['code']:24} {row['uses']:>6} {cap:>9} {state}")
         return 0
     email = normalize_email(args.email)
     if email is None:
         parser.error(f"not an e-mail address: {args.email!r}")
-    led.set_quota_override(email, args.usd if args.cmd == "set-quota" else None)
+    if args.cmd == "activate":
+        led.activate(email)
+    else:
+        led.set_quota_override(email, args.usd if args.cmd == "set-quota" else None)
     print(json.dumps(quota_status(account_for_email(email)), indent=2))
     return 0
 

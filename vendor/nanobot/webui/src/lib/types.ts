@@ -227,6 +227,8 @@ export interface AccountInfo {
   remaining_usd: number | null;
   exhausted: boolean;
   can_manage_settings: boolean;
+  /** NANOBOT_ACCOUNTS_INVITE_REQUIRED: true until this account redeems an invite code. */
+  invite_required?: boolean;
 }
 
 /** ``GET /api/usage`` — the caller's quota plus a spend breakdown. */

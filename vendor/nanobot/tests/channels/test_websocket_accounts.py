@@ -187,6 +187,52 @@ async def test_ws_chat_ownership_commands_and_quota(bus, tmp_path, accounts_env)
 
 
 @pytest.mark.asyncio
+async def test_invite_code_gates_new_accounts(bus, tmp_path, accounts_env, monkeypatch) -> None:
+    from urllib.parse import quote
+
+    monkeypatch.setenv("NANOBOT_ACCOUNTS_INVITE_REQUIRED", "1")
+    led = accounts_env
+    led.create_invite("開門碼")
+    channel = _ch(bus, _seed(tmp_path, []), 29966)
+    base = "http://127.0.0.1:29966"
+    task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = (await _get(f"{base}/webui/bootstrap", ALICE)).json()
+        assert boot["account"]["invite_required"] is True
+        auth = {**ALICE, "Authorization": f"Bearer {boot['token']}"}
+        boss = (await _get(f"{base}/webui/bootstrap", BOSS)).json()
+        assert boss["account"]["invite_required"] is False
+
+        async with websockets.connect(
+            "ws://127.0.0.1:29966/?client_id=t", additional_headers=ALICE
+        ) as client:
+            await _recv(client, "ready")
+            await client.send(json.dumps({"type": "new_chat"}))
+            chat_id = (await _recv(client, "attached"))["chat_id"]
+            await client.send(json.dumps({"type": "message", "chat_id": chat_id, "content": "hi"}))
+            assert (await _recv(client, "error"))["detail"] == "invite_required"
+            assert bus.publish_inbound.await_count == 0
+
+            assert (await _get(f"{base}/api/invite/redeem?code=", auth)).status_code == 400
+            wrong = await _get(f"{base}/api/invite/redeem?code={quote('錯的')}", auth)
+            assert wrong.status_code == 400 and wrong.json()["reason"] == "invalid"
+            right = await _get(f"{base}/api/invite/redeem?code={quote(' 開門碼 ')}", auth)
+            assert right.status_code == 200
+            assert right.json()["account"]["invite_required"] is False
+
+            await client.send(json.dumps({"type": "message", "chat_id": chat_id, "content": "hi"}))
+            await asyncio.sleep(0.2)
+            assert bus.publish_inbound.await_count == 1
+        assert (await _get(f"{base}/webui/bootstrap", ALICE)).json()["account"][
+            "invite_required"
+        ] is False
+    finally:
+        await channel.stop()
+        await task
+
+
+@pytest.mark.asyncio
 async def test_legacy_sessions_adopted_by_configured_owner(
     bus, tmp_path, accounts_env, monkeypatch
 ) -> None:

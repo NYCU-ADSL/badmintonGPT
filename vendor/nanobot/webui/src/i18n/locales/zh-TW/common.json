@@ -16,6 +16,19 @@
       "submit": "連線",
       "invalid": "密碼無效，請再試一次。"
     },
+    "invite": {
+      "title": "輸入邀請碼",
+      "hint": "BadmintonGPT 目前採邀請制，輸入邀請碼後即可開始使用。",
+      "signedInAs": "目前登入：{{email}}",
+      "placeholder": "邀請碼",
+      "submit": "開始使用",
+      "checking": "確認中…",
+      "invalid": "邀請碼不正確，請再確認一次。",
+      "full": "這個邀請碼的名額已滿，請向邀請你的人索取新的邀請碼。",
+      "cooldown": "嘗試次數太多，請等 {{seconds}} 秒後再試。",
+      "failed": "送出失敗，請再試一次。",
+      "switchAccount": "換一個帳號登入"
+    },
     "account": {
       "section": "帳戶",
       "logoutHint": "中斷此瀏覽器與 gateway 的連線。",
@@ -786,6 +799,10 @@
     "quotaExhausted": {
       "title": "已達使用額度",
       "body": "此帳號已用完 ${{quota}} 的額度，新訊息已暫停。如需提高額度，請聯絡管理員。"
+    },
+    "inviteRequired": {
+      "title": "需要邀請碼",
+      "body": "此帳號尚未啟用，請重新整理頁面並輸入邀請碼。"
     },
     "chatForbidden": {
       "title": "無法開啟對話",

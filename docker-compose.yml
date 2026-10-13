@@ -81,6 +81,8 @@ services:
       NANOBOT_ACCOUNTS_WHITELIST: ${NANOBOT_ACCOUNTS_WHITELIST:?set NANOBOT_ACCOUNTS_WHITELIST in .env}
       NANOBOT_ACCOUNTS_QUOTA_USD: ${NANOBOT_ACCOUNTS_QUOTA_USD:-3.00}
       NANOBOT_ACCOUNTS_LEGACY_OWNER: ${NANOBOT_ACCOUNTS_LEGACY_OWNER:-}
+      # New accounts redeem a shared invite code once (codes: `python -m nanobot.accounts invite`).
+      NANOBOT_ACCOUNTS_INVITE_REQUIRED: ${NANOBOT_ACCOUNTS_INVITE_REQUIRED:-1}
       NANOBOT_ACCOUNTS_PRICES: ${NANOBOT_ACCOUNTS_PRICES:-}
       # Optional but recommended: verify the Access JWT instead of trusting the e-mail header.
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}

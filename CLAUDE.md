@@ -413,6 +413,12 @@ their own sessions/projects/cron jobs; the ledger is `~/.nanobot/accounts.db` (v
   upstream injects `memory/history.jsonl` **and `memory/MEMORY.md`** into every session's prompt =
   cross-user leak (the fork skips both; a stale MEMORY.md kept steering answers until 2026-10-13). Don't
   re-enable it without per-user memory.
+- **Invite-only sign-up** (`NANOBOT_ACCOUNTS_INVITE_REQUIRED`, default on in compose): a new
+  account must redeem a shared invite code once (WebUI `InviteGate`, `GET /api/invite/redeem`);
+  until then turns / LLM calls / paid MCP jobs are refused. Codes live in `accounts.db` (never in
+  the repo or `.env`) and may cap redemptions: `python -m nanobot.accounts invite create <code>
+  [--max-uses N]` / `list` / `disable`, `activate <email>`. Accounts present when the migration
+  first ran, and the whitelist, need no code. The code only admits; spend is still the quota.
 - Pre-accounts sessions have no owner → invisible until `NANOBOT_ACCOUNTS_LEGACY_OWNER` adopts them.
 - Unattributed LLM calls (no session owner: e.g. idle auto-compaction outside a turn) are not
   billed to anyone.

@@ -215,6 +215,26 @@ e-mail:
   docker compose exec gateway python -m nanobot.accounts set-quota someone@example.org 10   # raise one user
   docker compose exec gateway python -m nanobot.accounts reset-quota someone@example.org    # back to default
   ```
+- **Invite codes** (`NANOBOT_ACCOUNTS_INVITE_REQUIRED`, on by default in `docker-compose.yml`):
+  Cloudflare Access still decides who may sign in; after that a **new** account sees *Enter your
+  invite code* and the gateway refuses its turns, model calls and paid MCP jobs until it redeems
+  one. Codes are shared (many people use the same code), compared after NFKC / whitespace /
+  case folding, and may cap how many accounts can redeem them. Accounts that existed when this
+  was first deployed are activated by the ledger migration, and the whitelist never needs a code.
+  After two wrong codes an account waits 30 s, then 60 s, 90 s, ... per further wrong code. The
+  invite only lets the account in; its spend is still capped by the quota above. Codes live in
+  the ledger, not in `.env`:
+
+  ```bash
+  docker compose exec gateway python -m nanobot.accounts invite create <code>               # no cap
+  docker compose exec gateway python -m nanobot.accounts invite create <code> --max-uses 30 # 30 accounts
+  docker compose exec gateway python -m nanobot.accounts invite list      # uses per code
+  docker compose exec gateway python -m nanobot.accounts invite disable <code>  # redeemed accounts stay
+  docker compose exec gateway python -m nanobot.accounts activate someone@example.org     # no code needed
+  ```
+
+  `list` shows accounts still waiting for a code as `NO INVITE`. Set
+  `NANOBOT_ACCOUNTS_INVITE_REQUIRED=0` in `.env` to open sign-up again.
 - **Identity:** by default the `Cf-Access-Authenticated-User-Email` header is trusted (safe only
   because `8765` is `expose`-only and only cloudflared reaches it). Set `CF_ACCESS_TEAM_DOMAIN` +
   `CF_ACCESS_AUD` to verify the `Cf-Access-Jwt-Assertion` signature instead (recommended).

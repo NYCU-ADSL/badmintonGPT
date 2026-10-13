@@ -1,4 +1,5 @@
 import type {
+  AccountInfo,
   ChatSummary,
   CliAppsPayload,
   ImageGenerationSettingsUpdate,
@@ -440,4 +441,34 @@ export async function updateImageGenerationSettings(
 /** [badmintonGPT fork] The signed-in account's quota and spend (NANOBOT_ACCOUNTS). */
 export async function fetchUsage(token: string, base: string = ""): Promise<UsagePayload> {
   return request<UsagePayload>(`${base}/api/usage`, token);
+}
+
+/** [badmintonGPT fork] ``GET /api/invite/redeem`` outcome for the signed-in account. */
+export type InviteRedeemResult =
+  | { ok: true; account: AccountInfo }
+  | { ok: false; reason: "invalid" | "full" | "empty" | "cooldown"; retryAfterS: number };
+
+export async function redeemInvite(
+  token: string,
+  code: string,
+  base: string = "",
+): Promise<InviteRedeemResult> {
+  const res = await fetch(`${base}/api/invite/redeem?code=${encodeURIComponent(code)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: "same-origin",
+  });
+  if (res.status !== 200 && res.status !== 400 && res.status !== 429) {
+    throw new ApiError(res.status, `HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    ok: boolean;
+    account?: AccountInfo;
+    reason?: string;
+    retry_after_s?: number;
+  };
+  if (body.ok && body.account) return { ok: true, account: body.account };
+  const reason = body.reason === "full" || body.reason === "empty" || body.reason === "cooldown"
+    ? body.reason
+    : "invalid";
+  return { ok: false, reason, retryAfterS: Math.max(0, Number(body.retry_after_s) || 0) };
 }

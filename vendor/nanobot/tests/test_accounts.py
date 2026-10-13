@@ -176,6 +176,93 @@ async def test_provider_unattributed_calls_are_free_and_unblocked(ledger, monkey
     assert resp.content == "hi"
 
 
+def test_invite_migration_keeps_existing_accounts(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    db = sqlite3.connect(path)
+    db.execute(
+        "CREATE TABLE users (email TEXT PRIMARY KEY, first_seen REAL NOT NULL, "
+        "last_seen REAL NOT NULL, quota_override_usd REAL)"
+    )
+    db.execute("INSERT INTO users VALUES ('early@uni.edu', 1, 2, NULL)")
+    db.commit()
+    db.close()
+    led = accounts.Ledger(path)
+    try:
+        assert led.is_activated("early@uni.edu")
+        led.touch_user("late@uni.edu")
+        assert not led.is_activated("late@uni.edu")
+    finally:
+        led.close()
+    led = accounts.Ledger(path)  # the migration runs once: reopening activates nobody new
+    try:
+        assert not led.is_activated("late@uni.edu")
+    finally:
+        led.close()
+
+
+def test_invite_redeem_caps_and_cooldown(ledger):
+    assert ledger.create_invite(" ＡＢＣ 1 ") == "abc1"
+    ledger.create_invite("two", max_uses=1)
+    now = 1000.0
+
+    assert ledger.redeem_invite("a@uni.edu", "nope", now=now) == {
+        "ok": False, "reason": "invalid", "retry_after_s": 0,
+    }
+    assert ledger.redeem_invite("a@uni.edu", "nope", now=now)["retry_after_s"] == 0
+    third = ledger.redeem_invite("a@uni.edu", "nope", now=now)
+    assert third["reason"] == "invalid" and third["retry_after_s"] == 30
+    assert ledger.redeem_invite("a@uni.edu", "abc1", now=now + 10)["reason"] == "cooldown"
+    assert ledger.redeem_invite("a@uni.edu", "a b c １", now=now + 30)["ok"] is True
+    assert ledger.is_activated("a@uni.edu")
+    assert ledger.redeem_invite("a@uni.edu", "anything", now=now + 31)["reason"] == "already_active"
+
+    assert ledger.redeem_invite("b@uni.edu", "TWO", now=now)["ok"] is True
+    assert ledger.redeem_invite("c@uni.edu", "two", now=now) == {
+        "ok": False, "reason": "full", "retry_after_s": 0,
+    }
+    assert ledger.disable_invite("abc1")
+    assert ledger.redeem_invite("c@uni.edu", "abc1", now=now)["reason"] == "invalid"
+    assert {r["code"]: (r["uses"], r["max_uses"], r["disabled"]) for r in ledger.list_invites()} == {
+        "abc1": (1, None, True), "two": (1, 1, False),
+    }
+    with pytest.raises(ValueError):
+        ledger.create_invite("  ")
+
+
+def test_invite_gate_refuses_llm_until_redeemed(ledger, monkeypatch):
+    student = accounts.account_for_email("student@uni.edu")
+    assert accounts.is_activated(student)  # off by default
+    monkeypatch.setenv("NANOBOT_ACCOUNTS_INVITE_REQUIRED", "1")
+    assert not accounts.is_activated(student)
+    assert accounts.quota_status(student)["invite_required"] is True
+    assert accounts.is_activated(accounts.account_for_email("boss@lab.org"))
+    token = _bind("student@uni.edu")
+    try:
+        assert "Invite code required" in (accounts.llm_call_refusal() or "")
+        assert (accounts.mcp_call_refusal() or "").startswith("Error: Invite code required")
+        ledger.activate("student@uni.edu")
+        assert accounts.llm_call_refusal() is None
+    finally:
+        reset_request_context(token)
+
+
+def test_invite_cli(ledger, monkeypatch, capsys):
+    monkeypatch.setenv("NANOBOT_ACCOUNTS_INVITE_REQUIRED", "1")
+    assert accounts._cli(["invite", "create", "Open Day", "--max-uses", "5"]) == 0
+    assert accounts._cli(["invite", "list"]) == 0
+    out = capsys.readouterr().out
+    assert "openday" in out and "5" in out and "active" in out
+    ledger.touch_user("new@uni.edu")
+    assert accounts._cli(["list"]) == 0
+    assert "NO INVITE" in capsys.readouterr().out
+    assert accounts._cli(["activate", "new@uni.edu"]) == 0
+    assert ledger.is_activated("new@uni.edu")
+    assert accounts._cli(["invite", "disable", "open day"]) == 0
+    assert ledger.list_invites()[0]["disabled"] is True
+
+
 def test_private_paths(ledger, tmp_path):
     ws = tmp_path / "workspace"
     me = "student@uni.edu"
