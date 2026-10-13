@@ -231,6 +231,19 @@ e-mail:
 
 ---
 
+## Puzzle answer page
+
+`https://badmintongpt.<your-zone>/puzzle.html` is a link-only page (nothing in the WebUI points to
+it) where a signed-in user types a puzzle answer. It needs no Cloudflare change: only
+`/welcome.html` bypasses Access, so this path asks for sign-in like the app itself.
+
+- Set the answer in `.env` (`NANOBOT_PUZZLE_ANSWER=...`), then `docker compose up -d`. It is
+  compared server-side only (full-width forms and whitespace are ignored). Unset → the page says
+  answering is closed.
+- After the n-th wrong answer an account must wait n/2 minutes (30 s, 1 min, 1.5 min, ...).
+  Attempts are per e-mail in `~/.nanobot/puzzle.db` (volume). To reset one player:
+  `docker compose exec gateway python -c "import sqlite3,os; sqlite3.connect(os.path.expanduser('~/.nanobot/puzzle.db')).execute('DELETE FROM puzzle_attempts WHERE email=?', ('someone@example.org',)).connection.commit()"`.
+
 ## 7. Migrating off the old in-session setup
 
 The previous deployment ran `nanobot gateway` inside a login session and shared the single

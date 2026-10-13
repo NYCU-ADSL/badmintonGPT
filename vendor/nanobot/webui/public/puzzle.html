@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="robots" content="noindex, nofollow" />
+    <!--
+      Link-only puzzle answer page [badmintonGPT fork]. Nothing in the WebUI links here; it is
+      behind Cloudflare Access like every path except /welcome.html, so visitors must sign in.
+      The answer is never sent to the browser: /api/puzzle/answer checks it server-side against
+      NANOBOT_PUZZLE_ANSWER and enforces the wrong-answer cooldown (see nanobot/puzzle.py).
+    -->
+    <title>解謎作答 · BadmintonGPT</title>
+    <link rel="icon" type="image/svg+xml" href="/brand/mark-small-noframe-green.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #ecf4ef;
+        --bg-deep: #dcebe2;
+        --ink: #232a25;
+        --ink-soft: #55625a;
+        --title: #173c2a;
+        --brand: #15724a;
+        --brand-hover: #0f5c3b;
+        --on-brand: #ffffff;
+        --card: rgba(255, 255, 255, 0.72);
+        --card-line: rgba(21, 114, 74, 0.14);
+        --line: rgba(23, 60, 42, 0.12);
+        --field: #ffffff;
+        --bad: #b42318;
+        --warn: #8a5a00;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #102019;
+          --bg-deep: #0b1712;
+          --ink: #dde6e0;
+          --ink-soft: #9fb1a6;
+          --title: #f4f9f6;
+          --brand: #2dbd7e;
+          --brand-hover: #4fd096;
+          --on-brand: #06150d;
+          --card: rgba(22, 36, 29, 0.78);
+          --card-line: rgba(45, 189, 126, 0.18);
+          --line: rgba(221, 230, 224, 0.1);
+          --field: #16271f;
+          --bad: #ff8a80;
+          --warn: #f0c46c;
+        }
+      }
+
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        background: radial-gradient(1200px 600px at 50% -10%, var(--bg-deep), var(--bg));
+        color: var(--ink);
+        font-family: "Noto Sans TC", system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.6;
+        min-height: 100vh;
+        display: grid;
+        /* minmax(0, …): otherwise the input's intrinsic width sets the track's minimum and the
+           card overflows narrow phones (320 px) instead of shrinking. */
+        grid-template-columns: minmax(0, 1fr);
+        place-items: center;
+        padding: 24px 16px;
+      }
+      main {
+        width: 100%;
+        max-width: 440px;
+        background: var(--card);
+        border: 1px solid var(--card-line);
+        border-radius: 20px;
+        padding: 32px 28px 28px;
+        backdrop-filter: blur(6px);
+      }
+      .mark { width: 40px; height: 40px; display: block; margin-bottom: 18px; }
+      h1 { font-size: 24px; font-weight: 900; color: var(--title); margin: 0 0 6px; }
+      .lead { color: var(--ink-soft); font-size: 15px; margin: 0 0 24px; }
+      form { display: flex; gap: 10px; }
+      input {
+        flex: 1;
+        min-width: 0;
+        font: inherit;
+        font-size: 17px;
+        color: var(--ink);
+        background: var(--field);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 11px 14px;
+      }
+      input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+      button {
+        font: inherit;
+        font-weight: 700;
+        font-size: 15px;
+        color: var(--on-brand);
+        background: var(--brand);
+        border: 0;
+        border-radius: 12px;
+        padding: 0 20px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: var(--brand-hover); }
+      input:disabled, button:disabled { opacity: 0.55; cursor: not-allowed; }
+      .msg { min-height: 1.6em; margin: 14px 0 0; font-size: 14.5px; }
+      .msg.bad { color: var(--bad); }
+      .msg.warn { color: var(--warn); }
+      .count { margin: 4px 0 0; font-size: 13px; color: var(--ink-soft); }
+      .solved { text-align: center; padding: 8px 0 4px; }
+      .solved .big { font-size: 44px; line-height: 1; margin-bottom: 10px; }
+      .solved p { margin: 0; font-size: 17px; font-weight: 700; color: var(--brand); }
+      .back { display: inline-block; margin-top: 22px; font-size: 13.5px; color: var(--ink-soft); }
+      .back:hover { color: var(--brand); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img class="mark" src="/brand/mark-small-noframe-green.svg" alt="" />
+      <h1>解謎作答</h1>
+      <p class="lead">輸入你找到的答案。答錯第 n 次後，要等 n/2 分鐘才能再作答。</p>
+
+      <p id="loading" class="msg">載入中…</p>
+
+      <section id="play" hidden>
+        <form id="form" autocomplete="off">
+          <input id="answer" name="answer" maxlength="100" placeholder="你的答案" aria-label="答案" required />
+          <button id="submit" type="submit">送出</button>
+        </form>
+        <p id="msg" class="msg" role="status" aria-live="polite"></p>
+        <p id="count" class="count"></p>
+      </section>
+
+      <section id="solved" class="solved" hidden>
+        <div class="big" aria-hidden="true">🏸</div>
+        <p>答對了！</p>
+      </section>
+
+      <a class="back" href="/">← 回到 BadmintonGPT</a>
+    </main>
+
+    <script>
+      (function () {
+        var $ = function (id) { return document.getElementById(id); };
+        var token = null;
+        var timer = null;
+
+        function bootstrap() {
+          return fetch("/webui/bootstrap", { credentials: "same-origin" }).then(function (r) {
+            if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "auth" : "boot");
+            return r.json();
+          }).then(function (b) { token = b.token; });
+        }
+
+        // GET with the bootstrap token; re-bootstrap once if it expired (TTL is a few minutes).
+        function api(path, retried) {
+          var go = token ? Promise.resolve() : bootstrap();
+          return go.then(function () {
+            return fetch(path, {
+              credentials: "same-origin",
+              headers: { Authorization: "Bearer " + token },
+            });
+          }).then(function (r) {
+            if (r.status === 401 && !retried) { token = null; return api(path, true); }
+            return r;
+          });
+        }
+
+        function setMsg(text, kind) {
+          var el = $("msg");
+          el.textContent = text || "";
+          el.className = "msg" + (kind ? " " + kind : "");
+        }
+
+        function fmt(s) {
+          var m = Math.floor(s / 60), r = s % 60;
+          return m > 0 ? m + " 分 " + (r < 10 ? "0" : "") + r + " 秒" : r + " 秒";
+        }
+
+        function lock(seconds, lead) {
+          clearInterval(timer);
+          var until = Date.now() + seconds * 1000;
+          $("answer").disabled = true;
+          $("submit").disabled = true;
+          function tick() {
+            var left = Math.ceil((until - Date.now()) / 1000);
+            if (left <= 0) {
+              clearInterval(timer);
+              $("answer").disabled = false;
+              $("submit").disabled = false;
+              setMsg("可以再試一次了。", "");
+              $("answer").focus();
+              return;
+            }
+            setMsg(lead + "請等 " + fmt(left) + " 後再作答。", "warn");
+          }
+          tick();
+          timer = setInterval(tick, 1000);
+        }
+
+        function render(s, lead) {
+          $("loading").hidden = true;
+          if (!s.configured) {
+            $("loading").hidden = false;
+            $("loading").textContent = "目前沒有開放作答。";
+            return;
+          }
+          if (s.solved) {
+            clearInterval(timer);
+            $("play").hidden = true;
+            $("solved").hidden = false;
+            return;
+          }
+          $("play").hidden = false;
+          $("count").textContent = s.wrong_count > 0 ? "已答錯 " + s.wrong_count + " 次" : "";
+          if (s.retry_after_s > 0) {
+            lock(s.retry_after_s, lead || "");
+          } else if (lead) {
+            setMsg(lead, "bad");
+          }
+        }
+
+        function fail(e) {
+          $("loading").hidden = false;
+          $("loading").className = "msg bad";
+          $("loading").textContent = e && e.message === "auth"
+            ? "請先登入 BadmintonGPT 再開啟這個頁面。"
+            : "載入失敗，請重新整理頁面。";
+        }
+
+        $("form").addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          var value = $("answer").value.trim();
+          if (!value) return;
+          $("submit").disabled = true;
+          api("/api/puzzle/answer?answer=" + encodeURIComponent(value))
+            .then(function (r) {
+              if (r.status !== 200 && r.status !== 429) throw new Error("http " + r.status);
+              return r.json();
+            })
+            .then(function (s) {
+              $("submit").disabled = false;
+              if (s.correct) { render(s); return; }
+              if (s.accepted) $("answer").value = "";
+              render(s, s.accepted ? "答錯了。" : "");
+            })
+            .catch(function () {
+              $("submit").disabled = false;
+              setMsg("送出失敗，請再試一次。", "bad");
+            });
+        });
+
+        api("/api/puzzle")
+          .then(function (r) {
+            if (!r.ok) throw new Error(r.status === 401 ? "auth" : "http " + r.status);
+            return r.json();
+          })
+          .then(function (s) { render(s); })
+          .catch(fail);
+      })();
+    </script>
+  </body>
+</html>

@@ -33,7 +33,7 @@ from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
-from nanobot import accounts
+from nanobot import accounts, puzzle
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
@@ -899,7 +899,47 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/webui/sidebar-state/update":
             return self._handle_webui_sidebar_state_update(request)
 
+        # [badmintonGPT fork] link-only puzzle page (public/puzzle.html)
+        if got == "/api/puzzle":
+            return self._handle_puzzle(request, submit=False)
+
+        if got == "/api/puzzle/answer":
+            return self._handle_puzzle(request, submit=True)
+
         return None
+
+    def _handle_puzzle(self, request: WsRequest, *, submit: bool) -> Response:
+        """``GET /api/puzzle`` (status) / ``GET /api/puzzle/answer?answer=`` (check one answer).
+
+        [badmintonGPT fork] GET-only like every route here, so the answer arrives in the query
+        string. The expected answer stays server-side (``NANOBOT_PUZZLE_ANSWER``); wrong answers
+        put the caller's account on a growing cooldown (see ``nanobot/puzzle.py``).
+        """
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        account = self._request_account()
+        if account is None and accounts.accounts_enabled():
+            return _http_error(401, "not signed in")
+        email = account.email if account is not None else accounts.local_user()
+        expected = puzzle.configured_answer()
+        if not expected:
+            return _http_json_response({"configured": False})
+        if not submit:
+            return _http_json_response(puzzle.store().status(email))
+        answer = _query_first(_parse_query(request.path), "answer") or ""
+        if not puzzle.normalize_answer(answer):
+            return _http_error(400, "empty answer")
+        if len(answer) > puzzle.MAX_ANSWER_CHARS:
+            return _http_error(413, "answer too long")
+        result = puzzle.store().attempt(email, answer, expected)
+        if not result["accepted"] and not result["solved"]:
+            return _http_response(
+                json.dumps(result).encode("utf-8"),
+                status=429,
+                content_type="application/json; charset=utf-8",
+                extra_headers=[("Retry-After", str(result["retry_after_s"]))],
+            )
+        return _http_json_response(result)
 
     async def _handle_tts(self, request: WsRequest) -> Response:
         """Proxy one segment of text to the upstream TTS service and return WAV audio.

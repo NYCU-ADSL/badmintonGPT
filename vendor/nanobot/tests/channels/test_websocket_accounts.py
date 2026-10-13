@@ -222,3 +222,48 @@ async def test_remote_request_without_identity_is_rejected(bus, tmp_path, monkey
     finally:
         await channel.stop()
         await task
+
+
+@pytest.mark.asyncio
+async def test_puzzle_answer_is_checked_per_account(bus, tmp_path, monkeypatch) -> None:
+    from urllib.parse import quote
+
+    from nanobot import puzzle
+
+    monkeypatch.setenv("NANOBOT_PUZZLE_ANSWER", "謎底")
+    store = puzzle.PuzzleStore(tmp_path / "puzzle.db")
+    puzzle.set_store_for_tests(store)
+    channel = _ch(bus, _seed(tmp_path, []), 29965)
+    base = "http://127.0.0.1:29965"
+    task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        assert (await _get(f"{base}/api/puzzle")).status_code == 401
+        alice = {**ALICE, "Authorization": f"Bearer {await _token(base, ALICE)}"}
+        bob = {**BOB, "Authorization": f"Bearer {await _token(base, BOB)}"}
+
+        status = (await _get(f"{base}/api/puzzle", alice)).json()
+        assert status == {"configured": True, "solved": False, "wrong_count": 0, "retry_after_s": 0}
+        assert "謎底" not in (await _get(f"{base}/api/puzzle", alice)).text
+
+        wrong = await _get(f"{base}/api/puzzle/answer?answer={quote('殺球')}", alice)
+        assert wrong.status_code == 200
+        assert wrong.json()["correct"] is False and wrong.json()["retry_after_s"] == 30
+
+        locked = await _get(f"{base}/api/puzzle/answer?answer={quote('謎底')}", alice)
+        assert locked.status_code == 429 and locked.headers["Retry-After"] in {"29", "30"}
+
+        right = await _get(f"{base}/api/puzzle/answer?answer={quote('謎底')}", bob)
+        assert right.status_code == 200 and right.json()["correct"] is True
+        assert (await _get(f"{base}/api/puzzle", bob)).json()["solved"] is True
+        assert (await _get(f"{base}/api/puzzle", alice)).json()["solved"] is False
+
+        assert (await _get(f"{base}/api/puzzle/answer?answer=", alice)).status_code == 400
+
+        monkeypatch.delenv("NANOBOT_PUZZLE_ANSWER")
+        assert (await _get(f"{base}/api/puzzle", alice)).json() == {"configured": False}
+    finally:
+        await channel.stop()
+        await task
+        puzzle.set_store_for_tests(None)
+        store.close()

@@ -87,6 +87,9 @@ services:
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       # The shared memory/history.jsonl would carry one user's conversations into everyone's prompt.
       NANOBOT_DISABLE_SHARED_MEMORY: "1"
+      # Link-only puzzle page /puzzle.html (fork, nanobot/puzzle.py): the accepted answer, checked
+      # server-side; unset → the page says answering is closed. Attempts: ~/.nanobot/puzzle.db.
+      NANOBOT_PUZZLE_ANSWER: ${NANOBOT_PUZZLE_ANSWER:-}
     volumes:
       - nanobot_state:/home/nanobot/.nanobot  # persist sessions/ + memory/ across restarts
     expose:

@@ -47,6 +47,14 @@ Backend (Python):
   `history.jsonl`, `context.py` injecting it (and the workspace-wide `memory/MEMORY.md`), and the stale `dream` cron job running
   (`cli/commands.py`). WebUI: `components/UsageView.tsx`, a sidebar balance button, restricted
   Settings (Appearance + Speech), account error banners. Ops: `python -m nanobot.accounts`.
+- **link-only puzzle page** (`webui/public/puzzle.html`, `nanobot/puzzle.py`, routes in
+  `channels/websocket.py` `_handle_puzzle`; tests `tests/test_puzzle.py` +
+  `tests/channels/test_websocket_accounts.py`) — a static answer page nothing links to, behind
+  Cloudflare Access like every path but `/welcome.html`. `GET /api/puzzle` (status) and
+  `GET /api/puzzle/answer?answer=` check the answer server-side against `NANOBOT_PUZZLE_ANSWER`
+  (NFKC, whitespace ignored), so it never reaches the browser. After the n-th wrong answer the
+  account waits n/2 minutes (429 + `Retry-After` until then); per-e-mail state in
+  `~/.nanobot/puzzle.db` survives restarts.
 - **remote restricted projects** (`nanobot/webui/workspaces.py`, opt-in
   `NANOBOT_WEBUI_REMOTE_PROJECTS=1`) — lets the Cloudflare Access WebUI create and select
   one-level project directories under the persistent agent workspace's `projects/` directory.
