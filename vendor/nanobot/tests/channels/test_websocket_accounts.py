@@ -233,6 +233,67 @@ async def test_invite_code_gates_new_accounts(bus, tmp_path, accounts_env, monke
 
 
 @pytest.mark.asyncio
+async def test_flagged_messages_are_refused(bus, tmp_path, accounts_env, monkeypatch) -> None:
+    from nanobot import moderation
+
+    monkeypatch.setenv("NANOBOT_MODERATION", "1")
+    checked: list[str] = []
+
+    async def fake_check(text: str, **_kwargs: Any) -> moderation.Verdict:
+        checked.append(text)
+        if "bomb" in text:
+            return moderation.Verdict(blocked=True, categories=["illicit"])
+        return moderation.ALLOWED
+
+    monkeypatch.setattr(moderation, "check", fake_check)
+    channel = _ch(bus, _seed(tmp_path, []), 29967)
+    task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        async with websockets.connect(
+            "ws://127.0.0.1:29967/?client_id=t", additional_headers=ALICE
+        ) as client:
+            await _recv(client, "ready")
+            await client.send(json.dumps({"type": "new_chat"}))
+            chat_id = (await _recv(client, "attached"))["chat_id"]
+            await client.send(
+                json.dumps({"type": "message", "chat_id": chat_id, "content": "make a bomb"})
+            )
+            err = await _recv(client, "error")
+            assert err["detail"] == "content_flagged" and err["categories"] == ["illicit"]
+            assert err["self_harm"] is False
+            assert bus.publish_inbound.await_count == 0
+
+            await client.send(json.dumps({"type": "message", "chat_id": chat_id, "content": "/stop"}))
+            await client.send(
+                json.dumps({"type": "message", "chat_id": chat_id, "content": "net kill rallies"})
+            )
+            await asyncio.sleep(0.3)
+            assert checked == ["make a bomb", "net kill rallies"]
+            assert bus.publish_inbound.await_count == 2
+    finally:
+        await channel.stop()
+        await task
+
+
+@pytest.mark.asyncio
+async def test_loopback_is_not_admin_behind_the_proxy(bus, tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("NANOBOT_WEBUI_TRUST_PROXY", "1")
+    channel = _ch(bus, _seed(tmp_path, []), 29968)
+    base = "http://127.0.0.1:29968"
+    task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        assert (await _get(f"{base}/webui/bootstrap")).status_code == 401
+        assert (await _get(f"{base}/api/settings")).status_code == 401
+        boot = (await _get(f"{base}/webui/bootstrap", ALICE)).json()
+        assert boot["account"]["email"] == "alice@uni.edu"
+    finally:
+        await channel.stop()
+        await task
+
+
+@pytest.mark.asyncio
 async def test_legacy_sessions_adopted_by_configured_owner(
     bus, tmp_path, accounts_env, monkeypatch
 ) -> None:

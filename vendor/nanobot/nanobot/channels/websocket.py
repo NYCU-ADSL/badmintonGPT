@@ -33,7 +33,7 @@ from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
-from nanobot import accounts, puzzle
+from nanobot import accounts, moderation, puzzle
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
@@ -1742,6 +1742,8 @@ class WebSocketChannel(BaseChannel):
                     if await self._reject_for_account(connection, account, default_chat_id, content):
                         continue
                     raw_meta[accounts.ACCOUNT_METADATA_KEY] = account.email
+                if await self._reject_flagged(connection, account, default_chat_id, content):
+                    continue
                 # WebSocket already authenticates at handshake time (token),
                 # so pairing is not applicable. Treat as non-DM to avoid
                 # sending pairing codes to an already-authenticated client.
@@ -1871,6 +1873,38 @@ class WebSocketChannel(BaseChannel):
             return True
         return False
 
+    async def _reject_flagged(
+        self,
+        connection: Any,
+        account: accounts.Account | None,
+        chat_id: str,
+        content: str,
+    ) -> bool:
+        """NANOBOT_MODERATION: refuse a message the moderation endpoint flags. True = rejected.
+
+        [badmintonGPT fork] Slash commands are not checked (they never reach the model as text).
+        """
+        if not moderation.enabled() or content.lstrip().startswith("/"):
+            return False
+        verdict = await moderation.check(content)
+        if not verdict.blocked:
+            return False
+        logger.warning(
+            "moderation blocked a message from {} in {}: {}",
+            account.email if account is not None else "-",
+            chat_id,
+            ", ".join(verdict.categories),
+        )
+        await self._send_event(
+            connection,
+            "error",
+            detail="content_flagged",
+            chat_id=chat_id,
+            categories=verdict.categories,
+            self_harm=verdict.self_harm,
+        )
+        return True
+
     async def _reject_foreign_chat(self, connection: Any, chat_id: str) -> bool:
         if self._authorize_chat(self._conn_account.get(connection), chat_id):
             return False
@@ -1963,6 +1997,8 @@ class WebSocketChannel(BaseChannel):
             if account is not None and await self._reject_for_account(
                 connection, account, cid, content,
             ):
+                return
+            if await self._reject_flagged(connection, account, cid, content):
                 return
 
             raw_media = envelope.get("media")

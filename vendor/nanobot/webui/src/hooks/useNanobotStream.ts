@@ -729,6 +729,7 @@ export function useNanobotStream(
         ev.event === "error" &&
         (ev.detail === "quota_exhausted" ||
           ev.detail === "invite_required" ||
+          ev.detail === "content_flagged" ||
           ev.detail === "chat_forbidden" ||
           ev.detail === "command_forbidden")
       ) {

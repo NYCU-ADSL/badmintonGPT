@@ -419,6 +419,11 @@ their own sessions/projects/cron jobs; the ledger is `~/.nanobot/accounts.db` (v
   the repo or `.env`) and may cap redemptions: `python -m nanobot.accounts invite create <code>
   [--max-uses N]` / `list` / `disable`, `activate <email>`. Accounts present when the migration
   first ran, and the whitelist, need no code. The code only admits; spend is still the quota.
+- **Input safety** (compose defaults): `NANOBOT_MODERATION=1` screens each chat message with
+  OpenAI moderation on per-category thresholds (`nanobot/moderation.py`; its own `flagged` verdict
+  flags "net kill"/殺球, so don't switch to it), fail-open; `NANOBOT_SANDBOX_NO_NETWORK=1` gives
+  `exec` no network; behind `NANOBOT_WEBUI_TRUST_PROXY` a header-less loopback request is NOT the
+  whitelisted local user (it used to let an `exec` command call the API as admin).
 - Pre-accounts sessions have no owner → invisible until `NANOBOT_ACCOUNTS_LEGACY_OWNER` adopts them.
 - Unattributed LLM calls (no session owner: e.g. idle auto-compaction outside a turn) are not
   billed to anyone.

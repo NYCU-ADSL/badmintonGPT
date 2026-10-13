@@ -72,6 +72,14 @@ services:
       # so nanobot serves the WebUI without its own token/secret prompt. See the fork's trust-proxy
       # change in vendor/nanobot (vendor/README.md). Unset this to fall back to nanobot's own gate.
       NANOBOT_WEBUI_TRUST_PROXY: "1"
+      # With the proxy trusted, a header-less loopback request is no longer the whitelisted local
+      # user (it could only come from inside the container); exec commands also get no network,
+      # so they cannot call the gateway's own API or anything else (web tools stay available).
+      NANOBOT_SANDBOX_NO_NETWORK: "1"
+      # Screen every chat message with OpenAI's moderation endpoint (fork, nanobot/moderation.py):
+      # per-category thresholds tuned so badminton wording ("net kill", 殺球) passes; fail-open.
+      NANOBOT_MODERATION: ${NANOBOT_MODERATION:-1}
+      NANOBOT_MODERATION_THRESHOLDS: ${NANOBOT_MODERATION_THRESHOLDS:-}
       # Allow remote WebUI users to create restricted projects inside the persistent workspace.
       NANOBOT_WEBUI_REMOTE_PROJECTS: "1"
       # Accounts (fork, nanobot/accounts.py): each Cloudflare Access user sees only their own chats and

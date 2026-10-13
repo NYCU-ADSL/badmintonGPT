@@ -28,7 +28,10 @@ Environment:
 ``NANOBOT_ACCOUNTS_LEGACY_OWNER``    e-mail that adopts sessions created before accounts existed.
 ``NANOBOT_ACCOUNTS_INVITE_REQUIRED`` ``1`` = new accounts need an invite code (``invite`` CLI).
 ``NANOBOT_ACCOUNTS_LOCAL_USER``      identity for header-less loopback requests (host/dev mode),
-                                     default ``local@localhost`` (whitelisted).
+                                     default ``local@localhost`` (whitelisted). Not used when
+                                     ``NANOBOT_WEBUI_TRUST_PROXY`` is set: behind the proxy a
+                                     loopback caller can only be something inside the container
+                                     (e.g. an agent ``exec`` command), never a signed-in person.
 ``CF_ACCESS_TEAM_DOMAIN`` + ``CF_ACCESS_AUD``
                                      when both are set the ``Cf-Access-Jwt-Assertion`` header is
                                      verified (RS256 against the team's certs) instead of trusting
@@ -226,13 +229,17 @@ def _jwt_verification_configured() -> bool:
     )
 
 
+def _behind_trusted_proxy() -> bool:
+    return os.environ.get("NANOBOT_WEBUI_TRUST_PROXY", "").strip().lower() in _TRUTHY
+
+
 def account_from_headers(headers: Any, *, is_local: bool = False) -> Account | None:
     """Resolve the requesting account from proxy headers (None = unauthenticated)."""
     if _jwt_verification_configured():
         email = _verify_access_jwt(_header(headers, "Cf-Access-Jwt-Assertion"))
     else:
         email = normalize_email(_header(headers, "Cf-Access-Authenticated-User-Email"))
-    if email is None and is_local:
+    if email is None and is_local and not _behind_trusted_proxy():
         email = local_user()
     return account_for_email(email) if email else None
 

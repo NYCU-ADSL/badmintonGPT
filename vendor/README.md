@@ -56,6 +56,16 @@ Backend (Python):
   `components/InviteGate.tsx` replaces the app in `App.tsx` while `account.invite_required`.
   CLI: `invite create|list|disable`, `activate`. Tests: `tests/invite-gate.test.tsx` + the two
   Python suites above.
+- **input safety** — `nanobot/moderation.py` (opt-in `NANOBOT_MODERATION=1`): OpenAI moderation of
+  every inbound chat message in `channels/websocket.py` `_reject_flagged` (both the envelope and
+  the legacy text path; slash commands skipped), blocking on per-category score thresholds
+  instead of the endpoint's `flagged` verdict (badminton wording trips `violence`/`illicit`),
+  fail-open; WebUI `content_flagged` banner (`StreamErrorNotice.tsx`, crisis lines for self-harm).
+  `accounts.account_from_headers` no longer maps header-less loopback requests to the whitelisted
+  local user when `NANOBOT_WEBUI_TRUST_PROXY` is set. `agent/tools/sandbox.py` adds bwrap
+  `--unshare-net` under `NANOBOT_SANDBOX_NO_NETWORK=1`. Tests: `tests/test_moderation.py`,
+  `tests/test_accounts.py`, `tests/channels/test_websocket_accounts.py`,
+  `tests/tools/test_sandbox.py`, `webui/src/tests/content-flagged-notice.test.tsx`.
 - **link-only puzzle page** (`webui/public/puzzle.html`, `nanobot/puzzle.py`, routes in
   `channels/websocket.py` `_handle_puzzle`; tests `tests/test_puzzle.py` +
   `tests/channels/test_websocket_accounts.py`) — a static answer page nothing links to, behind

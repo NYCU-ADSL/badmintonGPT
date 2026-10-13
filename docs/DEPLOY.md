@@ -235,6 +235,25 @@ e-mail:
 
   `list` shows accounts still waiting for a code as `NO INVITE`. Set
   `NANOBOT_ACCOUNTS_INVITE_REQUIRED=0` in `.env` to open sign-up again.
+- **Input safety** (all on by default in `docker-compose.yml`):
+  - *Moderation* (`NANOBOT_MODERATION`, `nanobot/moderation.py`): every chat message except slash
+    commands goes through OpenAI's free `omni-moderation-latest` first (adds ~0.4–2 s). A message
+    is refused (`content_flagged`, *Message not sent*; self-harm shows crisis lines instead) when a
+    category score reaches its threshold. The endpoint's own `flagged` verdict is ignored because
+    it flags badminton wording ("net kill", 用殺球把對手殺爆, 怎麼攻擊對手反手後場), so `violence`
+    (0.9) and `illicit` (0.85) are set high; sexual, self-harm, hate, harassment and graphic
+    violence block at 0.5 (sexual/minors 0.3). On a sample of 16 badminton questions and 10
+    harmful requests this passed all 16 and blocked 7; the rest (a threat, poisoning, stalking)
+    is left to the chat model's own refusals. Tune with `NANOBOT_MODERATION_THRESHOLDS`. The check
+    fails open (a moderation outage logs a warning and lets messages through). Images are not
+    moderated. Blocked messages are logged with the account and the categories, not the text.
+  - *No local admin behind the proxy*: with `NANOBOT_WEBUI_TRUST_PROXY=1` a header-less request
+    from loopback is refused instead of becoming the whitelisted `local@localhost`. Before this,
+    anything inside the container (such as an agent `exec` command) could call the gateway's API
+    as an unlimited admin.
+  - *Sandboxed commands have no network* (`NANOBOT_SANDBOX_NO_NETWORK=1` → bwrap
+    `--unshare-net`): `exec` cannot reach the gateway, the compose network or the internet. Web
+    access stays with `web_fetch` / `web_search` and their SSRF guard.
 - **Identity:** by default the `Cf-Access-Authenticated-User-Email` header is trusted (safe only
   because `8765` is `expose`-only and only cloudflared reaches it). Set `CF_ACCESS_TEAM_DOMAIN` +
   `CF_ACCESS_AUD` to verify the `Cf-Access-Jwt-Assertion` signature instead (recommended).

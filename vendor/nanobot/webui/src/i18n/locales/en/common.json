@@ -804,6 +804,12 @@
       "title": "Invite code required",
       "body": "This account isn't activated yet. Reload the page and enter an invite code."
     },
+    "contentFlagged": {
+      "title": "Message not sent",
+      "body": "This message may break the usage rules, so it was not sent. Please rephrase your badminton question.",
+      "selfHarmTitle": "You're not alone",
+      "selfHarmBody": "This message was not sent. If you are struggling or thinking about hurting yourself, please contact a local crisis line or emergency services right away."
+    },
     "chatForbidden": {
       "title": "Conversation unavailable",
       "body": "This conversation belongs to another account."

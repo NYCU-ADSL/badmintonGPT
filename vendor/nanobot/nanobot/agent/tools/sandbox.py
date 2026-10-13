@@ -5,6 +5,7 @@ To add a new backend, implement a function with the signature:
 and register it in _BACKENDS below.
 """
 
+import os
 import shlex
 from pathlib import Path
 
@@ -31,6 +32,11 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
                  "/etc/ssl/certs", "/etc/resolv.conf", "/etc/ld.so.cache"]
 
     args = ["bwrap", "--new-session", "--die-with-parent"]
+    # [badmintonGPT fork] NANOBOT_SANDBOX_NO_NETWORK=1: commands get their own empty network
+    # namespace, so they cannot reach the gateway's own API on loopback, the compose network or
+    # the internet (web access stays with the web_fetch / web_search tools and their SSRF guard).
+    if os.environ.get("NANOBOT_SANDBOX_NO_NETWORK", "").strip().lower() in {"1", "true", "yes", "on"}:
+        args.append("--unshare-net")
     for p in required: args += ["--ro-bind",     p, p]
     for p in optional: args += ["--ro-bind-try", p, p]
     args += [

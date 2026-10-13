@@ -748,10 +748,12 @@ export type InboundEvent =
       chat_id?: string;
       detail?: string;
       reason?: string;
-      /** [badmintonGPT fork] quota_exhausted / command_forbidden details. */
+      /** [badmintonGPT fork] quota_exhausted / command_forbidden / content_flagged details. */
       quota_usd?: number | null;
       spent_usd?: number;
       command?: string;
+      categories?: string[];
+      self_harm?: boolean;
     };
 
 /** Base64-encoded image attached to an outbound ``message`` envelope.

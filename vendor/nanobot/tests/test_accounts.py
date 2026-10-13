@@ -50,6 +50,17 @@ def test_identity_from_cloudflare_header(ledger):
     assert local is not None and local.whitelisted
 
 
+def test_no_local_admin_behind_the_proxy(ledger, monkeypatch):
+    # Behind Cloudflare Access a header-less loopback caller is something inside the container
+    # (e.g. an agent exec command), not a person: it must not become the whitelisted local user.
+    monkeypatch.setenv("NANOBOT_WEBUI_TRUST_PROXY", "1")
+    assert accounts.account_from_headers({}, is_local=True) is None
+    signed_in = accounts.account_from_headers(
+        {"Cf-Access-Authenticated-User-Email": "student@uni.edu"}, is_local=True
+    )
+    assert signed_in == accounts.Account("student@uni.edu", False)
+
+
 def test_jwt_mode_ignores_plain_email_header(ledger, monkeypatch):
     monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "team.cloudflareaccess.com")
     monkeypatch.setenv("CF_ACCESS_AUD", "aud")
