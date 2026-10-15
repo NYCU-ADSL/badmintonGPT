@@ -212,6 +212,54 @@ export interface BootstrapResponse {
      *  time-to-first-audio low since the proxy is non-streaming. */
     max_segment_chars?: number;
   };
+  /** [badmintonGPT fork] Signed-in account + quota when the gateway runs NANOBOT_ACCOUNTS. */
+  account?: AccountInfo | null;
+}
+
+/** [badmintonGPT fork] Who is signed in (Cloudflare Access identity) and their quota. */
+export interface AccountInfo {
+  email: string;
+  whitelisted: boolean;
+  /** Whitelisted accounts have no quota. */
+  unlimited: boolean;
+  quota_usd: number | null;
+  spent_usd: number;
+  remaining_usd: number | null;
+  exhausted: boolean;
+  can_manage_settings: boolean;
+  /** NANOBOT_ACCOUNTS_INVITE_REQUIRED: true until this account redeems an invite code. */
+  invite_required?: boolean;
+}
+
+/** ``GET /api/usage`` — the caller's quota plus a spend breakdown. */
+export interface UsagePayload extends Partial<AccountInfo> {
+  enabled: boolean;
+  breakdown?: {
+    llm: {
+      calls: number;
+      prompt_tokens: number;
+      cached_tokens: number;
+      completion_tokens: number;
+      cost_usd: number;
+    };
+    jobs: Array<{ server: string; count: number; cost_usd: number }>;
+    recent_jobs: Array<{
+      server: string;
+      job_id: string;
+      tool: string | null;
+      cost_usd: number;
+      created_at: number;
+      updated_at: number;
+    }>;
+    daily: Array<{ day: string; cost_usd: number }>;
+  };
+  pricing?: {
+    model: string;
+    unit: string;
+    input: number;
+    cached_input: number;
+    output: number;
+  } | null;
 }
 
 export type RuntimeSurface = "browser" | "native";
@@ -695,7 +743,18 @@ export type InboundEvent =
       scope?: "metadata" | "thread" | string;
       workspace_scope?: WorkspaceScopePayload;
     }
-  | { event: "error"; chat_id?: string; detail?: string; reason?: string };
+  | {
+      event: "error";
+      chat_id?: string;
+      detail?: string;
+      reason?: string;
+      /** [badmintonGPT fork] quota_exhausted / command_forbidden / content_flagged details. */
+      quota_usd?: number | null;
+      spent_usd?: number;
+      command?: string;
+      categories?: string[];
+      self_harm?: boolean;
+    };
 
 /** Base64-encoded image attached to an outbound ``message`` envelope.
  *

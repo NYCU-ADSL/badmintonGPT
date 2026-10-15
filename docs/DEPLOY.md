@@ -51,6 +51,36 @@ These are account-bound and done once in the Cloudflare dashboard.
    **no** auth). Zero Trust → **Access → Applications** → *Add* → Self-hosted → domain
    `badmintongpt.<your-zone>` → add a policy (your email / IdP group, or a service token). Without
    this, anyone who learns the hostname reaches the WebUI.
+   With accounts on (the default, see [Accounts & quotas](#accounts--quotas)) Access is the **login**,
+   not the whitelist: let in everyone who should be able to sign up (e.g. *Include → Everyone* with
+   the One-time PIN or Google login method) and put the unlimited users in
+   `NANOBOT_ACCOUNTS_WHITELIST` instead. The policy must identify a **person** (an e-mail) — a
+   service-token-only policy has no e-mail, so the gateway answers `401 not signed in`.
+4. **Welcome page (optional, same hostname).** Signed-out visitors of `/` see a public bilingual
+   welcome page (`vendor/nanobot/webui/public/welcome.html`, served by the gateway like any WebUI
+   static file); its sign-in button goes to `/?login`, where Access takes over. Two dashboard pieces:
+   - **Access bypass for that one path**: Zero Trust → **Access → Applications** → *Add* →
+     Self-hosted → name `BadmintonGPT welcome`, domain `badmintongpt.<your-zone>`, **path
+     `welcome.html`** → policy action **Bypass**, *Include → Everyone*. The most specific path wins,
+     so every other path stays behind the main application. The page must stay self-contained
+     (inline CSS/SVG/JS) — anything else it referenced would be blocked for anonymous visitors.
+   - **Redirect Rule** (zone `<your-zone>` → **Rules → Redirect Rules** → *Create rule*), custom
+     filter expression:
+     ```
+     (http.host eq "badmintongpt.<your-zone>" and http.request.uri.path eq "/"
+      and http.request.uri.query eq "" and not http.cookie contains "CF_Authorization")
+     ```
+     → *Static*, URL `https://badmintongpt.<your-zone>/welcome.html`, status **302** (never 301 —
+     browsers cache a 301 and would bounce signed-in users too), *Preserve query string* off.
+     Single Redirects run before Access, so the cookie-less visitor never hits the Access login.
+     The `?login` query on the button is what keeps the rule from bouncing it back. A visitor with
+     an expired `CF_Authorization` cookie skips the welcome page and lands on the Access login —
+     harmless. If the rule is misconfigured, the failure mode is today's behaviour (Access login
+     first); nothing else becomes public.
+
+   Verify (no cookie): `curl -sI https://badmintongpt.<your-zone>/` → `302` to `/welcome.html`;
+   `curl -sI https://badmintongpt.<your-zone>/welcome.html` → `200`;
+   `curl -sI 'https://badmintongpt.<your-zone>/?login'` → redirect to `<team>.cloudflareaccess.com`.
 
 > This repo's `REMOTE_MCP_SERVER_GUIDE.md` covers the same Tunnel+Access concepts for the
 > *systemd* path; here cloudflared runs in a container and the tunnel is token-based.
@@ -61,7 +91,8 @@ These are account-bound and done once in the Cloudflare dashboard.
 
 ```bash
 cp .env.example .env
-# Fill in: OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET, TUNNEL_TOKEN
+# Fill in: OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET, TUNNEL_TOKEN,
+#          NANOBOT_ACCOUNTS_WHITELIST (+ recommended CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD)
 #          (for the DB build also: HF_TOKEN)
 ```
 
@@ -150,6 +181,140 @@ In the browser, confirm the **tool-progress bar** renders during a reel render �
   monitors as YAML; status page at `badmintongpt-status.<zone>`) — see [`MONITORING.md`](MONITORING.md).
 
 ---
+
+## Accounts & quotas
+
+The gateway runs with `NANOBOT_ACCOUNTS=1` (fork module `vendor/nanobot/nanobot/accounts.py`).
+Every WebUI request carries the Cloudflare Access identity, and the gateway keys everything on that
+e-mail:
+
+| | Whitelisted (`NANOBOT_ACCOUNTS_WHITELIST`) | Everyone else |
+|---|---|---|
+| Usage limit | none | lifetime `NANOBOT_ACCOUNTS_QUOTA_USD` (default **$3.00**) |
+| Settings / Apps / `/restart` `/model` `/dream*` `/pairing` | yes | no (403 / refused) — only Appearance + Speech |
+| Conversations, projects, pins & titles, cron jobs | own only | own only |
+
+- **What counts toward the quota:** every chat-model call charged to the user's session (agent
+  turns, context compaction, title generation, subagents) at the per-1M-token prices
+  (`gpt-5.5`: $5 input / $0.50 cached / $30 output; `gpt-6-luna`: $0.10 / $0.01 / $0.50, all
+  doubled for a call with >272k input tokens; override with `NANOBOT_ACCOUNTS_PRICES`), plus
+  every reel's **actual** API cost as reported by the reels server (`usage.cost_usd` on
+  `generate_reel` / `get_reel_status` / `get_reel_result` — its script-model tokens and Fish TTS
+  bytes). Video retrieval, CoachAI analytics and message TTS are not billed.
+- **Enforcement:** a turn is refused up front once the allowance is spent (the WebUI shows *Usage
+  limit reached*); a turn that crosses the line mid-way stops at its next model call, and new
+  paid MCP jobs are refused (status/result polls still run so in-flight reels are metered). So
+  the overshoot is at most one model call / one reel.
+- **Usage page:** sidebar → the gauge button (shows the remaining balance) → spend, token counts,
+  reels, daily spend. `GET /api/usage` returns the same JSON.
+- **Ledger:** SQLite at `~/.nanobot/accounts.db` in the `nanobot_state` volume (session owners,
+  per-call usage, per-job reel costs). Admin CLI:
+
+  ```bash
+  docker compose exec gateway python -m nanobot.accounts list
+  docker compose exec gateway python -m nanobot.accounts set-quota someone@example.org 10   # raise one user
+  docker compose exec gateway python -m nanobot.accounts reset-quota someone@example.org    # back to default
+  ```
+- **Invite codes** (`NANOBOT_ACCOUNTS_INVITE_REQUIRED`, on by default in `docker-compose.yml`):
+  Cloudflare Access still decides who may sign in; after that a **new** account sees *Enter your
+  invite code* and the gateway refuses its turns, model calls and paid MCP jobs until it redeems
+  one. Codes are shared (many people use the same code), compared after NFKC / whitespace /
+  case folding, and may cap how many accounts can redeem them. Accounts that existed when this
+  was first deployed are activated by the ledger migration, and the whitelist never needs a code.
+  After two wrong codes an account waits 30 s, then 60 s, 90 s, ... per further wrong code. The
+  invite only lets the account in; its spend is still capped by the quota above. Codes live in
+  the ledger, not in `.env`:
+
+  ```bash
+  docker compose exec gateway python -m nanobot.accounts invite create <code>               # no cap
+  docker compose exec gateway python -m nanobot.accounts invite create <code> --max-uses 30 # 30 accounts
+  docker compose exec gateway python -m nanobot.accounts invite list      # uses per code
+  docker compose exec gateway python -m nanobot.accounts invite disable <code>  # redeemed accounts stay
+  docker compose exec gateway python -m nanobot.accounts activate someone@example.org     # no code needed
+  ```
+
+  `list` shows accounts still waiting for a code as `NO INVITE`. Set
+  `NANOBOT_ACCOUNTS_INVITE_REQUIRED=0` in `.env` to open sign-up again.
+- **Input safety** (all on by default in `docker-compose.yml`):
+  - *Moderation* (`NANOBOT_MODERATION`, `nanobot/moderation.py`): every chat message except slash
+    commands goes through OpenAI's free `omni-moderation-latest` first (adds ~0.4–2 s). A message
+    is refused (`content_flagged`, *Message not sent*; self-harm shows crisis lines instead) when a
+    category score reaches its threshold. The endpoint's own `flagged` verdict is ignored because
+    it flags badminton wording ("net kill", 用殺球把對手殺爆, 怎麼攻擊對手反手後場), so `violence`
+    (0.9) and `illicit` (0.85) are set high; sexual, self-harm, hate, harassment and graphic
+    violence block at 0.5 (sexual/minors 0.3). On a sample of 16 badminton questions and 10
+    harmful requests this passed all 16 and blocked 7; the rest (a threat, poisoning, stalking)
+    is left to the chat model's own refusals. Tune with `NANOBOT_MODERATION_THRESHOLDS`. The check
+    fails open (a moderation outage logs a warning and lets messages through). Images are not
+    moderated. Blocked messages are logged with the account and the categories, not the text.
+  - *No local admin behind the proxy*: with `NANOBOT_WEBUI_TRUST_PROXY=1` a header-less request
+    from loopback is refused instead of becoming the whitelisted `local@localhost`. Before this,
+    anything inside the container (such as an agent `exec` command) could call the gateway's API
+    as an unlimited admin.
+  - *Sandboxed commands have no network* (`NANOBOT_SANDBOX_NO_NETWORK=1` → bwrap
+    `--unshare-net`): `exec` cannot reach the gateway, the compose network or the internet. Web
+    access stays with `web_fetch` / `web_search` and their SSRF guard.
+  - *Badminton only*, for every account including the whitelist:
+    - **Topic gate** (`NANOBOT_TOPIC_GATE`, `nanobot/topic_gate.py`): `gpt-6-luna` at low effort
+      classifies each message, with the last six turns as context so follow-ups such as
+      "畫成長條圖" or "那第二局呢" pass, and refuses anything else (`off_topic`, *Badminton
+      questions only*). It runs concurrently with moderation (~1.3 s median), costs about
+      $0.00006 per message and is billed to the account. It refuses messages that mix badminton
+      with an off-topic request. On 24 test messages it was right on all 13 in scope and all 11
+      out of scope (CPU load, server specs, scraping code, weather, NBA, the system prompt, ...).
+      It fails open.
+    - **Calculation-only `exec`** (`NANOBOT_EXEC_PYTHON_ONLY`, `agent/tools/python_guard.py`):
+      the command must be exactly `python3 -c '<code>'` (re-quoted, so no shell syntax runs) and
+      the code may import only calculation modules (statistics, math, collections, json, ...); no
+      `os`, `sys`, `open`, `eval`, `getattr` or `_`-attributes. The data-analysis skill's
+      examples still run; `nproc`, `cat /proc/loadavg` and `import os` are refused.
+    - **Strict sandbox** (`NANOBOT_SANDBOX_STRICT`): bwrap also unshares IPC, UTS (hostname
+      `sandbox`) and cgroups, and masks `/proc/{loadavg,cpuinfo,meminfo,stat,uptime,...}`. A PID
+      namespace is not possible in the container, so other processes' command lines stay visible
+      to code that got past the guard.
+    - **Prompt rule**: `nanobot/workspace/SOUL.md` *Scope* tells the agent to decline everything
+      else without calling tools and never to describe the system it runs on.
+- **Identity:** by default the `Cf-Access-Authenticated-User-Email` header is trusted (safe only
+  because `8765` is `expose`-only and only cloudflared reaches it). Set `CF_ACCESS_TEAM_DOMAIN` +
+  `CF_ACCESS_AUD` to verify the `Cf-Access-Jwt-Assertion` signature instead (recommended).
+- **Existing conversations** (created before accounts) have no owner and are hidden from everyone
+  until `NANOBOT_ACCOUNTS_LEGACY_OWNER=<e-mail>` adopts them at the next start. Projects created
+  before accounts (`workspace/projects/<name>`) are likewise hidden; new ones live under
+  `workspace/projects/<user>/`.
+- **Shared memory is off** (`NANOBOT_DISABLE_SHARED_MEMORY=1`, `dream.enabled: false`): nanobot's
+  `memory/history.jsonl` and `memory/MEMORY.md` are injected into *every* session's prompt, which
+  would leak one user's conversations to another. Each chat still keeps its own compaction summary. The agent can no
+  longer edit `SOUL.md` / `USER.md` / `memory/` / `skills/`, and cannot read `sessions/`.
+- **Not isolated (known):** files the agent writes at the workspace root outside a project are
+  visible to other users' agents; keep per-user work inside projects.
+
+---
+
+## Puzzle answer page
+
+`https://badmintongpt.<your-zone>/puzzle.html` is a link-only page (nothing in the WebUI points to
+it) where a signed-in user types a puzzle answer. It needs no Cloudflare change: only
+`/welcome.html` bypasses Access, so this path asks for sign-in like the app itself.
+
+- Set the answer in `.env` (`NANOBOT_PUZZLE_ANSWER=...`), then `docker compose up -d`. It is
+  compared server-side only (full-width forms and whitespace are ignored). Unset → the page says
+  answering is closed.
+- After the n-th wrong answer an account must wait n/2 minutes (30 s, 1 min, 1.5 min, ...).
+  Attempts are per e-mail in `~/.nanobot/puzzle.db` (volume). To reset one player:
+  `docker compose exec gateway python -c "import sqlite3,os; sqlite3.connect(os.path.expanduser('~/.nanobot/puzzle.db')).execute('DELETE FROM puzzle_attempts WHERE email=?', ('someone@example.org',)).connection.commit()"`.
+- A correct answer is followed by a one-minute user survey (1–5 scales with every point labeled:
+  answer fit, whether they tried other questions and how those went, overall satisfaction,
+  likelihood to recommend; then role (選手/教練/業餘愛好者/球迷/研究人員/一般民眾/其他), play level, free-text suggestions). Only after it is submitted does the page show **完成**
+  with the account, completion time and a ticking clock — that screen is what staff stamp (a
+  frozen clock means a screenshot). One survey per account, stored in the same `puzzle.db`.
+  Export: `docker compose exec -T gateway python -m nanobot.puzzle export > survey.csv`
+  (UTF-8 with BOM, times in UTC).
+- The done screen shows a QR code (`/puzzle-staff.html#c=<random code>`). Staff listed in
+  `NANOBOT_PUZZLE_STAFF` (`.env`, comma separated, `@domain` ok; then `docker compose up -d`)
+  open `https://badmintongpt.<your-zone>/puzzle-staff.html` and tap **開始掃描** (camera, needs
+  HTTPS — fine behind the tunnel), or just scan with the phone's camera app, which opens the same
+  page. It shows the player's 身份, 羽球程度, 建議 and every rating of 2 or lower, plus a red
+  warning when that QR was already scanned (= already stamped). Anyone else gets "staff only".
 
 ## 7. Migrating off the old in-session setup
 

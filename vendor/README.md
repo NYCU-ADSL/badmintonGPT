@@ -26,6 +26,72 @@ Backend (Python):
   `AGENTS.md`; `read_file` can read agent workspace skills when a project is selected.
   Write/edit tools remain restricted to the selected project. This keeps visualise and the
   badminton playbooks callable from the project groups.
+- **accounts, quotas & per-user isolation** (opt-in `NANOBOT_ACCOUNTS=1`; new module
+  `nanobot/accounts.py`, tests `tests/test_accounts.py` + `tests/channels/test_websocket_accounts.py`)
+  — identity = the Cloudflare Access e-mail (`Cf-Access-Authenticated-User-Email`, or the verified
+  `Cf-Access-Jwt-Assertion` when `CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD` are set). SQLite ledger
+  `~/.nanobot/accounts.db`: session owners, per-call LLM usage, per-job MCP costs.
+  `channels/websocket.py` requires an identity for bootstrap/API/WS, claims new chats for their
+  creator and filters/404s every session route, attach and message by owner; adds
+  `GET /api/usage`, `account` in bootstrap, 403 on `/api/settings*` and refusal of
+  `/restart` `/model` `/dream*` `/pairing` for non-whitelisted accounts, and refuses turns once the
+  quota is spent (`error` event `quota_exhausted`). Metering: `providers/base.py`
+  `_safe_chat`/`_safe_chat_stream` (refuse when exhausted, record `usage` after) and
+  `agent/tools/mcp.py` (charges any result carrying `{"job_id", "usage": {"cost_usd"}}` — the
+  reels contract — once per job, monotonic). `openai_responses/parsing.py` now keeps
+  `cached_tokens`. Isolation beyond the chat list: `agent/tools/filesystem.py` + `sandbox.py`
+  (no `sessions/`, `memory/history.jsonl` or other users' `projects/<user>/`; shared config
+  read-only), `webui/workspaces.py` (remote projects under `projects/<user>/`),
+  `webui/sidebar_state.py` (per-user file), `agent/tools/cron.py` (own jobs only).
+  `NANOBOT_DISABLE_SHARED_MEMORY=1` stops `Consolidator.archive` writing the shared
+  `history.jsonl`, `context.py` injecting it (and the workspace-wide `memory/MEMORY.md`), and the stale `dream` cron job running
+  (`cli/commands.py`). WebUI: `components/UsageView.tsx`, a sidebar balance button, restricted
+  Settings (Appearance + Speech), account error banners. Ops: `python -m nanobot.accounts`.
+  **Invite codes** (opt-in `NANOBOT_ACCOUNTS_INVITE_REQUIRED=1`): ledger table `invites` (shared
+  codes, optional `max_uses`) + `users.activated_at`/`invite_*` columns, added by
+  `Ledger._migrate`, which activates every account already there. Until a non-whitelisted
+  account redeems a code, `quota_status` reports `invite_required`, `_reject_for_account` sends
+  `error` `invite_required`, and `llm_call_refusal`/`mcp_call_refusal` refuse; `GET
+  /api/invite/redeem?code=` redeems (wrong codes cool down, 429 + `Retry-After`). WebUI:
+  `components/InviteGate.tsx` replaces the app in `App.tsx` while `account.invite_required`.
+  CLI: `invite create|list|disable`, `activate`. Tests: `tests/invite-gate.test.tsx` + the two
+  Python suites above.
+- **input safety** — `nanobot/moderation.py` (opt-in `NANOBOT_MODERATION=1`): OpenAI moderation of
+  every inbound chat message in `channels/websocket.py` `_reject_flagged` (both the envelope and
+  the legacy text path; slash commands skipped), blocking on per-category score thresholds
+  instead of the endpoint's `flagged` verdict (badminton wording trips `violence`/`illicit`),
+  fail-open; WebUI `content_flagged` banner (`StreamErrorNotice.tsx`, crisis lines for self-harm).
+  `accounts.account_from_headers` no longer maps header-less loopback requests to the whitelisted
+  local user when `NANOBOT_WEBUI_TRUST_PROXY` is set. `agent/tools/sandbox.py` adds bwrap
+  `--unshare-net` under `NANOBOT_SANDBOX_NO_NETWORK=1`. Tests: `tests/test_moderation.py`,
+  `tests/test_accounts.py`, `tests/channels/test_websocket_accounts.py`,
+  `tests/tools/test_sandbox.py`, `webui/src/tests/content-flagged-notice.test.tsx`.
+  **Badminton only**: `nanobot/topic_gate.py` (opt-in `NANOBOT_TOPIC_GATE=1`) classifies each
+  message with a small Responses-API model, given the session's last turns, and
+  `_reject_flagged` refuses out-of-scope ones (`error` `off_topic`), running it concurrently
+  with moderation and billing it through the accounts ledger. `agent/tools/python_guard.py` +
+  `shell.py` `_prepare_command` (opt-in `NANOBOT_EXEC_PYTHON_ONLY=1`) accept only a re-quoted
+  `python3 -I -c <code>` whose AST imports only calculation modules and touches no
+  `open`/`eval`/`getattr`/`_`-attribute or module handle. `sandbox.py` `NANOBOT_SANDBOX_STRICT=1`
+  unshares IPC/UTS/cgroup and masks the host's `/proc` files. Tests: `tests/test_topic_gate.py`,
+  `tests/tools/test_python_guard.py`, `tests/tools/test_sandbox.py`.
+- **link-only puzzle page** (`webui/public/puzzle.html`, `nanobot/puzzle.py`, routes in
+  `channels/websocket.py` `_handle_puzzle`; tests `tests/test_puzzle.py` +
+  `tests/channels/test_websocket_accounts.py`) — a static answer page nothing links to, behind
+  Cloudflare Access like every path but `/welcome.html`. `GET /api/puzzle` (status) and
+  `GET /api/puzzle/answer?answer=` check the answer server-side against `NANOBOT_PUZZLE_ANSWER`
+  (NFKC, whitespace ignored), so it never reaches the browser. After the n-th wrong answer the
+  account waits n/2 minutes (429 + `Retry-After` until then); per-e-mail state in
+  `~/.nanobot/puzzle.db` survives restarts. A correct answer opens a short user survey
+  (`GET /api/puzzle/survey?...`, fields validated against `puzzle.SURVEY_RATINGS`/`_CHOICES`,
+  once per account, 403 before solving); the stamp-collecting "done" screen (account, completion
+  time, a live clock against screenshots) shows only after the server stored it.
+  `python -m nanobot.puzzle export` dumps the answers as CSV. The done screen's QR
+  (`/puzzle-staff.html#c=<stamp_code>`) is for the staff scanner `webui/public/puzzle-staff.html`
+  (camera via jsQR, or opened from a phone camera app): `GET /api/puzzle/staff` /
+  `/api/puzzle/staff/lookup?code=` answer only `NANOBOT_PUZZLE_STAFF` accounts, return the survey
+  and count scans. Shared questions + API client: `public/puzzle-common.js`; QR libraries
+  vendored unmodified in `public/vendor/` (qrcode-generator 2.0.4 MIT, jsQR 1.4.0 Apache-2.0).
 - **remote restricted projects** (`nanobot/webui/workspaces.py`, opt-in
   `NANOBOT_WEBUI_REMOTE_PROJECTS=1`) — lets the Cloudflare Access WebUI create and select
   one-level project directories under the persistent agent workspace's `projects/` directory.
@@ -95,17 +161,36 @@ Frontend (WebUI, `vendor/nanobot/webui/`):
   `settings/SettingsView.tsx`, `index.html` title/favicon, and the user-visible brand strings +
   badminton empty-state greetings across the nine `webui/src/i18n/locales/*/common.json` (the literal
   `` `nanobot gateway` `` command string is preserved). Skin-only.
+- **public welcome page** — `webui/public/welcome.html` (self-contained bilingual landing page,
+  shares the WebUI's `nanobot.locale` key; the sidebar's `brand/lockup-horizontal{,-dark}.svg` +
+  favicon inlined as data URIs, kept byte-identical by `src/tests/welcome-page.test.ts`) +
+  `channels/websocket.py` `_serve_static` now sends `Cache-Control: no-cache` for every `.html`
+  (was: only `index.html`; anything else got `immutable`, so welcome-page edits would never reach
+  browsers). Reached via a Cloudflare Redirect Rule + an Access bypass on that path — see
+  `docs/DEPLOY.md` step 1.4.
 - **badminton rally thinking animation** — `webui/src/components/BadmintonRallyThinking.tsx` (a
   decorative rally driven by a single rAF engine; `prefers-reduced-motion` renders a static scene),
   its `brt-*` rules in `globals.css`, mounted in `thread/AgentActivityCluster.tsx` gated on
   `isTurnStreaming`. Skin-only.
+- **home example questions** — `thread/ExamplePrompts.tsx`: one example per feature (data, reel,
+  chart, analysis, rally search; the questions `public/welcome.html` demonstrates), one per row
+  below the composer of an empty chat, rendered from `ThreadShell.tsx`. The list scrolls on its
+  own and its height follows the screen height. Picking one only fills the input via
+  `ThreadComposer`'s `prefill` prop (ignored at mount, so it never comes back after sending); the
+  user still presses send. `ThreadViewport.tsx` puts the empty-chat greeting in flow above the
+  composer (upstream: absolutely positioned), so the taller block scrolls instead of pushing the
+  greeting off a short phone screen. Strings in `thread.empty.examples` (en, zh-TW). Test:
+  `tests/example-prompts.test.tsx`.
 - **animated boot splash** — `webui/index.html` lock-on mark with a play-once gate (intro played
   once AND app mounted), `prefers-reduced-motion` static fallback. Skin-only.
 - **visualizer fences** — renders ```` ```visualizer ```` fences (the `skills/visualise` output) as
   live inline iframes (`VisualWidget.tsx`, `lib/visualizer-events.ts`, routed in
   `MarkdownTextRenderer.tsx` gated on `!streaming`, with a `sendPrompt` bridge in `ThreadShell.tsx`).
   **Deliberately NOT security-hardened** (project decision): `sandbox="allow-scripts
-  allow-same-origin"`, no CSP.
+  allow-same-origin"`, no CSP. On reload, `nanobot/webui/transcript.py`
+  `demote_interrupted_assistant` keeps a text segment holding a visualizer fence as an answer
+  even when tool calls follow it (e.g. `complete_goal`); upstream folds such text into the
+  reasoning, which the live view never does, so charts used to jump into the thinking section.
 - **court theme** — the「淡綠場館 / Ball-in」home redesign: pale-green court tokens in `globals.css`,
   `--brand` tokens (+ `brand` colour in `tailwind.config.js`), court-line utilities + Ball-in
   keyframes, `thread/CourtBackdrop.tsx`, greened composer/accents, `Noto Sans TC`. Skin-only.

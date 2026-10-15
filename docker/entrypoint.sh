@@ -30,6 +30,22 @@ for d in /app/skills/*/; do
     cp -r "$d" "$WS/skills/$s"
 done
 
+# The repo is the only source of skills. Anything else in $WS/skills was written at
+# runtime (the built-in skill-creator) and persists on the volume, where it silently
+# overrides the repo playbooks for every user (e.g. an agent-written skill that made
+# the agent re-verify every video-retrieval hit with a chain of badminton-db queries).
+# Move such dirs out of the workspace (not delete) so they are recoverable.
+for d in "$WS/skills"/*/; do
+    [ -d "$d" ] || continue
+    s="$(basename "$d")"
+    if [ ! -d "/app/skills/$s" ]; then
+        mkdir -p "$NB/skills-pruned"
+        rm -rf "$NB/skills-pruned/$s"
+        mv "$WS/skills/$s" "$NB/skills-pruned/$s"
+        echo "entrypoint: pruned non-repo skill '$s' -> $NB/skills-pruned/$s"
+    fi
+done
+
 # The DB lives in the separate badminton-db container now; the gateway reaches it over
 # HTTP (http://badminton-db:8801/mcp) and never opens the SQLite file itself.
 

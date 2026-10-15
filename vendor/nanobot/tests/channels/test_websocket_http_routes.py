@@ -588,6 +588,7 @@ async def test_static_serves_index_when_dist_present(
     dist.mkdir()
     (dist / "index.html").write_text("<!doctype html><title>nbweb</title>")
     (dist / "favicon.svg").write_text("<svg/>")
+    (dist / "welcome.html").write_text("<!doctype html><title>welcome</title>")
     sm = _seed_session(tmp_path / "ws_state")
     channel = _ch(bus, session_manager=sm, static_dist_path=dist, port=29905)
     server_task = asyncio.create_task(channel.start())
@@ -601,6 +602,13 @@ async def test_static_serves_index_when_dist_present(
         asset = await _http_get("http://127.0.0.1:29905/favicon.svg")
         assert asset.status_code == 200
         assert "<svg" in asset.text
+        assert "immutable" in asset.headers.get("cache-control", "")
+        # Non-hashed HTML pages must not be cached as immutable.
+        assert root.headers.get("cache-control") == "no-cache"
+        welcome = await _http_get("http://127.0.0.1:29905/welcome.html")
+        assert welcome.status_code == 200
+        assert "welcome" in welcome.text
+        assert welcome.headers.get("cache-control") == "no-cache"
         # Unknown SPA route falls back to index.html.
         spa = await _http_get("http://127.0.0.1:29905/sessions/abc")
         assert spa.status_code == 200

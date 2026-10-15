@@ -119,3 +119,27 @@ class TestUnknownBackend:
         ws = str(tmp_path / "project")
         with pytest.raises(ValueError):
             wrap_command("", "ls", ws, ws)
+
+
+def test_bwrap_network_isolation_is_opt_in(tmp_path, monkeypatch):
+    """[badmintonGPT fork] NANOBOT_SANDBOX_NO_NETWORK adds --unshare-net."""
+    ws = str(tmp_path / "project")
+    monkeypatch.delenv("NANOBOT_SANDBOX_NO_NETWORK", raising=False)
+    assert "--unshare-net" not in _parse(wrap_command("bwrap", "echo hi", ws, ws))
+    monkeypatch.setenv("NANOBOT_SANDBOX_NO_NETWORK", "1")
+    tokens = _parse(wrap_command("bwrap", "echo hi", ws, ws))
+    assert "--unshare-net" in tokens
+    assert tokens.index("--unshare-net") < tokens.index("--")
+
+
+def test_bwrap_strict_mode_masks_host_info(tmp_path, monkeypatch):
+    """[badmintonGPT fork] NANOBOT_SANDBOX_STRICT isolates namespaces and masks /proc host files."""
+    ws = str(tmp_path / "project")
+    monkeypatch.setenv("NANOBOT_SANDBOX_STRICT", "1")
+    tokens = _parse(wrap_command("bwrap", "echo hi", ws, ws))
+    for flag in ("--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try"):
+        assert flag in tokens
+    i = tokens.index("/proc/loadavg")
+    assert tokens[i - 2:i] == ["--ro-bind-try", "/dev/null"]
+    assert i > tokens.index("--proc")
+

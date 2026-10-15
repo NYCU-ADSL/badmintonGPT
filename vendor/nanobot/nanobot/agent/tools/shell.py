@@ -389,6 +389,14 @@ class ExecTool(Tool):
                     + _WORKSPACE_BOUNDARY_NOTE
                 )
 
+        # [badmintonGPT fork] NANOBOT_EXEC_PYTHON_ONLY: calculations only (see python_guard).
+        if os.environ.get("NANOBOT_EXEC_PYTHON_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}:
+            from nanobot.agent.tools.python_guard import python_only_command
+
+            command = python_only_command(command)
+            if command.startswith("Error:"):
+                return command
+
         guard_error = self._guard_command(
             command,
             cwd,

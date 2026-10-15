@@ -18,6 +18,7 @@ from nanobot.session.manager import SessionManager
 
 WEBUI_TRANSCRIPT_SCHEMA_VERSION = 3
 _MAX_TRANSCRIPT_FILE_BYTES = 8 * 1024 * 1024
+_VISUALIZER_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*visualizer\b", re.MULTILINE)
 _MARKDOWN_LOCAL_IMAGE_RE = re.compile(
     r"!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(\s+(?:\"[^\"]*\"|'[^']*'))?\)"
 )
@@ -474,6 +475,11 @@ def replay_transcript_to_ui_messages(
                 or candidate.get("media")
             ):
                 continue
+            # [badmintonGPT fork] a drawn chart is part of the answer even when the model keeps
+            # calling tools afterwards (e.g. complete_goal); the live view shows it as one, so
+            # replay must not fold it into the reasoning.
+            if _VISUALIZER_FENCE_RE.search(content):
+                return
             reasoning_parts = [
                 part
                 for part in (candidate.get("reasoning"), content)

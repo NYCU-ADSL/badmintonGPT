@@ -16,6 +16,19 @@
       "submit": "連線",
       "invalid": "密碼無效，請再試一次。"
     },
+    "invite": {
+      "title": "輸入邀請碼",
+      "hint": "BadmintonGPT 目前採邀請制，輸入邀請碼後即可開始使用。",
+      "signedInAs": "目前登入：{{email}}",
+      "placeholder": "邀請碼",
+      "submit": "開始使用",
+      "checking": "確認中…",
+      "invalid": "邀請碼不正確，請再確認一次。",
+      "full": "這個邀請碼的名額已滿，請向邀請你的人索取新的邀請碼。",
+      "cooldown": "嘗試次數太多，請等 {{seconds}} 秒後再試。",
+      "failed": "送出失敗，請再試一次。",
+      "switchAccount": "換一個帳號登入"
+    },
     "account": {
       "section": "帳戶",
       "logoutHint": "中斷此瀏覽器與 gateway 的連線。",
@@ -496,6 +509,29 @@
         "build": "想拆解哪一場比賽？",
         "tackle": "準備好聊羽球了嗎？🏸"
       },
+      "examples": {
+        "label": "試試這些問題",
+        "data": {
+          "title": "比賽數據查詢",
+          "prompt": "2022 印尼公開賽四強 Axelsen 對 Lee Zii Jia，兩人各用殺球拿下幾分？"
+        },
+        "reel": {
+          "title": "AI 精華影片",
+          "prompt": "幫我做 2022 世界羽聯年終總決賽男單冠軍戰 Axelsen 對 Ginting 的精華影片"
+        },
+        "chart": {
+          "title": "一句話畫出圖表",
+          "prompt": "畫長條圖比較 2022 印尼公開賽四強 Axelsen 和 Lee Zii Jia 各球種的得分數"
+        },
+        "analysis": {
+          "title": "進階戰術分析",
+          "prompt": "2022 印尼公開賽四強 Axelsen 對 Lee Zii Jia 這場，兩人殺球後的回位速度如何？"
+        },
+        "search": {
+          "title": "片段語意搜尋",
+          "prompt": "幫我找一球網前撲球得分的片段"
+        }
+      },
       "quickActions": {
         "plan": {
           "title": "建立專案計畫",
@@ -759,6 +795,32 @@
     "workspaceScopeRejected": {
       "title": "工作區未變更",
       "body": "閘道拒絕了要求的專案或存取權限，badmintonGPT 已繼續使用先前的工作區。"
+    },
+    "quotaExhausted": {
+      "title": "已達使用額度",
+      "body": "此帳號已用完 ${{quota}} 的額度，新訊息已暫停。如需提高額度，請聯絡管理員。"
+    },
+    "inviteRequired": {
+      "title": "需要邀請碼",
+      "body": "此帳號尚未啟用，請重新整理頁面並輸入邀請碼。"
+    },
+    "contentFlagged": {
+      "title": "訊息未送出",
+      "body": "這則訊息可能違反使用規範，因此沒有送出。請換個方式描述你的羽球問題。",
+      "selfHarmTitle": "你並不孤單",
+      "selfHarmBody": "這則訊息沒有送出。如果你正感到痛苦或有傷害自己的念頭，請撥打 1925 安心專線（24 小時免費）或 1995 生命線，緊急時請撥 119。"
+    },
+    "offTopic": {
+      "title": "只回答羽球相關的問題",
+      "body": "BadmintonGPT 只處理羽球的比賽數據、戰術分析、精華影片和片段搜尋，這則訊息沒有送出。請換一個羽球相關的問題。"
+    },
+    "chatForbidden": {
+      "title": "無法開啟對話",
+      "body": "這個對話屬於其他帳號。"
+    },
+    "commandForbidden": {
+      "title": "不允許使用此指令",
+      "body": "{{command}} 會影響整個服務，僅限管理員使用。"
     }
   },
   "workspace": {
@@ -774,5 +836,41 @@
   },
   "visualizer": {
     "generating": "視覺化產生中…"
+  },
+  "usage": {
+    "title": "使用量",
+    "refresh": "重新整理",
+    "balance": "額度",
+    "remaining": "剩餘額度",
+    "spentTotal": "累計使用",
+    "remainingOf": "剩餘 {{remaining}} / {{quota}}",
+    "sidebarRemaining": "剩餘 {{amount}}",
+    "unlimitedHint": "此帳號在白名單內，沒有使用量限制。",
+    "exhaustedHint": "額度已用完，新訊息會暫停，直到管理員提高額度。",
+    "disabled": "此伺服器未啟用使用量追蹤。",
+    "plan": {
+      "unlimited": "無限制",
+      "quota": "{{quota}} 額度",
+      "exhausted": "已達上限"
+    },
+    "llm": {
+      "title": "對話模型",
+      "calls": "模型呼叫次數",
+      "input": "輸入 tokens",
+      "cached": "快取輸入 tokens",
+      "output": "輸出 tokens"
+    },
+    "jobs": {
+      "title": "精華影片",
+      "none": "尚未產生精華影片。",
+      "count_one": "{{count}} 支",
+      "count_other": "{{count}} 支"
+    },
+    "servers": {
+      "reels": "精華影片"
+    },
+    "daily": "每日花費（UTC）",
+    "pricingNote": "對話模型 {{model}}：每 1M 輸入 tokens ${{input}}、快取 ${{cached}}、輸出 ${{output}}。精華影片依實際 API 成本（腳本模型＋旁白語音）計費。",
+    "updateNote": "數字會在每次回覆後更新。"
   }
 }

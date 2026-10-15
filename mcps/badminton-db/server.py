@@ -10,6 +10,8 @@ Transport (env MCP_TRANSPORT): "streamable-http" (default — served at /mcp on
 MCP_HOST:MCP_PORT for its own container) or "stdio" (used by scripts/test_db_mcp.py).
 Security: opens the DB with mode=ro and only accepts a single SELECT statement.
 Depends only on `mcp` + stdlib `sqlite3` (no badminton package needed).
+Concurrency: tools are async and run the (blocking) SQLite work in a worker thread,
+so one slow query never stalls other requests or /healthz on the event loop.
 Env: BADMINTON_DB = path to badminton.db; MCP_HOST (default 0.0.0.0); MCP_PORT (8801).
 """
 from __future__ import annotations
@@ -19,6 +21,7 @@ import re
 import sqlite3
 from typing import Annotated
 
+import anyio
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 from starlette.requests import Request
@@ -44,9 +47,7 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
-@mcp.tool()
-def list_tables() -> list[str]:
-    """List the tables in the badminton database."""
+def _list_tables() -> list[str]:
     conn = _connect()
     try:
         return [r[0] for r in conn.execute(
@@ -55,13 +56,7 @@ def list_tables() -> list[str]:
         conn.close()
 
 
-@mcp.tool()
-def describe_table(
-    table: Annotated[str, Field(
-        description="Name of the table to inspect (e.g. 'matches', 'rallies', "
-                    "or 'shots'). Must be a valid SQL identifier.")],
-) -> list[dict]:
-    """Return column info (name, type, ...) for a table via PRAGMA table_info."""
+def _describe_table(table: str) -> list[dict]:
     if not _IDENT.match(table):
         return [{"error": f"invalid table name: {table!r}"}]
     conn = _connect()
@@ -74,18 +69,7 @@ def describe_table(
         conn.close()
 
 
-@mcp.tool()
-def query(
-    sql: Annotated[str, Field(
-        description="A single read-only SELECT statement to run against the "
-                    "badminton DB. At most 200 rows are returned. Multiple "
-                    "statements, a trailing extra statement, or any non-SELECT "
-                    "query are rejected.")],
-) -> dict:
-    """Run a single read-only SELECT and return {rows, row_count} (max 200 rows).
-
-    Only one SELECT statement is allowed; anything else is rejected.
-    """
+def _query(sql: str) -> dict:
     stripped = sql.strip().rstrip(";")
     if not _SELECT.match(stripped) or ";" in stripped:
         return {"error": "only a single SELECT statement is allowed"}
@@ -97,6 +81,37 @@ def query(
         return {"error": str(e)}
     finally:
         conn.close()
+
+
+@mcp.tool()
+async def list_tables() -> list[str]:
+    """List the tables in the badminton database."""
+    return await anyio.to_thread.run_sync(_list_tables)
+
+
+@mcp.tool()
+async def describe_table(
+    table: Annotated[str, Field(
+        description="Name of the table to inspect (e.g. 'matches', 'rallies', "
+                    "or 'shots'). Must be a valid SQL identifier.")],
+) -> list[dict]:
+    """Return column info (name, type, ...) for a table via PRAGMA table_info."""
+    return await anyio.to_thread.run_sync(_describe_table, table)
+
+
+@mcp.tool()
+async def query(
+    sql: Annotated[str, Field(
+        description="A single read-only SELECT statement to run against the "
+                    "badminton DB. At most 200 rows are returned. Multiple "
+                    "statements, a trailing extra statement, or any non-SELECT "
+                    "query are rejected.")],
+) -> dict:
+    """Run a single read-only SELECT and return {rows, row_count} (max 200 rows).
+
+    Only one SELECT statement is allowed; anything else is rejected.
+    """
+    return await anyio.to_thread.run_sync(_query, sql)
 
 
 @mcp.custom_route("/healthz", methods=["GET"])

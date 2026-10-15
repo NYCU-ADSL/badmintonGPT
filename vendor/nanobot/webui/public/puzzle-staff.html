@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="robots" content="noindex, nofollow" />
+    <!--
+      Stamp scanner for puzzle staff [badmintonGPT fork]. Behind Cloudflare Access like every path
+      but /welcome.html; only NANOBOT_PUZZLE_STAFF accounts get data from
+      /api/puzzle/staff/lookup (see nanobot/puzzle.py). Scans the QR on puzzle.html's done screen
+      with the camera (jsQR), or opens directly from a phone camera app via #c=<code>.
+    -->
+    <title>集章掃描 · BadmintonGPT</title>
+    <link rel="icon" type="image/svg+xml" href="/brand/mark-small-noframe-green.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #ecf4ef;
+        --bg-deep: #dcebe2;
+        --ink: #232a25;
+        --ink-soft: #55625a;
+        --title: #173c2a;
+        --brand: #15724a;
+        --brand-hover: #0f5c3b;
+        --on-brand: #ffffff;
+        --card: rgba(255, 255, 255, 0.72);
+        --card-line: rgba(21, 114, 74, 0.14);
+        --line: rgba(23, 60, 42, 0.12);
+        --field: #ffffff;
+        --bad: #b42318;
+        --bad-bg: rgba(180, 35, 24, 0.08);
+        --ok-bg: rgba(21, 114, 74, 0.08);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #102019;
+          --bg-deep: #0b1712;
+          --ink: #dde6e0;
+          --ink-soft: #9fb1a6;
+          --title: #f4f9f6;
+          --brand: #2dbd7e;
+          --brand-hover: #4fd096;
+          --on-brand: #06150d;
+          --card: rgba(22, 36, 29, 0.78);
+          --card-line: rgba(45, 189, 126, 0.18);
+          --line: rgba(221, 230, 224, 0.1);
+          --field: #16271f;
+          --bad: #ff8a80;
+          --bad-bg: rgba(255, 138, 128, 0.1);
+          --ok-bg: rgba(45, 189, 126, 0.1);
+        }
+      }
+
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        background: radial-gradient(1200px 600px at 50% -10%, var(--bg-deep), var(--bg));
+        color: var(--ink);
+        font-family: "Noto Sans TC", system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.6;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        place-items: start center;
+        padding: 24px 16px;
+      }
+      main {
+        width: 100%;
+        max-width: 480px;
+        background: var(--card);
+        border: 1px solid var(--card-line);
+        border-radius: 20px;
+        padding: 28px 24px 24px;
+        backdrop-filter: blur(6px);
+      }
+      @media (max-width: 380px) { main { padding: 22px 16px 18px; } }
+      .mark { width: 36px; height: 36px; display: block; margin-bottom: 14px; }
+      h1 { font-size: 22px; font-weight: 900; color: var(--title); margin: 0 0 4px; }
+      .lead { color: var(--ink-soft); font-size: 14.5px; margin: 0 0 18px; }
+      .msg { min-height: 1.6em; margin: 10px 0 0; font-size: 14.5px; }
+      .msg.bad { color: var(--bad); }
+      button {
+        font: inherit;
+        font-weight: 700;
+        font-size: 15px;
+        color: var(--on-brand);
+        background: var(--brand);
+        border: 0;
+        border-radius: 12px;
+        padding: 11px 18px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: var(--brand-hover); }
+      button.ghost { color: var(--brand); background: transparent; border: 1px solid var(--line); }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      .wide { width: 100%; }
+      .viewer {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #000;
+        margin-bottom: 12px;
+      }
+      .viewer video { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .viewer .frame {
+        position: absolute;
+        inset: 18%;
+        border: 3px solid rgba(255, 255, 255, 0.85);
+        border-radius: 14px;
+        box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.25);
+        pointer-events: none;
+      }
+      form { display: flex; gap: 8px; margin-top: 12px; }
+      input {
+        flex: 1;
+        min-width: 0;
+        font: inherit;
+        font-size: 15px;
+        color: var(--ink);
+        background: var(--field);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 9px 12px;
+      }
+      input:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+      form button { padding: 0 16px; }
+
+      .result { margin-top: 4px; }
+      .banner { border-radius: 12px; padding: 10px 14px; font-weight: 700; margin-bottom: 14px; }
+      .banner.ok { background: var(--ok-bg); color: var(--brand); }
+      .banner.warn { background: var(--bad-bg); color: var(--bad); }
+      dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; font-size: 15px; }
+      dt { color: var(--ink-soft); white-space: nowrap; }
+      dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+      dd.none { color: var(--ink-soft); }
+      .low { margin: 0; padding: 0; list-style: none; }
+      .low li { color: var(--bad); font-weight: 500; }
+      .next { margin-top: 18px; }
+      .back { display: inline-block; margin-top: 20px; font-size: 13.5px; color: var(--ink-soft); }
+      .back:hover { color: var(--brand); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img class="mark" src="/brand/mark-small-noframe-green.svg" alt="" />
+      <h1>集章掃描</h1>
+      <p class="lead">工作人員專用：掃描參加者「完成」畫面上的 QR Code。</p>
+
+      <p id="loading" class="msg">載入中…</p>
+
+      <section id="scanner" hidden>
+        <div id="viewer" class="viewer" hidden>
+          <video id="video" playsinline muted></video>
+          <div class="frame"></div>
+        </div>
+        <button id="toggle" class="wide" type="button">開始掃描</button>
+        <form id="manual" autocomplete="off">
+          <input id="code" placeholder="或貼上代碼／網址" aria-label="代碼或網址" />
+          <button type="submit">查詢</button>
+        </form>
+        <p id="msg" class="msg" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="result" class="result" hidden>
+        <div id="banner" class="banner"></div>
+        <dl>
+          <dt>帳號</dt><dd id="r-email"></dd>
+          <dt>身份</dt><dd id="r-role"></dd>
+          <dt>羽球程度</dt><dd id="r-level"></dd>
+          <dt>2 分以下</dt><dd id="r-low"></dd>
+          <dt>建議</dt><dd id="r-suggestion"></dd>
+        </dl>
+        <button id="next" class="wide next" type="button">掃下一位</button>
+      </section>
+
+      <a class="back" href="/">← 回到 BadmintonGPT</a>
+    </main>
+
+    <script src="/vendor/jsQR-1.4.0.js"></script>
+    <script src="/puzzle-common.js"></script>
+    <script>
+      (function () {
+        var $ = function (id) { return document.getElementById(id); };
+        var Q = {};
+        Puzzle.QUESTIONS.forEach(function (q) { Q[q.name] = q; });
+        var LOW_MAX = 2;
+
+        var stream = null;
+        var decoding = false;
+        var busy = false;
+        var canvas = document.createElement("canvas");
+        var ctx = canvas.getContext("2d", { willReadFrequently: true });
+        // Decode only the middle of the picture (where the on-screen frame is), at most this many
+        // px wide: a full 640 px frame costs jsQR ~2.5x more and blocks the page between frames.
+        var CROP = 0.8, MAX_SIDE = 480;
+        // The phone's native scanner (Chrome on Android) is much faster than jsQR; use it if present.
+        var detector = null;
+        if ("BarcodeDetector" in window) {
+          BarcodeDetector.getSupportedFormats().then(function (f) {
+            if (f.indexOf("qr_code") >= 0) detector = new BarcodeDetector({ formats: ["qr_code"] });
+          }).catch(function () {});
+        }
+        // Right after "掃下一位" the previous QR may still be in view; ignore it briefly so it isn't
+        // reported as already scanned.
+        var lastCode = null, lastAt = 0, REPEAT_IGNORE_MS = 2000;
+
+        function setMsg(text, bad) {
+          $("msg").textContent = text || "";
+          $("msg").className = "msg" + (bad ? " bad" : "");
+        }
+
+        function choiceText(name, value) {
+          var hit = (Q[name].options || []).filter(function (o) { return o[0] === value; })[0];
+          return hit ? hit[1] : value || "—";
+        }
+
+        function caption(name, value) {
+          return value + " " + Q[name].labels[value - 1].replace("|", "");
+        }
+
+        function show(r) {
+          var a = r.answers || {};
+          var again = r.scan_count > 1;
+          var banner = $("banner");
+          banner.className = "banner " + (again ? "warn" : "ok");
+          banner.textContent = again ? "⚠ 這個 QR Code 已掃過" : "✓ 第一次掃描，可以集章";
+          $("r-email").textContent = r.email;
+          $("r-role").textContent = choiceText("role", a.role);
+          $("r-level").textContent = choiceText("level", a.level);
+
+          var low = Puzzle.QUESTIONS.filter(function (q) {
+            return q.type === "scale" && typeof a[q.name] === "number" && a[q.name] <= LOW_MAX;
+          });
+          var lowEl = $("r-low");
+          lowEl.textContent = "";
+          lowEl.className = low.length ? "" : "none";
+          if (low.length) {
+            var ul = document.createElement("ul");
+            ul.className = "low";
+            low.forEach(function (q) {
+              var li = document.createElement("li");
+              li.textContent = q.short + "：" + caption(q.name, a[q.name]);
+              ul.appendChild(li);
+            });
+            lowEl.appendChild(ul);
+          } else {
+            lowEl.textContent = "沒有";
+          }
+          $("r-suggestion").textContent = a.suggestion || "（未填）";
+          $("r-suggestion").className = a.suggestion ? "" : "none";
+
+          $("scanner").hidden = true;
+          $("result").hidden = false;
+          $("next").focus();
+        }
+
+        function lookup(code) {
+          decoding = false;
+          setMsg("查詢中…");
+          return Puzzle.api("/api/puzzle/staff/lookup?code=" + encodeURIComponent(code))
+            .then(function (r) {
+              if (r.ok) return r.json().then(show).then(function () { setMsg(""); });
+              decoding = !!stream;
+              if (r.status === 404) setMsg("找不到這個 QR Code，可能不是集章用的 QR Code。", true);
+              else if (r.status === 403) setMsg("你的帳號不在工作人員名單上。", true);
+              else setMsg("查詢失敗（" + r.status + "），請再試一次。", true);
+            })
+            .catch(function () {
+              decoding = !!stream;
+              setMsg("查詢失敗，請檢查網路後再試一次。", true);
+            });
+        }
+
+        function found(code) {
+          if (!code || !decoding) return;
+          if (code === lastCode && Date.now() - lastAt < REPEAT_IGNORE_MS) return;
+          lastCode = code;
+          lastAt = Date.now();
+          if (navigator.vibrate) navigator.vibrate(80);
+          lookup(code);
+        }
+
+        function tick() {
+          if (!stream) return;
+          var v = $("video");
+          if (decoding && !busy && v.readyState >= 2 && v.videoWidth) {
+            var side = Math.min(v.videoWidth, v.videoHeight) * CROP;
+            var size = Math.round(Math.min(side, MAX_SIDE));
+            canvas.width = canvas.height = size;
+            ctx.drawImage(v, (v.videoWidth - side) / 2, (v.videoHeight - side) / 2, side, side, 0, 0, size, size);
+            if (detector) {
+              busy = true;
+              detector.detect(canvas).then(function (codes) {
+                busy = false;
+                if (codes.length) found(codes[0].rawValue);
+              }, function () { busy = false; detector = null; });  // broken native scanner → jsQR
+            } else {
+              var img = ctx.getImageData(0, 0, size, size);
+              var hit = jsQR(img.data, size, size, { inversionAttempts: "dontInvert" });
+              if (hit) found(hit.data);
+            }
+          }
+          requestAnimationFrame(tick);
+        }
+
+        function startCamera() {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setMsg("這個瀏覽器不能使用相機，請改用手機相機 App 掃描，或貼上代碼。", true);
+            return;
+          }
+          $("toggle").disabled = true;
+          // Default capture is often 640x480, where a phone-screen QR is only a few px per module.
+          navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false,
+          })
+            .then(function (s) {
+              stream = s;
+              $("video").srcObject = s;
+              return $("video").play();
+            })
+            .then(function () {
+              $("viewer").hidden = false;
+              $("toggle").textContent = "停止掃描";
+              $("toggle").className = "wide ghost";
+              $("toggle").disabled = false;
+              decoding = true;
+              setMsg("把 QR Code 對準框內。");
+              requestAnimationFrame(tick);
+            })
+            .catch(function () {
+              stopCamera();
+              setMsg("無法開啟相機，請允許相機權限後再試一次。", true);
+            });
+        }
+
+        function stopCamera() {
+          decoding = false;
+          if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+          stream = null;
+          $("video").srcObject = null;
+          $("viewer").hidden = true;
+          $("toggle").textContent = "開始掃描";
+          $("toggle").className = "wide";
+          $("toggle").disabled = false;
+        }
+
+        $("toggle").addEventListener("click", function () {
+          if (stream) { stopCamera(); setMsg(""); } else { startCamera(); }
+        });
+
+        $("manual").addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          var v = $("code").value.trim();
+          if (v) lookup(v).then(function () { $("code").value = ""; });
+        });
+
+        $("next").addEventListener("click", function () {
+          $("result").hidden = true;
+          $("scanner").hidden = false;
+          lastAt = Date.now();
+          decoding = !!stream;
+          setMsg(stream ? "把 QR Code 對準框內。" : "");
+        });
+
+        Puzzle.api("/api/puzzle/staff")
+          .then(function (r) {
+            if (!r.ok) throw new Error(r.status === 401 ? "auth" : "http");
+            return r.json();
+          })
+          .then(function (s) {
+            $("loading").hidden = true;
+            if (!s.staff) {
+              $("loading").hidden = false;
+              $("loading").className = "msg bad";
+              $("loading").textContent = "只有工作人員可以使用這個頁面（目前登入：" + (s.email || "—") + "）。";
+              return;
+            }
+            $("scanner").hidden = false;
+            // Opened from a phone camera app: the QR is this page's URL with #c=<code>.
+            var m = /[#&]c=([A-Za-z0-9_-]+)/.exec(location.hash);
+            if (m) {
+              history.replaceState(null, "", location.pathname);
+              lookup(m[1]);
+            }
+          })
+          .catch(function (e) {
+            $("loading").className = "msg bad";
+            $("loading").textContent = e && e.message === "auth"
+              ? "請先登入 BadmintonGPT 再開啟這個頁面。"
+              : "載入失敗，請重新整理頁面。";
+          });
+      })();
+    </script>
+  </body>
+</html>

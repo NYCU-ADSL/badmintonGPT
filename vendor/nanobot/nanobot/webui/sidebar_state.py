@@ -29,6 +29,12 @@ _ALLOWED_SORTS = {"updated_desc", "created_desc", "title_asc"}
 
 
 def webui_sidebar_state_path() -> Path:
+    # [badmintonGPT fork] pins / titles / archive are per account when NANOBOT_ACCOUNTS is on.
+    from nanobot.accounts import account_slug, current_webui_account
+
+    account = current_webui_account()
+    if account is not None:
+        return get_webui_dir() / f"sidebar-state.{account_slug(account.email)}.json"
     return get_webui_dir() / "sidebar-state.json"
 
 

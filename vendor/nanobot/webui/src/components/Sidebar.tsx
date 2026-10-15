@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   Archive,
+  Gauge,
   Menu,
   Search,
   Settings,
@@ -16,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import type {
   ChatSummary,
   SidebarViewState,
+  UsagePayload,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -33,9 +35,13 @@ interface SidebarProps {
   onRequestRenameProject: (projectKey: string, label: string) => void;
   onNewChatInProject: (projectPath: string, projectName: string) => void;
   onOpenSettings: () => void;
-  onOpenApps: () => void;
+  /** Undefined hides the Apps entry (non-whitelisted accounts — Apps live in global Settings). */
+  onOpenApps?: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "apps" | null;
+  /** [badmintonGPT fork] Usage page (NANOBOT_ACCOUNTS); hidden when undefined. */
+  onOpenUsage?: () => void;
+  usage?: UsagePayload | null;
+  activeUtility?: "apps" | "usage" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -148,13 +154,15 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onOpenSearch}
           icon={<Search className="h-4 w-4" />}
         />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.apps")}
-          onClick={props.onOpenApps}
-          active={props.activeUtility === "apps"}
-          icon={<Blocks className="h-4 w-4" />}
-        />
+        {props.onOpenApps ? (
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("sidebar.apps")}
+            onClick={props.onOpenApps}
+            active={props.activeUtility === "apps"}
+            icon={<Blocks className="h-4 w-4" />}
+          />
+        ) : null}
         {props.archivedCount ? (
           <SidebarActionButton
             collapsed={collapsed}
@@ -217,15 +225,41 @@ export function Sidebar(props: SidebarProps) {
           className={collapsed ? undefined : "flex-1"}
           icon={<Settings className="h-4 w-4" />}
         />
+        {props.onOpenUsage ? (
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={usageButtonLabel(props.usage, t, true)}
+            ariaLabel={usageButtonLabel(props.usage, t)}
+            onClick={props.onOpenUsage}
+            active={props.activeUtility === "usage"}
+            className={cn(
+              collapsed ? undefined : "flex-1",
+              props.usage?.exhausted && "text-destructive hover:text-destructive",
+            )}
+            icon={<Gauge className="h-4 w-4" />}
+          />
+        ) : null}
         <ConnectionBadge />
       </div>
     </nav>
   );
 }
 
+function usageButtonLabel(
+  usage: UsagePayload | null | undefined,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  short = false,
+): string {
+  if (!usage || usage.unlimited || usage.remaining_usd == null) return t("usage.title");
+  const amount = `$${usage.remaining_usd.toFixed(2)}`;
+  // The footer row is narrow: show just the amount; the full phrase is the accessible name.
+  return short ? amount : t("usage.sidebarRemaining", { amount });
+}
+
 function SidebarActionButton({
   collapsed,
   label,
+  ariaLabel,
   icon,
   onClick,
   active = false,
@@ -233,6 +267,8 @@ function SidebarActionButton({
 }: {
   collapsed: boolean;
   label: string;
+  /** Accessible name / tooltip when it differs from the visible label. */
+  ariaLabel?: string;
   icon: ReactNode;
   onClick: () => void;
   active?: boolean;
@@ -242,9 +278,9 @@ function SidebarActionButton({
     <Button
       type="button"
       variant="ghost"
-      aria-label={label}
+      aria-label={ariaLabel ?? label}
       aria-current={active ? "page" : undefined}
-      title={collapsed ? label : undefined}
+      title={collapsed || ariaLabel ? (ariaLabel ?? label) : undefined}
       onClick={() => onClick()}
       className={cn(
         "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",

@@ -27,6 +27,8 @@ shots(match_name, set_no, rally, ball_round, player, server, type,
   - player / getpoint_player : 'A' | 'B' (player=the hitter; getpoint_player=the rally winner)
   - type        : shot type (Chinese enum; see below)
   - aroundhead/backhand : 0/1
+  - hit_area / landing_area : court-area code 1–16 where the shot was hit / where it landed
+                  (layout in "Court areas" below; NOT a 4×4 grid)
   - win_reason  : non-NULL when this hitter makes the winning shot (e.g. 落地致勝 / 對手出界)
   - lose_reason : non-NULL when this hitter loses the point through an error (e.g. 出界 / 掛網)
   - roundscore_a/b : score at the time of the shot
@@ -42,10 +44,36 @@ shots(match_name, set_no, rally, ball_round, player, server, type,
 
 These are literal stored values; retain them in queries. For example, `殺球` means smash, `挑球` means lift, `放小球` means net shot, `出界` means out of bounds, `掛網` means into the net, and `未知球種` means unknown shot type.
 
+## Court areas (`hit_area` / `landing_area`)
+
+Codes 1–16, numbered from the viewpoint of the player standing in that half and facing the net. The
+same codes are used by badminton-analyze's lost-point zones.
+
+```
+              net
+   10 |  2 |  7 |  1 | 16     front court
+   11 |  6 |  8 |  5 | 15     mid court
+   12 |  4 |  9 |  3 | 14     rear court
+                13            behind the baseline
+ (left out) left mid right (right out)
+```
+
+- 1–9 are inside the singles court as a 3×3 grid: 7/8/9 is the centre column; odd zones 1/5/3 are on
+  the player's right, even zones 2/6/4 on the player's left.
+- 10–16 are out of bounds: 10/11/12 outside the left sideline, 14/15/16 outside the right sideline,
+  13 behind the baseline. The 2025/2026 games use only 1–9.
+- `hit_area` is in the hitter's half. `landing_area` is usually in the opponent's half, but errors
+  differ: shots with `lose_reason='出界'` land in 10–16, and shots with `lose_reason='掛網'` get a
+  front-court code (7/1/2) that does not say which side of the net they fell on.
+- Inferred from ~250k labelled coordinates in the raw CSVs (hit and landing agree; the 2025/2026
+  export has the same 1–9 layout). There is no official mapping and exact boundaries are unknown.
+- When drawing a court, always use this layout. Never place 1–16 in a 4×4 grid in numeric order.
+
 ## Important conventions
 
 - **A/B ↔ names**: A=`matches.player_a`, B=`matches.player_b`. For Axelsen vs Lee, for example, A=Viktor AXELSEN and B=LEE Zii Jia.
 - **"Points won with a shot type"**: the shot itself is the winner → `type=... AND player=... AND win_reason IS NOT NULL`.
-- **Current data coverage**: `matches` has 194 matches (189 official + 5 NYCU practice, 2022–2024); `rallies` covers 169 matches and `shots` covers **138** (the rest have catalog metadata only: practice clips or matches without annotation files). **Always filter by `match_name` for a specific match**, or you will sum across 138 matches (the most common source of errors).
+- **Current data coverage**: `matches` has 244 matches (239 official + 5 NYCU practice, 2022–2026); `rallies` covers 218 matches and `shots` covers **188** (the rest have catalog metadata only: practice clips or matches without annotation files). **Always filter by `match_name` for a specific match**, or you will sum across 188 matches (the most common source of errors).
+- **2025/2026 games** (`name` `2025game1`…`2025game27`, `2026game1`…`2026game23`, `year` 2025/2026): CoachAI-format exports; the folder name carries nothing, so `player_a`/`player_b`, `tournament` (e.g. `DAIHATSU Indonesia Masters 2025`) and `round` (`R64`…`F`, `Group B`) come from the BWF game list. Names are spelled as in that list (`Chou Tien Chen`, not `CHOU Tien Chen`) — match players with `LIKE`, which is case-insensitive. `analyze_match_id` is NULL. Known export flaws: in `2025game4` set 2 and `2025game11` set 2 the A/B scores are reversed against the broadcast scoreboard, and `2025game6` set 1 / `2025game15` set 1 misattribute some points — caveat per-player stats for those sets. More generally, their per-rally scores (`score_a/b`, `rally_id`) can drift 1–3 points from the broadcast scoreboard later in a set, so treat a quoted score as approximate. 48 of them have a clip for every rally (`has_video=1`, cut from the BWF TV broadcast); only `2025game26` has none (`has_video=0`). Find them with `year IN (2025, 2026)` or `name GLOB '202[56]game*'`. `2025game18` has shots but no rallies and blank `player` (its export has no score data).
 - **Advanced analysis**: running distance, shot height, post-smash recovery speed, etc. are not in this DB → obtain `analyze_match_id`, then use the **badminton-analyze** skill.
 - **Video clips**: there are many annotations but few actual videos → always filter with `has_video=1` before returning clips to users.

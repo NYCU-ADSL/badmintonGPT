@@ -16,6 +16,19 @@
       "submit": "Connect",
       "invalid": "Invalid password. Try again."
     },
+    "invite": {
+      "title": "Enter your invite code",
+      "hint": "BadmintonGPT is invite-only for now. Enter your invite code to get started.",
+      "signedInAs": "Signed in as {{email}}",
+      "placeholder": "Invite code",
+      "submit": "Get started",
+      "checking": "Checking…",
+      "invalid": "That invite code isn't valid. Please check it and try again.",
+      "full": "This invite code has no places left. Ask whoever invited you for a new one.",
+      "cooldown": "Too many attempts. Try again in {{seconds}} s.",
+      "failed": "Couldn't submit. Please try again.",
+      "switchAccount": "Sign in with another account"
+    },
     "account": {
       "section": "Account",
       "logoutHint": "Disconnect this browser from the gateway.",
@@ -496,6 +509,29 @@
         "build": "Which match should we break down?",
         "tackle": "Ready to talk badminton? 🏸"
       },
+      "examples": {
+        "label": "Try asking",
+        "data": {
+          "title": "Match data",
+          "prompt": "Axelsen vs Lee Zii Jia, 2022 Indonesia Open semifinal: how many points did each win with a smash?"
+        },
+        "reel": {
+          "title": "AI highlight reels",
+          "prompt": "Make a highlight reel of the 2022 BWF World Tour Finals men's singles final, Axelsen vs Ginting"
+        },
+        "chart": {
+          "title": "Instant charts",
+          "prompt": "Draw a bar chart comparing Axelsen's and Lee Zii Jia's points by shot type in the 2022 Indonesia Open semifinal"
+        },
+        "analysis": {
+          "title": "Advanced tactics",
+          "prompt": "In the 2022 Indonesia Open semifinal, Axelsen vs Lee Zii Jia — how fast did each recover after smashing?"
+        },
+        "search": {
+          "title": "Find any rally",
+          "prompt": "Find me a rally won with a net kill"
+        }
+      },
       "quickActions": {
         "plan": {
           "title": "Create a project plan",
@@ -759,6 +795,32 @@
     "workspaceScopeRejected": {
       "title": "Workspace was not changed",
       "body": "badmintonGPT kept the previous workspace because the requested project or access mode was rejected by the gateway."
+    },
+    "quotaExhausted": {
+      "title": "Usage limit reached",
+      "body": "This account has used its ${{quota}} allowance, so new messages are paused. Contact the administrator to raise it."
+    },
+    "inviteRequired": {
+      "title": "Invite code required",
+      "body": "This account isn't activated yet. Reload the page and enter an invite code."
+    },
+    "contentFlagged": {
+      "title": "Message not sent",
+      "body": "This message may break the usage rules, so it was not sent. Please rephrase your badminton question.",
+      "selfHarmTitle": "You're not alone",
+      "selfHarmBody": "This message was not sent. If you are struggling or thinking about hurting yourself, please contact a local crisis line or emergency services right away."
+    },
+    "offTopic": {
+      "title": "Badminton questions only",
+      "body": "BadmintonGPT only handles badminton match data, tactics, highlight reels and rally search, so this message was not sent. Please ask something about badminton."
+    },
+    "chatForbidden": {
+      "title": "Conversation unavailable",
+      "body": "This conversation belongs to another account."
+    },
+    "commandForbidden": {
+      "title": "Command not allowed",
+      "body": "{{command}} changes the whole service and is reserved for administrators."
     }
   },
   "workspace": {
@@ -774,5 +836,41 @@
   },
   "visualizer": {
     "generating": "Generating visualization…"
+  },
+  "usage": {
+    "title": "Usage",
+    "refresh": "Refresh",
+    "balance": "Balance",
+    "remaining": "Remaining credit",
+    "spentTotal": "Total spent",
+    "remainingOf": "{{remaining}} of {{quota}} left",
+    "sidebarRemaining": "{{amount}} left",
+    "unlimitedHint": "This account is on the whitelist and has no usage limit.",
+    "exhaustedHint": "The allowance is used up. New messages are paused until the administrator raises it.",
+    "disabled": "Usage tracking is not enabled on this server.",
+    "plan": {
+      "unlimited": "Unlimited",
+      "quota": "{{quota}} allowance",
+      "exhausted": "Limit reached"
+    },
+    "llm": {
+      "title": "Chat model",
+      "calls": "Model calls",
+      "input": "Input tokens",
+      "cached": "Cached input tokens",
+      "output": "Output tokens"
+    },
+    "jobs": {
+      "title": "Highlight reels",
+      "none": "No reels generated yet.",
+      "count_one": "{{count}} job",
+      "count_other": "{{count}} jobs"
+    },
+    "servers": {
+      "reels": "Reels"
+    },
+    "daily": "Daily spend (UTC)",
+    "pricingNote": "Chat model {{model}}: ${{input}} / 1M input tokens, ${{cached}} / 1M cached, ${{output}} / 1M output. Reels are charged their actual API cost (script model + narration voice).",
+    "updateNote": "Figures update after each reply."
   }
 }

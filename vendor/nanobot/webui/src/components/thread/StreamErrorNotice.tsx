@@ -54,7 +54,7 @@ export function StreamErrorNotice({ error, onDismiss }: StreamErrorNoticeProps) 
 
 function resolveCopy(
   error: StreamError,
-  t: (key: string) => string,
+  t: (key: string, options?: Record<string, unknown>) => string,
 ): { title: string; body: string } {
   switch (error.kind) {
     case "message_too_big":
@@ -66,6 +66,34 @@ function resolveCopy(
       return {
         title: t("errors.workspaceScopeRejected.title"),
         body: t("errors.workspaceScopeRejected.body"),
+      };
+    case "quota_exhausted":
+      return {
+        title: t("errors.quotaExhausted.title"),
+        body: t("errors.quotaExhausted.body", {
+          quota: (error.quotaUsd ?? 0).toFixed(2),
+        }),
+      };
+    case "off_topic":
+      return { title: t("errors.offTopic.title"), body: t("errors.offTopic.body") };
+    case "content_flagged":
+      return error.selfHarm
+        ? { title: t("errors.contentFlagged.selfHarmTitle"), body: t("errors.contentFlagged.selfHarmBody") }
+        : { title: t("errors.contentFlagged.title"), body: t("errors.contentFlagged.body") };
+    case "invite_required":
+      return {
+        title: t("errors.inviteRequired.title"),
+        body: t("errors.inviteRequired.body"),
+      };
+    case "chat_forbidden":
+      return {
+        title: t("errors.chatForbidden.title"),
+        body: t("errors.chatForbidden.body"),
+      };
+    case "command_forbidden":
+      return {
+        title: t("errors.commandForbidden.title"),
+        body: t("errors.commandForbidden.body", { command: error.command ?? "" }),
       };
     default: {
       // Exhaustiveness guard: if a new StreamError kind is added, TS will

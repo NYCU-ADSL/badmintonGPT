@@ -7,7 +7,7 @@
 #
 # Required in .env:  OPENAI_API_KEY, REELS_CF_CLIENT_ID, REELS_CF_CLIENT_SECRET,
 #                    VIDEO_RETRIEVAL_CF_CLIENT_ID, VIDEO_RETRIEVAL_CF_CLIENT_SECRET,
-#                    ANALYZE_MCP_TOKEN, TUNNEL_TOKEN
+#                    ANALYZE_MCP_TOKEN, TUNNEL_TOKEN, NANOBOT_ACCOUNTS_WHITELIST
 # Build the DB once: docker compose --profile ingest run --rm ingest   (needs HF_TOKEN)
 # Bring it up:       docker compose up -d --build
 
@@ -72,8 +72,43 @@ services:
       # so nanobot serves the WebUI without its own token/secret prompt. See the fork's trust-proxy
       # change in vendor/nanobot (vendor/README.md). Unset this to fall back to nanobot's own gate.
       NANOBOT_WEBUI_TRUST_PROXY: "1"
+      # With the proxy trusted, a header-less loopback request is no longer the whitelisted local
+      # user (it could only come from inside the container); exec commands also get no network,
+      # so they cannot call the gateway's own API or anything else (web tools stay available).
+      NANOBOT_SANDBOX_NO_NETWORK: "1"
+      # Badminton-only: exec runs nothing but calculation-only `python3 -c` (nanobot/agent/tools/
+      # python_guard.py), the sandbox also masks the host's /proc info, and a small model refuses
+      # messages that are not about badminton before the agent sees them (nanobot/topic_gate.py).
+      NANOBOT_EXEC_PYTHON_ONLY: "1"
+      NANOBOT_SANDBOX_STRICT: "1"
+      NANOBOT_TOPIC_GATE: ${NANOBOT_TOPIC_GATE:-1}
+      NANOBOT_TOPIC_GATE_MODEL: ${NANOBOT_TOPIC_GATE_MODEL:-gpt-6-luna}
+      # Screen every chat message with OpenAI's moderation endpoint (fork, nanobot/moderation.py):
+      # per-category thresholds tuned so badminton wording ("net kill", 殺球) passes; fail-open.
+      NANOBOT_MODERATION: ${NANOBOT_MODERATION:-1}
+      NANOBOT_MODERATION_THRESHOLDS: ${NANOBOT_MODERATION_THRESHOLDS:-}
       # Allow remote WebUI users to create restricted projects inside the persistent workspace.
       NANOBOT_WEBUI_REMOTE_PROJECTS: "1"
+      # Accounts (fork, nanobot/accounts.py): each Cloudflare Access user sees only their own chats and
+      # projects; whitelisted e-mails are unlimited + may use Settings, everyone else has a lifetime
+      # quota covering chat-model tokens and reel API cost. Ledger: ~/.nanobot/accounts.db (volume).
+      NANOBOT_ACCOUNTS: "1"
+      NANOBOT_ACCOUNTS_WHITELIST: ${NANOBOT_ACCOUNTS_WHITELIST:?set NANOBOT_ACCOUNTS_WHITELIST in .env}
+      NANOBOT_ACCOUNTS_QUOTA_USD: ${NANOBOT_ACCOUNTS_QUOTA_USD:-3.00}
+      NANOBOT_ACCOUNTS_LEGACY_OWNER: ${NANOBOT_ACCOUNTS_LEGACY_OWNER:-}
+      # New accounts redeem a shared invite code once (codes: `python -m nanobot.accounts invite`).
+      NANOBOT_ACCOUNTS_INVITE_REQUIRED: ${NANOBOT_ACCOUNTS_INVITE_REQUIRED:-1}
+      NANOBOT_ACCOUNTS_PRICES: ${NANOBOT_ACCOUNTS_PRICES:-}
+      # Optional but recommended: verify the Access JWT instead of trusting the e-mail header.
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      # The shared memory/history.jsonl would carry one user's conversations into everyone's prompt.
+      NANOBOT_DISABLE_SHARED_MEMORY: "1"
+      # Link-only puzzle page /puzzle.html (fork, nanobot/puzzle.py): the accepted answer, checked
+      # server-side; unset → the page says answering is closed. Attempts: ~/.nanobot/puzzle.db.
+      NANOBOT_PUZZLE_ANSWER: ${NANOBOT_PUZZLE_ANSWER:-}
+      # Who may use the stamp scanner /puzzle-staff.html (comma separated e-mails, @domain ok).
+      NANOBOT_PUZZLE_STAFF: ${NANOBOT_PUZZLE_STAFF:-}
     volumes:
       - nanobot_state:/home/nanobot/.nanobot  # persist sessions/ + memory/ across restarts
     expose:

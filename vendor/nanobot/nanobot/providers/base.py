@@ -506,12 +506,46 @@ class LLMProvider(ABC):
 
     async def _safe_chat(self, **kwargs: Any) -> LLMResponse:
         """Call chat() and convert unexpected exceptions to error responses."""
+        refused = self._account_refusal()
+        if refused is not None:
+            return refused
         try:
-            return await self.chat(**kwargs)
+            response = await self.chat(**kwargs)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             return LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+        self._meter_usage(kwargs.get("model"), response)
+        return response
+
+    # -- per-account metering [badmintonGPT fork] ---------------------------
+    # Every attempt that reaches the provider goes through _safe_chat / _safe_chat_stream, so
+    # metering here covers the agent runner, consolidation, title generation and subagents alike.
+    # The account is resolved from the request context (see nanobot.accounts).
+
+    def _account_refusal(self) -> LLMResponse | None:
+        from nanobot.accounts import accounts_enabled, llm_call_refusal
+
+        if not accounts_enabled():
+            return None
+        message = llm_call_refusal()
+        if message is None:
+            return None
+        return LLMResponse(
+            content=message,
+            finish_reason="error",
+            error_kind="account_limit",
+            error_type="account_limit_reached",
+            error_should_retry=False,
+        )
+
+    def _meter_usage(self, model: Any, response: LLMResponse) -> None:
+        if not response.usage:
+            return
+        from nanobot.accounts import record_llm_usage
+
+        record_llm_usage(model if isinstance(model, str) and model else self.get_default_model(),
+                         response.usage)
 
     async def chat_stream(
         self,
@@ -550,12 +584,17 @@ class LLMProvider(ABC):
 
     async def _safe_chat_stream(self, **kwargs: Any) -> LLMResponse:
         """Call chat_stream() and convert unexpected exceptions to error responses."""
+        refused = self._account_refusal()
+        if refused is not None:
+            return refused
         try:
-            return await self.chat_stream(**kwargs)
+            response = await self.chat_stream(**kwargs)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             return LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+        self._meter_usage(kwargs.get("model"), response)
+        return response
 
     async def chat_stream_with_retry(
         self,

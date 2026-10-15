@@ -259,8 +259,22 @@ class CronTool(Tool, ContextAware):
             return "Dream memory consolidation for long-term memory."
         return "System-managed internal job."
 
+    @staticmethod
+    def _visible_to_account(job: CronJob) -> bool:
+        """NANOBOT_ACCOUNTS: a user sees only jobs scheduled from their own sessions;
+        system jobs only for whitelisted accounts. [badmintonGPT fork]"""
+        from nanobot import accounts
+
+        email = accounts.current_account_email()
+        if not accounts.accounts_enabled() or email is None:
+            return True
+        if job.payload.kind == "system_event":
+            return accounts.account_for_email(email).whitelisted
+        key = job.payload.session_key
+        return bool(key) and accounts.ledger().owner(key) == email
+
     def _list_jobs(self) -> str:
-        jobs = self._cron.list_jobs()
+        jobs = [j for j in self._cron.list_jobs() if self._visible_to_account(j)]
         if not jobs:
             return "No scheduled jobs."
         lines = []
@@ -277,6 +291,9 @@ class CronTool(Tool, ContextAware):
     def _remove_job(self, job_id: str | None) -> str:
         if not job_id:
             return "Error: job_id is required for remove"
+        existing = self._cron.get_job(job_id)
+        if existing is not None and not self._visible_to_account(existing):
+            return f"Job {job_id} not found"
         result = self._cron.remove_job(job_id)
         if result == "removed":
             return f"Removed job {job_id}"

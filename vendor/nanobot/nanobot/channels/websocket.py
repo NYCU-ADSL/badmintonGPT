@@ -33,6 +33,7 @@ from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
+from nanobot import accounts, moderation, puzzle, topic_gate
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
@@ -387,6 +388,12 @@ def _extract_data_url_mime(url: str) -> str | None:
 
 _LOCALHOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
+# [badmintonGPT fork] NANOBOT_ACCOUNTS: slash commands that act on the whole gateway (restart,
+# global model switch, shared memory, pairing) are reserved for whitelisted accounts.
+_ADMIN_ONLY_COMMANDS = frozenset({
+    "/restart", "/model", "/dream", "/dream-log", "/dream-restore", "/pairing",
+})
+
 # Matches the legacy chat-id pattern but allows file-system-safe stems too,
 # so the API can address sessions whose keys came from non-WebSocket channels.
 _API_KEY_RE = re.compile(r"^[A-Za-z0-9_:.-]{1,128}$")
@@ -560,6 +567,8 @@ class WebSocketChannel(BaseChannel):
         self._conn_chats: dict[Any, set[str]] = {}
         # connection -> default chat_id for legacy frames that omit routing.
         self._conn_default: dict[Any, str] = {}
+        # [badmintonGPT fork] NANOBOT_ACCOUNTS: the account each WS connection authenticated as.
+        self._conn_account: dict[Any, accounts.Account] = {}
         # Single-use tokens consumed at WebSocket handshake.
         self._issued_tokens: dict[str, float] = {}
         # Multi-use tokens for HTTP routes served beside WS; checked but not consumed.
@@ -624,6 +633,7 @@ class WebSocketChannel(BaseChannel):
             if not subs:
                 self._subs.pop(cid, None)
         self._conn_default.pop(connection, None)
+        self._conn_account.pop(connection, None)
 
     async def _maybe_push_active_goal_state(self, chat_id: str) -> None:
         """Replay an active sustained goal from session metadata after *chat_id* is subscribed.
@@ -741,6 +751,73 @@ class WebSocketChannel(BaseChannel):
     async def _dispatch_http(self, connection: Any, request: WsRequest) -> Any:
         """Route an inbound HTTP request to a handler or to the WS upgrade path."""
         got, query = _parse_request_path(request.path)
+        if not accounts.accounts_enabled():
+            return await self._dispatch_http_inner(connection, request, got, query)
+        # [badmintonGPT fork] NANOBOT_ACCOUNTS: every API / bootstrap / WS request must carry an
+        # authenticated proxy identity; it is bound for the handlers (project root, sidebar state).
+        account = self._account_for(connection, request)
+        needs_account = (
+            got == "/webui/bootstrap"
+            or got.startswith("/api/")
+            or got == self._expected_path() and _is_websocket_upgrade(request)
+        )
+        if account is None and needs_account and not got.startswith("/api/media/"):
+            return _http_error(401, "not signed in")
+        if account is not None and needs_account:
+            accounts.ledger().touch_user(account.email)
+        token = accounts.bind_webui_account(account)
+        try:
+            return await self._dispatch_http_inner(connection, request, got, query)
+        finally:
+            accounts.reset_webui_account(token)
+
+    @staticmethod
+    def _account_for(connection: Any, request: Any) -> accounts.Account | None:
+        """The proxy-authenticated account behind *request* (None when accounts are off)."""
+        if not accounts.accounts_enabled():
+            return None
+        return accounts.account_from_headers(
+            getattr(request, "headers", None),
+            is_local=_is_localhost(connection),
+        )
+
+    def _request_account(self) -> accounts.Account | None:
+        return accounts.current_webui_account()
+
+    def _owns_session(self, account: accounts.Account | None, key: str) -> bool:
+        """True when *account* may see *key* (always True when accounts are off)."""
+        if account is None:
+            return not accounts.accounts_enabled()
+        return accounts.ledger().owner(key) == account.email
+
+    def _session_exists(self, key: str) -> bool:
+        if self._session_manager is None:
+            return False
+        return self._session_manager.read_session_file(key) is not None
+
+    def _authorize_chat(self, account: accounts.Account | None, chat_id: str) -> bool:
+        """Accounts mode: may *account* use ``websocket:<chat_id>``? Claims brand-new chats."""
+        if not accounts.accounts_enabled():
+            return True
+        if account is None:
+            return False
+        key = f"websocket:{chat_id}"
+        owner = accounts.ledger().owner(key)
+        if owner is None:
+            # Pre-accounts (legacy) sessions are nobody's until NANOBOT_ACCOUNTS_LEGACY_OWNER
+            # adopts them; only ids with no history yet can be claimed.
+            if self._session_exists(key):
+                return False
+            owner = accounts.ledger().claim(key, account.email)
+        return owner == account.email
+
+    async def _dispatch_http_inner(
+        self,
+        connection: Any,
+        request: WsRequest,
+        got: str,
+        query: dict[str, list[str]],
+    ) -> Any:
 
         if self.config.token_issue_path:
             issue_expected = _normalize_config_path(self.config.token_issue_path)
@@ -780,6 +857,12 @@ class WebSocketChannel(BaseChannel):
         got: str,
     ) -> Any | None:
         """Route REST-ish WebUI requests served beside the WebSocket endpoint."""
+        if got == "/api/usage":
+            return self._handle_usage(request)
+        if got.startswith("/api/settings") and accounts.accounts_enabled():
+            account = self._request_account()
+            if account is None or not account.can_manage_settings:
+                return _http_error(403, "settings are restricted to whitelisted accounts")
         response = await self._dispatch_settings_api_route(request, got)
         if response is not None:
             return response
@@ -816,7 +899,151 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/webui/sidebar-state/update":
             return self._handle_webui_sidebar_state_update(request)
 
+        # [badmintonGPT fork] NANOBOT_ACCOUNTS_INVITE_REQUIRED: activate this account
+        if got == "/api/invite/redeem":
+            return self._handle_invite_redeem(request)
+
+        # [badmintonGPT fork] link-only puzzle page (public/puzzle.html)
+        if got == "/api/puzzle":
+            return self._handle_puzzle(request, submit=False)
+
+        if got == "/api/puzzle/answer":
+            return self._handle_puzzle(request, submit=True)
+
+        if got == "/api/puzzle/survey":
+            return self._handle_puzzle_survey(request)
+
+        if got == "/api/puzzle/staff":
+            return self._handle_puzzle_staff(request, lookup=False)
+
+        if got == "/api/puzzle/staff/lookup":
+            return self._handle_puzzle_staff(request, lookup=True)
+
         return None
+
+    def _handle_invite_redeem(self, request: WsRequest) -> Response:
+        """``GET /api/invite/redeem?code=`` — activate the caller's account. [badmintonGPT fork]
+
+        GET-only like every route here. 200 ``{"ok": true, "account": ...}`` once the account is
+        active; 400 ``invalid`` / ``full`` / ``empty``; 429 + ``Retry-After`` while cooling down
+        after repeated wrong codes.
+        """
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        account = self._request_account()
+        if account is None:
+            return _http_error(401, "not signed in")
+        code = _query_first(_parse_query(request.path), "code") or ""
+        if len(code) > accounts.MAX_INVITE_CODE_CHARS * 4:
+            return _http_error(413, "code too long")
+        if accounts.is_activated(account):
+            return _http_json_response({"ok": True, "account": self._account_payload(account)})
+        if not accounts.normalize_invite_code(code):
+            return _http_response(
+                json.dumps({"ok": False, "reason": "empty"}).encode("utf-8"),
+                status=400,
+                content_type="application/json; charset=utf-8",
+            )
+        result = accounts.ledger().redeem_invite(account.email, code)
+        if result["ok"]:
+            logger.info("account {} activated with an invite code", account.email)
+            return _http_json_response({"ok": True, "account": self._account_payload(account)})
+        body = json.dumps({"ok": False, **result}).encode("utf-8")
+        if result["reason"] == "cooldown":
+            return _http_response(
+                body,
+                status=429,
+                content_type="application/json; charset=utf-8",
+                extra_headers=[("Retry-After", str(result["retry_after_s"]))],
+            )
+        return _http_response(body, status=400, content_type="application/json; charset=utf-8")
+
+    def _handle_puzzle(self, request: WsRequest, *, submit: bool) -> Response:
+        """``GET /api/puzzle`` (status) / ``GET /api/puzzle/answer?answer=`` (check one answer).
+
+        [badmintonGPT fork] GET-only like every route here, so the answer arrives in the query
+        string. The expected answer stays server-side (``NANOBOT_PUZZLE_ANSWER``); wrong answers
+        put the caller's account on a growing cooldown (see ``nanobot/puzzle.py``).
+        """
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        account = self._request_account()
+        if account is None and accounts.accounts_enabled():
+            return _http_error(401, "not signed in")
+        email = account.email if account is not None else accounts.local_user()
+        expected = puzzle.configured_answer()
+        if not expected:
+            return _http_json_response({"configured": False})
+        if not submit:
+            return _http_json_response(puzzle.store().status(email))
+        answer = _query_first(_parse_query(request.path), "answer") or ""
+        if not puzzle.normalize_answer(answer):
+            return _http_error(400, "empty answer")
+        if len(answer) > puzzle.MAX_ANSWER_CHARS:
+            return _http_error(413, "answer too long")
+        result = puzzle.store().attempt(email, answer, expected)
+        if not result["accepted"] and not result["solved"]:
+            return _http_response(
+                json.dumps(result).encode("utf-8"),
+                status=429,
+                content_type="application/json; charset=utf-8",
+                extra_headers=[("Retry-After", str(result["retry_after_s"]))],
+            )
+        return _http_json_response(result)
+
+    def _handle_puzzle_survey(self, request: WsRequest) -> Response:
+        """``GET /api/puzzle/survey?fit=&tried_other=&...`` — the post-puzzle user survey. [badmintonGPT fork]
+
+        Accepted once per account and only after it solved the puzzle (403 ``unsolved`` before);
+        400 ``{"reason": "invalid", "field": ...}`` names the first bad field. Fields and ranges:
+        ``puzzle.SURVEY_RATINGS`` / ``SURVEY_CHOICES``.
+        """
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        account = self._request_account()
+        if account is None and accounts.accounts_enabled():
+            return _http_error(401, "not signed in")
+        email = account.email if account is not None else accounts.local_user()
+        if not puzzle.configured_answer():
+            return _http_json_response({"configured": False})
+        query = _parse_query(request.path)
+        raw = {field: _query_first(query, field) or "" for field in puzzle.SURVEY_FIELDS}
+        answers, bad_field = puzzle.validate_survey(raw)
+        if answers is None:
+            return _http_response(
+                json.dumps({"ok": False, "reason": "invalid", "field": bad_field}).encode("utf-8"),
+                status=400,
+                content_type="application/json; charset=utf-8",
+            )
+        result = puzzle.store().submit_survey(email, answers)
+        return _http_json_response(result, status=200 if result["ok"] else 403)
+
+    def _handle_puzzle_staff(self, request: WsRequest, *, lookup: bool) -> Response:
+        """``GET /api/puzzle/staff`` (``{"staff": bool}``) / ``.../staff/lookup?code=``. [badmintonGPT fork]
+
+        For the stamp scanner page (public/puzzle-staff.html). Only ``NANOBOT_PUZZLE_STAFF``
+        accounts may look a code up (403 otherwise); 404 for an unknown code. Every lookup
+        counts as one scan.
+        """
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        account = self._request_account()
+        if account is None and accounts.accounts_enabled():
+            return _http_error(401, "not signed in")
+        email = account.email if account is not None else accounts.local_user()
+        staff = puzzle.is_staff(email)
+        if not lookup:
+            return _http_json_response({"staff": staff, "email": email})
+        if not staff:
+            return _http_error(403, "staff only")
+        code = puzzle.normalize_stamp_code(_query_first(_parse_query(request.path), "code") or "")
+        if not code or len(code) > 64:
+            return _http_error(400, "bad code")
+        found = puzzle.store().scan(code)
+        if found is None:
+            return _http_error(404, "unknown code")
+        logger.info("puzzle stamp scanned by {} for {} (scan #{})", email, found["email"], found["scan_count"])
+        return _http_json_response(found)
 
     async def _handle_tts(self, request: WsRequest) -> Response:
         """Proxy one segment of text to the upstream TTS service and return WAV audio.
@@ -1015,8 +1242,36 @@ class WebSocketChannel(BaseChannel):
                     # segment the server would 413 (see TTS_SEGMENT_CHARS comment above).
                     "max_segment_chars": min(TTS_SEGMENT_CHARS, TTS_MAX_INPUT_CHARS),
                 },
+                # [badmintonGPT fork] NANOBOT_ACCOUNTS: who is signed in + quota (None when off).
+                "account": self._account_payload(self._request_account()),
             }
         )
+
+    def _account_payload(self, account: accounts.Account | None) -> dict[str, Any] | None:
+        if account is None:
+            return None
+        payload = accounts.quota_status(account)
+        payload["can_manage_settings"] = account.can_manage_settings
+        return payload
+
+    def _handle_usage(self, request: WsRequest) -> Response:
+        """``GET /api/usage`` — the caller's quota, spend and breakdown. [badmintonGPT fork]"""
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if not accounts.accounts_enabled():
+            return _http_json_response({"enabled": False})
+        account = self._request_account()
+        if account is None:
+            return _http_error(401, "not signed in")
+        body: dict[str, Any] = {"enabled": True}
+        body.update(self._account_payload(account) or {})
+        body["breakdown"] = accounts.ledger().usage_summary(account.email)
+        model = _resolve_bootstrap_model_name(self._runtime_model_name)
+        body["pricing"] = (
+            {"model": model, "unit": "usd_per_1m_tokens", **accounts.price_for_model(model)}
+            if model else None
+        )
+        return _http_json_response(body)
 
     def _bootstrap_ws_url(self, request: Any) -> str:
         """Absolute WS URL clients should prefer over a dev-server proxy."""
@@ -1037,12 +1292,16 @@ class WebSocketChannel(BaseChannel):
         if self._session_manager is None:
             return _http_error(503, "session manager unavailable")
         sessions = self._session_manager.list_sessions()
+        account = self._request_account()
         # Sidebar/chat listing for WS-backed sessions only — CLI / Slack / etc.
         # keys are not intended for resume over this HTTP surface.
         cleaned = []
         for s in sessions:
             key = s.get("key")
             if not (isinstance(key, str) and key.startswith("websocket:")):
+                continue
+            # [badmintonGPT fork] accounts mode: only the caller's own sessions.
+            if not self._owns_session(account, key):
                 continue
             row = {k: v for k, v in s.items() if k != "path"}
             chat_id = key.split(":", 1)[1]
@@ -1112,6 +1371,8 @@ class WebSocketChannel(BaseChannel):
         # ``/api/sessions``. Block handcrafted URLs from probing CLI / Slack / etc.
         if not self._is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
+        if not self._owns_session(self._request_account(), decoded_key):
+            return _http_error(404, "session not found")
         data = self._session_manager.read_session_file(decoded_key)
         if data is None:
             return _http_error(404, "session not found")
@@ -1132,6 +1393,8 @@ class WebSocketChannel(BaseChannel):
         if decoded_key is None:
             return _http_error(400, "invalid session key")
         if not self._is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        if not self._owns_session(self._request_account(), decoded_key):
             return _http_error(404, "session not found")
         scope = self._webui_workspaces.scope_for_session_key(decoded_key)
         data = build_webui_thread_response(
@@ -1303,6 +1566,8 @@ class WebSocketChannel(BaseChannel):
         # websocket-channel sessions; deletion unlinks local JSONL — keep scope narrow.
         if not self._is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
+        if not self._owns_session(self._request_account(), decoded_key):
+            return _http_error(404, "session not found")
         deleted = self._session_manager.delete_session(decoded_key)
         delete_webui_thread(decoded_key)
         return _http_json_response({"deleted": bool(deleted)})
@@ -1341,8 +1606,9 @@ class WebSocketChannel(BaseChannel):
             ctype = "application/octet-stream"
         if ctype.startswith("text/") or ctype in {"application/javascript", "application/json"}:
             ctype = f"{ctype}; charset=utf-8"
-        # Hash-named build assets are cache-friendly; index.html must stay fresh.
-        if candidate.name == "index.html":
+        # Hash-named build assets are cache-friendly; HTML pages (index.html, the public
+        # welcome.html) are not content-hashed and must stay fresh.
+        if candidate.suffix == ".html":
             cache = "no-cache"
         else:
             cache = "public, max-age=31536000, immutable"
@@ -1379,6 +1645,7 @@ class WebSocketChannel(BaseChannel):
         from nanobot.utils.logging_bridge import redirect_lib_logging
 
         redirect_lib_logging("websockets", level="WARNING")
+        self._adopt_legacy_sessions()
 
         self._running = True
         self._stop_event = asyncio.Event()
@@ -1457,6 +1724,26 @@ class WebSocketChannel(BaseChannel):
         self._server_task = asyncio.create_task(runner())
         await self._server_task
 
+    def _adopt_legacy_sessions(self) -> None:
+        """Accounts mode: hand pre-accounts WebUI sessions to NANOBOT_ACCOUNTS_LEGACY_OWNER.
+
+        Without a legacy owner those sessions stay invisible to everyone. [badmintonGPT fork]
+        """
+        if not accounts.accounts_enabled() or self._session_manager is None:
+            return
+        owner = accounts.normalize_email(os.environ.get("NANOBOT_ACCOUNTS_LEGACY_OWNER"))
+        if owner is None:
+            return
+        ledger = accounts.ledger()
+        adopted = 0
+        for row in self._session_manager.list_sessions():
+            key = row.get("key")
+            if isinstance(key, str) and key.startswith("websocket:") and ledger.owner(key) is None:
+                ledger.claim(key, owner)
+                adopted += 1
+        if adopted:
+            self.logger.info("accounts: {} legacy WebUI session(s) adopted by {}", adopted, owner)
+
     async def _connection_loop(self, connection: Any) -> None:
         request = connection.request
         path_part = request.path if request else "/"
@@ -1470,6 +1757,14 @@ class WebSocketChannel(BaseChannel):
             client_id = client_id[:128]
 
         default_chat_id = str(uuid.uuid4())
+        account = self._account_for(connection, request)
+        if accounts.accounts_enabled():
+            if account is None:
+                await connection.close(code=4401, reason="not signed in")
+                return
+            # The default chat is claimed on first use (_authorize_chat), not here, so idle
+            # page loads don't add ledger rows.
+            self._conn_account[connection] = account
 
         try:
             await connection.send(
@@ -1503,6 +1798,15 @@ class WebSocketChannel(BaseChannel):
                 content = _parse_inbound_payload(raw)
                 if content is None:
                     continue
+                raw_meta: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
+                if account is not None:
+                    if await self._reject_foreign_chat(connection, default_chat_id):
+                        continue
+                    if await self._reject_for_account(connection, account, default_chat_id, content):
+                        continue
+                    raw_meta[accounts.ACCOUNT_METADATA_KEY] = account.email
+                if await self._reject_flagged(connection, account, default_chat_id, content):
+                    continue
                 # WebSocket already authenticates at handshake time (token),
                 # so pairing is not applicable. Treat as non-DM to avoid
                 # sending pairing codes to an already-authenticated client.
@@ -1510,7 +1814,7 @@ class WebSocketChannel(BaseChannel):
                     sender_id=client_id,
                     chat_id=default_chat_id,
                     content=content,
-                    metadata={"remote": getattr(connection, "remote_address", None)},
+                    metadata=raw_meta,
                     is_dm=False,
                 )
         except Exception as e:
@@ -1595,9 +1899,133 @@ class WebSocketChannel(BaseChannel):
         envelope: dict[str, Any],
     ) -> None:
         """Route one typed inbound envelope (``new_chat`` / ``attach`` / ``message``)."""
+        account = self._conn_account.get(connection)
+        token = accounts.bind_webui_account(account)
+        try:
+            await self._dispatch_envelope_inner(connection, client_id, envelope, account)
+        finally:
+            accounts.reset_webui_account(token)
+
+    async def _reject_for_account(
+        self,
+        connection: Any,
+        account: accounts.Account,
+        chat_id: str,
+        content: str,
+    ) -> bool:
+        """Accounts mode: refuse admin-only commands and turns past the quota. True = rejected."""
+        command = content.strip().split(maxsplit=1)[0].lower() if content.strip() else ""
+        if command in _ADMIN_ONLY_COMMANDS and not account.whitelisted:
+            await self._send_event(
+                connection, "error", detail="command_forbidden", chat_id=chat_id, command=command,
+            )
+            return True
+        status = accounts.quota_status(account)
+        if status["invite_required"]:
+            await self._send_event(connection, "error", detail="invite_required", chat_id=chat_id)
+            return True
+        if status["exhausted"]:
+            await self._send_event(
+                connection,
+                "error",
+                detail="quota_exhausted",
+                chat_id=chat_id,
+                quota_usd=status["quota_usd"],
+                spent_usd=status["spent_usd"],
+            )
+            return True
+        return False
+
+    async def _reject_flagged(
+        self,
+        connection: Any,
+        account: accounts.Account | None,
+        chat_id: str,
+        content: str,
+    ) -> bool:
+        """Refuse a message the moderation endpoint flags (NANOBOT_MODERATION) or that is not
+        about badminton (NANOBOT_TOPIC_GATE). True = rejected.
+
+        [badmintonGPT fork] Both checks run concurrently. Slash commands are not checked (they
+        never reach the model as text).
+        """
+        if content.lstrip().startswith("/") or not (moderation.enabled() or topic_gate.enabled()):
+            return False
+        verdict, scope = await asyncio.gather(
+            moderation.check(content),
+            topic_gate.check(content, self._recent_turns(chat_id)),
+        )
+        if scope.usage and account is not None:
+            self._bill_topic_gate(account, chat_id, scope)
+        if not verdict.blocked:
+            if scope.in_scope:
+                return False
+            logger.info(
+                "topic gate refused a message from {} in {}",
+                account.email if account is not None else "-",
+                chat_id,
+            )
+            await self._send_event(connection, "error", detail="off_topic", chat_id=chat_id)
+            return True
+        logger.warning(
+            "moderation blocked a message from {} in {}: {}",
+            account.email if account is not None else "-",
+            chat_id,
+            ", ".join(verdict.categories),
+        )
+        await self._send_event(
+            connection,
+            "error",
+            detail="content_flagged",
+            chat_id=chat_id,
+            categories=verdict.categories,
+            self_harm=verdict.self_harm,
+        )
+        return True
+
+    def _recent_turns(self, chat_id: str) -> list[tuple[str, str]]:
+        """The conversation so far, for the topic gate to judge follow-ups. [badmintonGPT fork]"""
+        if not topic_gate.enabled() or self._session_manager is None:
+            return []
+        data = self._session_manager.read_session_file(f"websocket:{chat_id}") or {}
+        return topic_gate.context_from_messages(data.get("messages") or [])
+
+    @staticmethod
+    def _bill_topic_gate(
+        account: accounts.Account, chat_id: str, scope: topic_gate.GateResult,
+    ) -> None:
+        """Charge the classifier call to the account like any other model call."""
+        if not accounts.accounts_enabled() or not scope.usage:
+            return
+        try:
+            accounts.ledger().record_llm(
+                email=account.email,
+                session_key=f"websocket:{chat_id}",
+                model=scope.model,
+                usage=scope.usage,
+                cost_usd=accounts.llm_cost_usd(scope.model, scope.usage),
+            )
+        except Exception:
+            logger.exception("failed to record topic gate usage for {}", account.email)
+
+    async def _reject_foreign_chat(self, connection: Any, chat_id: str) -> bool:
+        if self._authorize_chat(self._conn_account.get(connection), chat_id):
+            return False
+        await self._send_event(connection, "error", detail="chat_forbidden", chat_id=chat_id)
+        return True
+
+    async def _dispatch_envelope_inner(
+        self,
+        connection: Any,
+        client_id: str,
+        envelope: dict[str, Any],
+        account: accounts.Account | None,
+    ) -> None:
         t = envelope.get("type")
         if t == "new_chat":
             new_id = str(uuid.uuid4())
+            if account is not None:
+                accounts.ledger().claim(f"websocket:{new_id}", account.email)
             scope = await self._workspace_scope_or_error(
                 connection,
                 lambda: self._webui_workspaces.scope_for_new_chat(
@@ -1624,6 +2052,8 @@ class WebSocketChannel(BaseChannel):
             if not _is_valid_chat_id(cid):
                 await self._send_event(connection, "error", detail="invalid chat_id")
                 return
+            if await self._reject_foreign_chat(connection, cid):
+                return
             self._attach(connection, cid)
             await self._send_event(connection, "attached", chat_id=cid)
             await self._hydrate_after_subscribe(cid)
@@ -1632,6 +2062,8 @@ class WebSocketChannel(BaseChannel):
             cid = envelope.get("chat_id")
             if not _is_valid_chat_id(cid):
                 await self._send_event(connection, "error", detail="invalid chat_id")
+                return
+            if await self._reject_foreign_chat(connection, cid):
                 return
             scope = await self._workspace_scope_or_error(
                 connection,
@@ -1662,6 +2094,14 @@ class WebSocketChannel(BaseChannel):
                 return
             if not isinstance(content, str):
                 await self._send_event(connection, "error", detail="missing content")
+                return
+            if await self._reject_foreign_chat(connection, cid):
+                return
+            if account is not None and await self._reject_for_account(
+                connection, account, cid, content,
+            ):
+                return
+            if await self._reject_flagged(connection, account, cid, content):
                 return
 
             raw_media = envelope.get("media")
@@ -1702,6 +2142,8 @@ class WebSocketChannel(BaseChannel):
             self._attach(connection, cid)
             await self._hydrate_after_subscribe(cid)
             metadata: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
+            if account is not None:
+                metadata[accounts.ACCOUNT_METADATA_KEY] = account.email
             if envelope.get("webui") is True:
                 metadata["webui"] = True
             locale = envelope.get("locale")

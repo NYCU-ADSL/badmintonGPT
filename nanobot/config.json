@@ -25,7 +25,7 @@
       "maxMessages": 120,
       "consolidationRatio": 0.5,
       "dream": {
-        "enabled": true,
+        "enabled": false,
         "intervalH": 2,
         "modelOverride": null,
         "maxBatchSize": 20,
@@ -623,7 +623,9 @@
           "get_running_distance",
           "get_shot_win_rate",
           "get_smash_followup_speed",
-          "verify_match_statistics"
+          "verify_match_statistics",
+          "get_plan3_shot_win_rate",
+          "get_plan3_rally_rest_time"
         ]
     },
       "util": {

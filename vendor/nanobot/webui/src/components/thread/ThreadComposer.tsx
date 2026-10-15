@@ -110,6 +110,15 @@ interface ThreadComposerProps {
   workspaceError?: string | null;
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
   pendingQueueKey?: string | null;
+  /** [badmintonGPT fork] Replace the input with ``text`` whenever ``id`` changes (an example
+   * question picked on the home screen). A prefill present at mount is ignored, so a composer
+   * that mounts after the first message was sent does not get the example back. */
+  prefill?: ComposerPrefill | null;
+}
+
+export interface ComposerPrefill {
+  id: number;
+  text: string;
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -661,6 +670,7 @@ export function ThreadComposer({
   workspaceError = null,
   onWorkspaceScopeChange,
   pendingQueueKey = null,
+  prefill = null,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -1017,6 +1027,20 @@ export function ThreadComposer({
       el.focus();
     });
   }, []);
+
+  const appliedPrefillIdRef = useRef(prefill?.id ?? null);
+  useEffect(() => {
+    if (!prefill || prefill.id === appliedPrefillIdRef.current) return;
+    appliedPrefillIdRef.current = prefill.id;
+    const end = prefill.text.length;
+    setValue(prefill.text);
+    setCursorPosition(end);
+    setSlashMenuDismissed(false);
+    setCliAppMenuDismissed(false);
+    setInlineError(null);
+    resizeTextarea();
+    requestAnimationFrame(() => textareaRef.current?.setSelectionRange(end, end));
+  }, [prefill, resizeTextarea]);
 
   const chooseSlashCommand = useCallback(
     (command: SlashCommand) => {

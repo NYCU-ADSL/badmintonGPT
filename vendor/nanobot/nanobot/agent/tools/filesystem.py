@@ -17,6 +17,7 @@ from nanobot.agent.tools.schema import (
     tool_parameters_schema,
 )
 from nanobot.security.workspace_access import current_tool_workspace
+from nanobot.security.workspace_policy import WORKSPACE_BOUNDARY_NOTE, WorkspaceBoundaryError
 from nanobot.utils.helpers import build_image_content_blocks, detect_image_mime
 
 
@@ -84,12 +85,22 @@ class _FsTool(Tool):
             restrict_to_workspace=self._restrict_to_workspace,
             sandbox_restricts_workspace=self._sandbox_restricts_workspace,
         )
-        return resolve_workspace_path(
+        resolved = resolve_workspace_path(
             path,
             access.project_path,
             access.allowed_root,
             self._extra_allowed_dirs,
         )
+        # [badmintonGPT fork] NANOBOT_ACCOUNTS: other users' sessions/projects are off limits and
+        # shared agent config/memory is read-only.
+        from nanobot.accounts import private_path_violation
+
+        reason = private_path_violation(resolved, self._workspace, write=not self.read_only)
+        if reason is not None:
+            raise WorkspaceBoundaryError(
+                f"Path {path} is not accessible: {reason}" + WORKSPACE_BOUNDARY_NOTE
+            )
+        return resolved
 
     def _display_workspace(self) -> Path | None:
         return current_tool_workspace(self._workspace).project_path
@@ -997,9 +1008,17 @@ class ListDirTool(_FsTool):
             items: list[str] = []
             total = 0
 
+            from nanobot.accounts import private_path_violation
+
+            def _private(item: Path) -> bool:
+                # [badmintonGPT fork] hide other users' sessions/projects from listings.
+                return private_path_violation(item, self._workspace, write=False) is not None
+
             if recursive:
                 for item in sorted(dp.rglob("*")):
                     if any(p in self._IGNORE_DIRS for p in item.parts):
+                        continue
+                    if _private(item):
                         continue
                     total += 1
                     if len(items) < cap:
@@ -1007,7 +1026,7 @@ class ListDirTool(_FsTool):
                         items.append(f"{rel}/" if item.is_dir() else str(rel))
             else:
                 for item in sorted(dp.iterdir()):
-                    if item.name in self._IGNORE_DIRS:
+                    if item.name in self._IGNORE_DIRS or _private(item):
                         continue
                     total += 1
                     if len(items) < cap:

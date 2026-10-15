@@ -20,6 +20,21 @@ FINISH_REASON_MAP = {
 }
 
 
+
+def _cached_input_tokens(usage: Any) -> int:
+    """``usage.input_tokens_details.cached_tokens`` from a dict or SDK object (0 if absent)."""
+    details = (
+        usage.get("input_tokens_details") if isinstance(usage, dict)
+        else getattr(usage, "input_tokens_details", None)
+    )
+    if details is None:
+        return 0
+    value = (
+        details.get("cached_tokens") if isinstance(details, dict)
+        else getattr(details, "cached_tokens", 0)
+    )
+    return value if isinstance(value, int) and value > 0 else 0
+
 def map_finish_reason(status: str | None) -> str:
     """Map a Responses API status string to a Chat-Completions-style finish_reason."""
     return FINISH_REASON_MAP.get(status or "completed", "stop")
@@ -291,6 +306,10 @@ def parse_response_output(response: Any) -> LLMResponse:
             "completion_tokens": int(usage_raw.get("output_tokens") or 0),
             "total_tokens": int(usage_raw.get("total_tokens") or 0),
         }
+        # [badmintonGPT fork] keep cache hits so per-account billing charges the cached rate.
+        cached = _cached_input_tokens(usage_raw)
+        if cached:
+            usage["cached_tokens"] = cached
 
     status = response.get("status")
     finish_reason = map_finish_reason(status)
@@ -410,6 +429,9 @@ async def consume_sdk_stream(
                         "completion_tokens": int(getattr(usage_obj, "output_tokens", 0) or 0),
                         "total_tokens": int(getattr(usage_obj, "total_tokens", 0) or 0),
                     }
+                    cached = _cached_input_tokens(usage_obj)
+                    if cached:
+                        usage["cached_tokens"] = cached
                 for out_item in getattr(resp, "output", None) or []:
                     if getattr(out_item, "type", None) == "reasoning":
                         for s in getattr(out_item, "summary", None) or []:
