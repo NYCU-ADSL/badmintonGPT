@@ -107,6 +107,8 @@ services:
       # Link-only puzzle page /puzzle.html (fork, nanobot/puzzle.py): the accepted answer, checked
       # server-side; unset → the page says answering is closed. Attempts: ~/.nanobot/puzzle.db.
       NANOBOT_PUZZLE_ANSWER: ${NANOBOT_PUZZLE_ANSWER:-}
+      # Who may use the stamp scanner /puzzle-staff.html (comma separated e-mails, @domain ok).
+      NANOBOT_PUZZLE_STAFF: ${NANOBOT_PUZZLE_STAFF:-}
     volumes:
       - nanobot_state:/home/nanobot/.nanobot  # persist sessions/ + memory/ across restarts
     expose:

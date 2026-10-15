@@ -400,7 +400,10 @@ async def test_puzzle_answer_is_checked_per_account(bus, tmp_path, monkeypatch) 
         bob = {**BOB, "Authorization": f"Bearer {await _token(base, BOB)}"}
 
         status = (await _get(f"{base}/api/puzzle", alice)).json()
-        assert status == {"configured": True, "solved": False, "wrong_count": 0, "retry_after_s": 0}
+        assert status == {
+            "configured": True, "solved": False, "wrong_count": 0, "retry_after_s": 0,
+            "surveyed": False, "surveyed_at": None, "stamp_code": None,
+        }
         assert "謎底" not in (await _get(f"{base}/api/puzzle", alice)).text
 
         wrong = await _get(f"{base}/api/puzzle/answer?answer={quote('殺球')}", alice)
@@ -416,6 +419,31 @@ async def test_puzzle_answer_is_checked_per_account(bus, tmp_path, monkeypatch) 
         assert (await _get(f"{base}/api/puzzle", alice)).json()["solved"] is False
 
         assert (await _get(f"{base}/api/puzzle/answer?answer=", alice)).status_code == 400
+
+        survey = (
+            "fit=5&tried_other=no&overall=4&recommend=4&role=fan&level=none"
+            f"&suggestion={quote('想要更多影片')}"
+        )
+        unsolved = await _get(f"{base}/api/puzzle/survey?{survey}", alice)
+        assert unsolved.status_code == 403 and unsolved.json()["reason"] == "unsolved"
+        bad = await _get(f"{base}/api/puzzle/survey?{survey.replace('fit=5', 'fit=9')}", bob)
+        assert bad.status_code == 400 and bad.json()["field"] == "fit"
+        assert (await _get(f"{base}/api/puzzle", bob)).json()["surveyed"] is False
+        ok = await _get(f"{base}/api/puzzle/survey?{survey}", bob)
+        assert ok.status_code == 200 and ok.json()["surveyed"] is True
+        assert (await _get(f"{base}/api/puzzle", bob)).json()["surveyed"] is True
+        assert store.export_rows()[0]["suggestion"] == "想要更多影片"
+
+        code = ok.json()["stamp_code"]
+        assert (await _get(f"{base}/api/puzzle/staff", bob)).json()["staff"] is False
+        assert (await _get(f"{base}/api/puzzle/staff/lookup?code={code}", bob)).status_code == 403
+        monkeypatch.setenv("NANOBOT_PUZZLE_STAFF", "alice@uni.edu")
+        assert (await _get(f"{base}/api/puzzle/staff", alice)).json()["staff"] is True
+        scanned = await _get(f"{base}/api/puzzle/staff/lookup?code={quote('https://h/puzzle-staff.html#c=' + code)}", alice)
+        assert scanned.status_code == 200
+        assert scanned.json()["answers"]["suggestion"] == "想要更多影片"
+        assert scanned.json()["scan_count"] == 1
+        assert (await _get(f"{base}/api/puzzle/staff/lookup?code=nope", alice)).status_code == 404
 
         monkeypatch.delenv("NANOBOT_PUZZLE_ANSWER")
         assert (await _get(f"{base}/api/puzzle", alice)).json() == {"configured": False}

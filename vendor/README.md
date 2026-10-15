@@ -82,7 +82,16 @@ Backend (Python):
   `GET /api/puzzle/answer?answer=` check the answer server-side against `NANOBOT_PUZZLE_ANSWER`
   (NFKC, whitespace ignored), so it never reaches the browser. After the n-th wrong answer the
   account waits n/2 minutes (429 + `Retry-After` until then); per-e-mail state in
-  `~/.nanobot/puzzle.db` survives restarts.
+  `~/.nanobot/puzzle.db` survives restarts. A correct answer opens a short user survey
+  (`GET /api/puzzle/survey?...`, fields validated against `puzzle.SURVEY_RATINGS`/`_CHOICES`,
+  once per account, 403 before solving); the stamp-collecting "done" screen (account, completion
+  time, a live clock against screenshots) shows only after the server stored it.
+  `python -m nanobot.puzzle export` dumps the answers as CSV. The done screen's QR
+  (`/puzzle-staff.html#c=<stamp_code>`) is for the staff scanner `webui/public/puzzle-staff.html`
+  (camera via jsQR, or opened from a phone camera app): `GET /api/puzzle/staff` /
+  `/api/puzzle/staff/lookup?code=` answer only `NANOBOT_PUZZLE_STAFF` accounts, return the survey
+  and count scans. Shared questions + API client: `public/puzzle-common.js`; QR libraries
+  vendored unmodified in `public/vendor/` (qrcode-generator 2.0.4 MIT, jsQR 1.4.0 Apache-2.0).
 - **remote restricted projects** (`nanobot/webui/workspaces.py`, opt-in
   `NANOBOT_WEBUI_REMOTE_PROJECTS=1`) — lets the Cloudflare Access WebUI create and select
   one-level project directories under the persistent agent workspace's `projects/` directory.

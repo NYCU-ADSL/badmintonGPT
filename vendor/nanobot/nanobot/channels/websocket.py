@@ -910,6 +910,15 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/puzzle/answer":
             return self._handle_puzzle(request, submit=True)
 
+        if got == "/api/puzzle/survey":
+            return self._handle_puzzle_survey(request)
+
+        if got == "/api/puzzle/staff":
+            return self._handle_puzzle_staff(request, lookup=False)
+
+        if got == "/api/puzzle/staff/lookup":
+            return self._handle_puzzle_staff(request, lookup=True)
+
         return None
 
     def _handle_invite_redeem(self, request: WsRequest) -> Response:
@@ -981,6 +990,60 @@ class WebSocketChannel(BaseChannel):
                 extra_headers=[("Retry-After", str(result["retry_after_s"]))],
             )
         return _http_json_response(result)
+
+    def _handle_puzzle_survey(self, request: WsRequest) -> Response:
+        """``GET /api/puzzle/survey?fit=&tried_other=&...`` — the post-puzzle user survey. [badmintonGPT fork]
+
+        Accepted once per account and only after it solved the puzzle (403 ``unsolved`` before);
+        400 ``{"reason": "invalid", "field": ...}`` names the first bad field. Fields and ranges:
+        ``puzzle.SURVEY_RATINGS`` / ``SURVEY_CHOICES``.
+        """
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        account = self._request_account()
+        if account is None and accounts.accounts_enabled():
+            return _http_error(401, "not signed in")
+        email = account.email if account is not None else accounts.local_user()
+        if not puzzle.configured_answer():
+            return _http_json_response({"configured": False})
+        query = _parse_query(request.path)
+        raw = {field: _query_first(query, field) or "" for field in puzzle.SURVEY_FIELDS}
+        answers, bad_field = puzzle.validate_survey(raw)
+        if answers is None:
+            return _http_response(
+                json.dumps({"ok": False, "reason": "invalid", "field": bad_field}).encode("utf-8"),
+                status=400,
+                content_type="application/json; charset=utf-8",
+            )
+        result = puzzle.store().submit_survey(email, answers)
+        return _http_json_response(result, status=200 if result["ok"] else 403)
+
+    def _handle_puzzle_staff(self, request: WsRequest, *, lookup: bool) -> Response:
+        """``GET /api/puzzle/staff`` (``{"staff": bool}``) / ``.../staff/lookup?code=``. [badmintonGPT fork]
+
+        For the stamp scanner page (public/puzzle-staff.html). Only ``NANOBOT_PUZZLE_STAFF``
+        accounts may look a code up (403 otherwise); 404 for an unknown code. Every lookup
+        counts as one scan.
+        """
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        account = self._request_account()
+        if account is None and accounts.accounts_enabled():
+            return _http_error(401, "not signed in")
+        email = account.email if account is not None else accounts.local_user()
+        staff = puzzle.is_staff(email)
+        if not lookup:
+            return _http_json_response({"staff": staff, "email": email})
+        if not staff:
+            return _http_error(403, "staff only")
+        code = puzzle.normalize_stamp_code(_query_first(_parse_query(request.path), "code") or "")
+        if not code or len(code) > 64:
+            return _http_error(400, "bad code")
+        found = puzzle.store().scan(code)
+        if found is None:
+            return _http_error(404, "unknown code")
+        logger.info("puzzle stamp scanned by {} for {} (scan #{})", email, found["email"], found["scan_count"])
+        return _http_json_response(found)
 
     async def _handle_tts(self, request: WsRequest) -> Response:
         """Proxy one segment of text to the upstream TTS service and return WAV audio.

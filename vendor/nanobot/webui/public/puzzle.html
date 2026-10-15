@@ -10,6 +10,8 @@
       behind Cloudflare Access like every path except /welcome.html, so visitors must sign in.
       The answer is never sent to the browser: /api/puzzle/answer checks it server-side against
       NANOBOT_PUZZLE_ANSWER and enforces the wrong-answer cooldown (see nanobot/puzzle.py).
+      A correct answer leads to a short user survey (/api/puzzle/survey); the stamp-collecting
+      "done" screen appears only once the server has stored it.
     -->
     <title>解謎作答 · BadmintonGPT</title>
     <link rel="icon" type="image/svg+xml" href="/brand/mark-small-noframe-green.svg" />
@@ -81,6 +83,7 @@
         padding: 32px 28px 28px;
         backdrop-filter: blur(6px);
       }
+      main.wide { max-width: 560px; }
       .mark { width: 40px; height: 40px; display: block; margin-bottom: 18px; }
       h1 { font-size: 24px; font-weight: 900; color: var(--title); margin: 0 0 6px; }
       .lead { color: var(--ink-soft); font-size: 15px; margin: 0 0 24px; }
@@ -117,6 +120,74 @@
       .solved { text-align: center; padding: 8px 0 4px; }
       .solved .big { font-size: 44px; line-height: 1; margin-bottom: 10px; }
       .solved p { margin: 0; font-size: 17px; font-weight: 700; color: var(--brand); }
+
+      /* survey */
+      .survey-head { margin: 0 0 4px; font-size: 17px; font-weight: 700; color: var(--brand); }
+      .survey-lead { margin: 0 0 18px; font-size: 14.5px; color: var(--ink-soft); }
+      #survey-form { display: block; counter-reset: q; }
+      fieldset {
+        counter-increment: q;
+        margin: 0 0 14px;
+        padding: 14px 14px 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        min-width: 0;
+      }
+      fieldset.missing { border-color: var(--bad); }
+      legend { padding: 0; font-size: 15px; font-weight: 500; color: var(--ink); float: left; width: 100%; margin-bottom: 10px; }
+      legend::before { content: counter(q) ". "; font-weight: 700; color: var(--brand); }
+      legend .opt { color: var(--ink-soft); font-weight: 400; font-size: 13px; }
+      legend + * { clear: both; }
+      .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+      .scale { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+      .pill { position: relative; display: block; }
+      .pill input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+      .pill span {
+        display: block;
+        text-align: center;
+        font-size: 14.5px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--field);
+        cursor: pointer;
+        user-select: none;
+      }
+      .scale .pill span { height: 100%; padding: 6px 2px; font-variant-numeric: tabular-nums; }
+      .scale .pill b { display: block; font-size: 15px; }
+      /* keep-all: a caption wraps only at its <wbr> ("非常|不同意"), never mid-word */
+      .scale .pill small { display: block; font-size: 11.5px; line-height: 1.3; word-break: keep-all; }
+      @media (max-width: 380px) {
+        main { padding: 24px 16px 20px; }
+        fieldset { padding: 12px 10px 10px; }
+      }
+      .pill input:checked + span { background: var(--brand); border-color: var(--brand); color: var(--on-brand); font-weight: 700; }
+      .pill input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 1px; }
+      textarea {
+        width: 100%;
+        min-height: 92px;
+        resize: vertical;
+        font: inherit;
+        font-size: 15px;
+        color: var(--ink);
+        background: var(--field);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 12px;
+      }
+      textarea:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+      .chars { text-align: right; font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+      #survey-submit { width: 100%; padding: 12px 20px; margin-top: 4px; }
+
+      /* done (show to staff for the stamp) */
+      .done-note { font-size: 15px; font-weight: 500; color: var(--ink) !important; margin-top: 6px !important; }
+      /* always dark-on-white, also in dark mode, so any scanner reads it */
+      .qr { width: 260px; max-width: 100%; margin: 16px auto 0; background: #fff; border-radius: 12px; line-height: 0; }
+      .qr:empty { display: none; }
+      .qr svg { width: 100%; height: auto; }
+      .facts { margin: 18px auto 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; text-align: left; font-size: 14px; max-width: 320px; }
+      .facts dt { color: var(--ink-soft); }
+      .facts dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
       .back { display: inline-block; margin-top: 22px; font-size: 13.5px; color: var(--ink-soft); }
       .back:hover { color: var(--brand); }
     </style>
@@ -125,7 +196,7 @@
     <main>
       <img class="mark" src="/brand/mark-small-noframe-green.svg" alt="" />
       <h1>解謎作答</h1>
-      <p class="lead">輸入你找到的答案。答錯第 n 次後，要等 n/2 分鐘才能再作答。</p>
+      <p id="lead" class="lead">輸入你找到的答案。答錯第 n 次後，要等 n/2 分鐘才能再作答。</p>
 
       <p id="loading" class="msg">載入中…</p>
 
@@ -138,40 +209,38 @@
         <p id="count" class="count"></p>
       </section>
 
+      <section id="survey" hidden>
+        <p class="survey-head">答對了！🎉</p>
+        <p class="survey-lead">最後請花一分鐘填寫 BadmintonGPT 使用意見調查，送出後就能集章。</p>
+        <form id="survey-form" novalidate></form>
+        <p id="survey-msg" class="msg" role="status" aria-live="polite"></p>
+      </section>
+
       <section id="solved" class="solved" hidden>
         <div class="big" aria-hidden="true">🏸</div>
-        <p>答對了！</p>
+        <p>完成！</p>
+        <p class="done-note">請出示此畫面給工作人員掃描集章</p>
+        <div id="done-qr" class="qr"></div>
+        <dl class="facts">
+          <dt>帳號</dt><dd id="done-email">—</dd>
+          <dt>完成時間</dt><dd id="done-at">—</dd>
+          <dt>現在時間</dt><dd id="done-now">—</dd>
+        </dl>
       </section>
 
       <a class="back" href="/">← 回到 BadmintonGPT</a>
     </main>
 
+    <script src="/vendor/qrcode-generator-2.0.4.js"></script>
+    <script src="/puzzle-common.js"></script>
     <script>
       (function () {
         var $ = function (id) { return document.getElementById(id); };
-        var token = null;
         var timer = null;
+        var clock = null;
 
-        function bootstrap() {
-          return fetch("/webui/bootstrap", { credentials: "same-origin" }).then(function (r) {
-            if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "auth" : "boot");
-            return r.json();
-          }).then(function (b) { token = b.token; });
-        }
-
-        // GET with the bootstrap token; re-bootstrap once if it expired (TTL is a few minutes).
-        function api(path, retried) {
-          var go = token ? Promise.resolve() : bootstrap();
-          return go.then(function () {
-            return fetch(path, {
-              credentials: "same-origin",
-              headers: { Authorization: "Bearer " + token },
-            });
-          }).then(function (r) {
-            if (r.status === 401 && !retried) { token = null; return api(path, true); }
-            return r;
-          });
-        }
+        var QUESTIONS = Puzzle.QUESTIONS;
+        var api = Puzzle.api;
 
         function setMsg(text, kind) {
           var el = $("msg");
@@ -205,6 +274,135 @@
           timer = setInterval(tick, 1000);
         }
 
+        function el(tag, attrs, text) {
+          var n = document.createElement(tag);
+          for (var k in attrs) n.setAttribute(k, attrs[k]);
+          if (text != null) n.textContent = text;
+          return n;
+        }
+
+        function pill(name, value, text, caption) {
+          var label = el("label", { "class": "pill" });
+          label.appendChild(el("input", { type: "radio", name: name, value: String(value) }));
+          var span = el("span", {}, caption ? null : text);
+          if (caption) {
+            span.appendChild(el("b", {}, text));
+            var small = el("small");
+            caption.split("|").forEach(function (part, i) {
+              if (i) small.appendChild(el("wbr"));
+              small.appendChild(document.createTextNode(part));
+            });
+            span.appendChild(small);
+          }
+          label.appendChild(span);
+          return label;
+        }
+
+        function buildSurvey() {
+          var form = $("survey-form");
+          QUESTIONS.forEach(function (q) {
+            var fs = el("fieldset", { id: "q-" + q.name });
+            var legend = el("legend", {}, q.label);
+            if (q.optional) legend.appendChild(el("span", { "class": "opt" }, "（選填）"));
+            fs.appendChild(legend);
+            if (q.type === "scale") {
+              var row = el("div", { "class": "scale" });
+              q.labels.forEach(function (text, i) { row.appendChild(pill(q.name, i + 1, i + 1, text)); });
+              fs.appendChild(row);
+            } else if (q.type === "choice") {
+              var opts = el("div", { "class": "opts" });
+              q.options.forEach(function (o) { opts.appendChild(pill(q.name, o[0], o[1])); });
+              fs.appendChild(opts);
+            } else {
+              var ta = el("textarea", { name: q.name, maxlength: String(q.max), "aria-label": q.label });
+              var count = el("div", { "class": "chars" }, "0 / " + q.max);
+              ta.addEventListener("input", function () { count.textContent = ta.value.length + " / " + q.max; });
+              fs.appendChild(ta);
+              fs.appendChild(count);
+            }
+            if (q.when) fs.hidden = true;
+            form.appendChild(fs);
+          });
+          form.appendChild(el("button", { id: "survey-submit", type: "submit" }, "送出問卷"));
+          form.addEventListener("change", function (ev) {
+            QUESTIONS.forEach(function (q) {
+              if (q.when) $("q-" + q.name).hidden = value(q.when[0]) !== q.when[1];
+            });
+            var fs = ev.target.closest("fieldset");
+            if (fs) fs.classList.remove("missing");
+          });
+          form.addEventListener("submit", submitSurvey);
+        }
+
+        function value(name) {
+          var f = $("survey-form").elements[name];
+          return f ? (f.value || "").trim() : "";
+        }
+
+        function submitSurvey(ev) {
+          ev.preventDefault();
+          var params = [];
+          var missing = null;
+          QUESTIONS.forEach(function (q) {
+            var fs = $("q-" + q.name);
+            if (fs.hidden) return;
+            var v = value(q.name);
+            fs.classList.toggle("missing", !v && !q.optional);
+            if (!v && !q.optional && !missing) missing = fs;
+            params.push(encodeURIComponent(q.name) + "=" + encodeURIComponent(v));
+          });
+          var msg = $("survey-msg");
+          if (missing) {
+            msg.className = "msg bad";
+            msg.textContent = "還有題目沒有填（紅框）。";
+            missing.scrollIntoView({ behavior: "smooth", block: "center" });
+            return;
+          }
+          $("survey-submit").disabled = true;
+          msg.className = "msg";
+          msg.textContent = "送出中…";
+          api("/api/puzzle/survey?" + params.join("&"))
+            .then(function (r) { return r.json().then(function (s) { return [r.status, s]; }); })
+            .then(function (res) {
+              var s = res[1];
+              if (res[0] === 200 && s.surveyed) { render(s); return; }
+              $("survey-submit").disabled = false;
+              msg.className = "msg bad";
+              msg.textContent = s.reason === "invalid" && s.field && $("q-" + s.field)
+                ? "這題的答案有問題，請再選一次。"
+                : "送出失敗，請重新整理頁面再試一次。";
+              if (s.field && $("q-" + s.field)) $("q-" + s.field).classList.add("missing");
+            })
+            .catch(function () {
+              $("survey-submit").disabled = false;
+              msg.className = "msg bad";
+              msg.textContent = "送出失敗，請再試一次。";
+            });
+        }
+
+        var stamp = Puzzle.timestamp;
+
+        function showDone(s) {
+          $("survey").hidden = true;
+          $("solved").hidden = false;
+          document.querySelector("main").classList.remove("wide");
+          $("done-email").textContent = Puzzle.email() || "—";
+          if (s.stamp_code) {
+            // Level L: fewer, bigger modules than M, so a camera locks on faster (a screen
+            // doesn't get dirty or torn, which is what the extra error correction is for).
+            var qr = qrcode(0, "L");
+            qr.addData(Puzzle.stampUrl(s.stamp_code));
+            qr.make();
+            $("done-qr").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 16, scalable: true, alt: "集章 QR Code" });
+          }
+          $("done-at").textContent = s.surveyed_at ? stamp(new Date(s.surveyed_at * 1000)) : "—";
+          // A ticking clock tells staff this is the live page, not a forwarded screenshot.
+          clearInterval(clock);
+          var tick = function () { $("done-now").textContent = stamp(new Date()); };
+          tick();
+          clock = setInterval(tick, 1000);
+        }
+
         function render(s, lead) {
           $("loading").hidden = true;
           if (!s.configured) {
@@ -215,7 +413,14 @@
           if (s.solved) {
             clearInterval(timer);
             $("play").hidden = true;
-            $("solved").hidden = false;
+            $("lead").hidden = true;
+            if (s.surveyed) {
+              showDone(s);
+            } else {
+              if (!$("survey-form").firstChild) buildSurvey();
+              document.querySelector("main").classList.add("wide");
+              $("survey").hidden = false;
+            }
             return;
           }
           $("play").hidden = false;
