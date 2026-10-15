@@ -914,10 +914,13 @@ class WebSocketChannel(BaseChannel):
             return self._handle_puzzle_survey(request)
 
         if got == "/api/puzzle/staff":
-            return self._handle_puzzle_staff(request, lookup=False)
+            return self._handle_puzzle_staff(request, "status")
 
         if got == "/api/puzzle/staff/lookup":
-            return self._handle_puzzle_staff(request, lookup=True)
+            return self._handle_puzzle_staff(request, "lookup")
+
+        if got == "/api/puzzle/staff/human-eval":
+            return self._handle_puzzle_staff(request, "human_eval")
 
         return None
 
@@ -1018,12 +1021,13 @@ class WebSocketChannel(BaseChannel):
         result = puzzle.store().submit_survey(email, answers)
         return _http_json_response(result, status=200 if result["ok"] else 403)
 
-    def _handle_puzzle_staff(self, request: WsRequest, *, lookup: bool) -> Response:
-        """``GET /api/puzzle/staff`` (``{"staff": bool}``) / ``.../staff/lookup?code=``. [badmintonGPT fork]
+    def _handle_puzzle_staff(self, request: WsRequest, action: str) -> Response:
+        """``GET /api/puzzle/staff`` (``{"staff": bool}``) / ``.../staff/lookup?code=`` /
+        ``.../staff/human-eval?code=&email=``. [badmintonGPT fork]
 
         For the stamp scanner page (public/puzzle-staff.html). Only ``NANOBOT_PUZZLE_STAFF``
         accounts may look a code up (403 otherwise); 404 for an unknown code. Every lookup
-        counts as one scan.
+        counts as one scan; ``human-eval`` (the player agreed at the booth) does not.
         """
         if not self._check_api_token(request):
             return _http_error(401, "Unauthorized")
@@ -1032,13 +1036,23 @@ class WebSocketChannel(BaseChannel):
             return _http_error(401, "not signed in")
         email = account.email if account is not None else accounts.local_user()
         staff = puzzle.is_staff(email)
-        if not lookup:
+        if action == "status":
             return _http_json_response({"staff": staff, "email": email})
         if not staff:
             return _http_error(403, "staff only")
-        code = puzzle.normalize_stamp_code(_query_first(_parse_query(request.path), "code") or "")
+        query = _parse_query(request.path)
+        code = puzzle.normalize_stamp_code(_query_first(query, "code") or "")
         if not code or len(code) > 64:
             return _http_error(400, "bad code")
+        if action == "human_eval":
+            contact = puzzle.normalize_contact_email(_query_first(query, "email"))
+            if contact is None:
+                return _http_error(400, "bad email")
+            joined = puzzle.store().join_human_eval(code, contact)
+            if joined is None:
+                return _http_error(404, "unknown code")
+            logger.info("puzzle human evaluation: {} signed up {}", email, joined["email"])
+            return _http_json_response(joined)
         found = puzzle.store().scan(code)
         if found is None:
             return _http_error(404, "unknown code")

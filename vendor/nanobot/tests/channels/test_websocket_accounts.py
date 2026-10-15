@@ -445,6 +445,17 @@ async def test_puzzle_answer_is_checked_per_account(bus, tmp_path, monkeypatch) 
         assert scanned.json()["scan_count"] == 1
         assert (await _get(f"{base}/api/puzzle/staff/lookup?code=nope", alice)).status_code == 404
 
+        join = f"{base}/api/puzzle/staff/human-eval?code={code}&email="
+        assert (await _get(join + quote("bob@x.org"), bob)).status_code == 403
+        assert (await _get(join + "not-an-email", alice)).status_code == 400
+        assert (await _get(f"{base}/api/puzzle/staff/human-eval?code=nope&email=a%40b.c", alice)).status_code == 404
+        joined = await _get(join + quote(" bob@x.org "), alice)
+        assert joined.status_code == 200
+        assert joined.json()["answers"]["human_eval"] == "yes"
+        assert joined.json()["answers"]["contact_email"] == "bob@x.org"
+        rescan = await _get(f"{base}/api/puzzle/staff/lookup?code={code}", alice)
+        assert rescan.json()["scan_count"] == 2  # human-eval did not count as a scan
+
         monkeypatch.delenv("NANOBOT_PUZZLE_ANSWER")
         assert (await _get(f"{base}/api/puzzle", alice)).json() == {"configured": False}
     finally:

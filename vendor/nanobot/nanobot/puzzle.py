@@ -17,6 +17,8 @@ The "done" screen carries a QR code with the account's ``stamp_code`` (a random 
 never handed out twice, also shown as text so staff can type it in). Staff (the
 ``NANOBOT_PUZZLE_STAFF`` list) scan it on ``/puzzle-staff.html``; ``GET /api/puzzle/staff/lookup``
 returns that player's survey and counts the scans, so a second stamp for one player shows up.
+A player who changes their mind at the booth can be signed up for the human evaluation by staff
+(``GET /api/puzzle/staff/human-eval?code=&email=``).
 
 Env:
 ``NANOBOT_PUZZLE_ANSWER``  the accepted answer; unset/empty → the page reports "not configured".
@@ -119,6 +121,14 @@ def normalize_answer(value: str) -> str:
     return "".join(unicodedata.normalize("NFKC", value or "").split())
 
 
+def normalize_contact_email(value: str | None) -> str | None:
+    """The trimmed address if it looks like one (``a@b.c``, no spaces, <= 254 chars), else None."""
+    value = (value or "").strip()
+    if len(value) > SURVEY_EMAIL_MAX_CHARS or not _EMAIL_RE.fullmatch(value):
+        return None
+    return value
+
+
 def cooldown_s(wrong_count: int) -> float:
     return wrong_count * COOLDOWN_PER_WRONG_S
 
@@ -139,8 +149,8 @@ def validate_survey(raw: dict[str, str]) -> tuple[dict[str, Any] | None, str | N
             return None, field
         answers[field] = int(value)
     if answers["human_eval"] == "yes":
-        contact = (raw.get("contact_email") or "").strip()
-        if len(contact) > SURVEY_EMAIL_MAX_CHARS or not _EMAIL_RE.fullmatch(contact):
+        contact = normalize_contact_email(raw.get("contact_email"))
+        if contact is None:
             return None, "contact_email"
         answers["contact_email"] = contact
     suggestion = (raw.get("suggestion") or "").strip()
@@ -284,6 +294,22 @@ class PuzzleStore:
             "scan_count": int(scans) + 1,
             "first_scanned_at": first if first is not None else now,
         }
+
+    def join_human_eval(self, stamp_code: str, contact_email: str) -> dict[str, Any] | None:
+        """Staff signed the player up for the human evaluation at the booth: set ``human_eval``
+        to "yes" and ``contact_email`` (already validated). Not a scan. None for an unknown code."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT email, answers FROM puzzle_surveys WHERE stamp_code = ?", (stamp_code,)
+            ).fetchone()
+            if row is None:
+                return None
+            answers = {**json.loads(row[1]), "human_eval": "yes", "contact_email": contact_email}
+            self._db.execute(
+                "UPDATE puzzle_surveys SET answers = ? WHERE stamp_code = ?",
+                (json.dumps(answers, ensure_ascii=False), stamp_code),
+            )
+        return {"email": row[0], "answers": answers}
 
     def export_rows(self) -> list[dict[str, Any]]:
         """Every survey, joined with that account's puzzle attempts, oldest first."""

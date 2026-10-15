@@ -87,6 +87,7 @@
       .lead { color: var(--ink-soft); font-size: 14.5px; margin: 0 0 18px; }
       .msg { min-height: 1.6em; margin: 10px 0 0; font-size: 14.5px; }
       .msg.bad { color: var(--bad); }
+      .msg.ok { color: var(--brand); font-weight: 500; }
       button {
         font: inherit;
         font-weight: 700;
@@ -146,6 +147,10 @@
       .low { margin: 0; padding: 0; list-style: none; }
       .low li { color: var(--bad); font-weight: 500; }
       .next { margin-top: 18px; }
+      .eval-box { margin-top: 16px; }
+      .eval-box form { margin-top: 0; }
+      .eval-box .msg { margin-top: 6px; }
+      .eval-box .msg:empty { display: none; }
       .back { display: inline-block; margin-top: 20px; font-size: 13.5px; color: var(--ink-soft); }
       .back:hover { color: var(--brand); }
     </style>
@@ -181,6 +186,16 @@
           <dt>線上評測</dt><dd id="r-eval"></dd>
           <dt>建議</dt><dd id="r-suggestion"></dd>
         </dl>
+        <!-- the player said 不願意 (or skipped it) but agrees at the booth -->
+        <div id="eval-box" class="eval-box" hidden>
+          <button id="eval-open" class="wide ghost" type="button">願意參與線上評測</button>
+          <form id="eval-form" autocomplete="off" novalidate hidden>
+            <input id="eval-email" type="email" inputmode="email" maxlength="254"
+                   placeholder="參加者的電子信箱" aria-label="參加者的電子信箱" />
+            <button type="submit">儲存</button>
+          </form>
+          <p id="eval-msg" class="msg" role="status" aria-live="polite"></p>
+        </div>
         <button id="next" class="wide next" type="button">掃下一位</button>
       </section>
 
@@ -215,6 +230,8 @@
         // Right after "掃下一位" the previous QR may still be in view; ignore it briefly so it isn't
         // reported as already scanned.
         var lastCode = null, lastAt = 0, REPEAT_IGNORE_MS = 2000;
+        var shownCode = null;  // the code on the result screen, for "願意參與線上評測"
+        var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;  // same check as nanobot/puzzle.py
 
         function setMsg(text, bad) {
           $("msg").textContent = text || "";
@@ -258,10 +275,7 @@
           } else {
             lowEl.textContent = "沒有";
           }
-          var ev = $("r-eval");
-          ev.textContent = a.human_eval === "yes" ? "願意（" + a.contact_email + "）"
-            : a.human_eval ? choiceText("human_eval", a.human_eval) : "（未填）";
-          ev.className = a.human_eval ? "" : "none";
+          showEval(a);
           $("r-suggestion").textContent = a.suggestion || "（未填）";
           $("r-suggestion").className = a.suggestion ? "" : "none";
 
@@ -270,12 +284,69 @@
           $("next").focus();
         }
 
+        function showEval(a) {
+          var ev = $("r-eval");
+          ev.textContent = a.human_eval === "yes" ? "願意（" + a.contact_email + "）"
+            : a.human_eval ? choiceText("human_eval", a.human_eval) : "（未填）";
+          ev.className = a.human_eval ? "" : "none";
+          $("eval-box").hidden = a.human_eval === "yes";
+          $("eval-open").hidden = false;
+          $("eval-form").hidden = true;
+          $("eval-email").value = "";
+        }
+
+        function setEvalMsg(text, kind) {
+          $("eval-msg").textContent = text || "";
+          $("eval-msg").className = "msg" + (kind ? " " + kind : "");
+        }
+
+        $("eval-email").addEventListener("input", function () { setEvalMsg(""); });
+
+        $("eval-open").addEventListener("click", function () {
+          $("eval-open").hidden = true;
+          $("eval-form").hidden = false;
+          setEvalMsg("");
+          $("eval-email").focus();
+        });
+
+        $("eval-form").addEventListener("submit", function (ev) {
+          ev.preventDefault();
+          var email = $("eval-email").value.trim();
+          if (!EMAIL_RE.test(email)) {
+            setEvalMsg(email ? "電子信箱格式不正確。" : "請輸入電子信箱。", "bad");
+            $("eval-email").focus();
+            return;
+          }
+          var btn = $("eval-form").querySelector("button");
+          btn.disabled = true;
+          setEvalMsg("儲存中…");
+          Puzzle.api("/api/puzzle/staff/human-eval?code=" + encodeURIComponent(shownCode) +
+                     "&email=" + encodeURIComponent(email))
+            .then(function (r) {
+              btn.disabled = false;
+              if (r.ok) return r.json().then(function (j) {
+                showEval(j.answers);
+                $("eval-box").hidden = false;  // keep it open for the confirmation only
+                $("eval-open").hidden = true;
+                setEvalMsg("✓ 已登記，會寄信邀請。", "ok");
+              });
+              setEvalMsg(r.status === 400 ? "電子信箱格式不正確。" : "儲存失敗（" + r.status + "），請再試一次。", "bad");
+            })
+            .catch(function () {
+              btn.disabled = false;
+              setEvalMsg("儲存失敗，請檢查網路後再試一次。", "bad");
+            });
+        });
+
         function lookup(code) {
           decoding = false;
           setMsg("查詢中…");
           return Puzzle.api("/api/puzzle/staff/lookup?code=" + encodeURIComponent(code))
             .then(function (r) {
-              if (r.ok) return r.json().then(show).then(function () { setMsg(""); });
+              if (r.ok) {
+                shownCode = code;
+                return r.json().then(show).then(function () { setMsg(""); setEvalMsg(""); });
+              }
               decoding = !!stream;
               if (r.status === 404) setMsg("找不到這個 QR Code，可能不是集章用的 QR Code。", true);
               else if (r.status === 403) setMsg("你的帳號不在工作人員名單上。", true);
@@ -319,23 +390,49 @@
           requestAnimationFrame(tick);
         }
 
+        // Try the sharp rear camera first; some phones reject the resolution or "environment"
+        // (OverconstrainedError / NotReadableError), so fall back to looser requests.
+        var CAMERA_TRIES = [
+          { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+          { facingMode: "environment" },
+          true,
+        ];
+
+        function openStream(i) {
+          return navigator.mediaDevices.getUserMedia({ video: CAMERA_TRIES[i], audio: false })
+            .catch(function (err) {
+              var retry = err && (err.name === "OverconstrainedError" || err.name === "NotReadableError" ||
+                                  err.name === "AbortError" || err.name === "TypeError");
+              if (retry && i + 1 < CAMERA_TRIES.length) return openStream(i + 1);
+              throw err;
+            });
+        }
+
+        function cameraError(err) {
+          var name = (err && err.name) || "";
+          if (name === "NotAllowedError" || name === "SecurityError")
+            return "相機權限被拒絕：請在瀏覽器（或手機設定）允許這個網站使用相機，再重新整理。";
+          if (name === "NotFoundError") return "找不到相機。";
+          if (name === "NotReadableError") return "相機正被其他 App 使用，請關掉其他用到相機的 App 再試一次。";
+          return "無法開啟相機（" + (name || err) + "），請改用 Safari / Chrome 開啟，或手動輸入代碼。";
+        }
+
         function startCamera() {
-          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setMsg("這個瀏覽器不能使用相機，請改用手機相機 App 掃描，或貼上代碼。", true);
+          if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            // LINE / Facebook / Instagram in-app browsers often have no camera access
+            setMsg("這個瀏覽器不能使用相機：請用 Safari 或 Chrome 開啟此頁，或手動輸入代碼。", true);
             return;
           }
           $("toggle").disabled = true;
-          // Default capture is often 640x480, where a phone-screen QR is only a few px per module.
-          navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-            audio: false,
-          })
+          setMsg("正在開啟相機…（若跳出權限詢問，請按允許）");
+          openStream(0)
             .then(function (s) {
               stream = s;
-              $("video").srcObject = s;
-              return $("video").play();
-            })
-            .then(function () {
+              var v = $("video");
+              v.muted = true;  // iOS plays a camera stream inline only when muted + playsinline
+              v.setAttribute("playsinline", "");
+              v.srcObject = s;
+              // Show the viewer before play(): some browsers never start a hidden (display:none) video.
               $("viewer").hidden = false;
               $("toggle").textContent = "停止掃描";
               $("toggle").className = "wide ghost";
@@ -343,10 +440,12 @@
               decoding = true;
               setMsg("把 QR Code 對準框內。");
               requestAnimationFrame(tick);
+              var played = v.play();
+              if (played && played.catch) played.catch(function () {});  // tick() waits for frames anyway
             })
-            .catch(function () {
+            .catch(function (err) {
               stopCamera();
-              setMsg("無法開啟相機，請允許相機權限後再試一次。", true);
+              setMsg(cameraError(err), true);
             });
         }
 

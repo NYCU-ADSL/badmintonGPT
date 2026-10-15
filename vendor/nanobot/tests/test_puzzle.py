@@ -132,6 +132,13 @@ def test_scan_counts_and_returns_the_survey(tmp_path) -> None:
         second = s.scan(code, now=20.0)
         assert second["scan_count"] == 2 and second["first_scanned_at"] == 10.0
         assert s.export_rows()[0]["scan_count"] == 2
+
+        assert s.join_human_eval("nope", "me@uni.edu") is None
+        joined = s.join_human_eval(code, "new@uni.edu")
+        assert joined["email"] == "a@x" and joined["answers"]["contact_email"] == "new@uni.edu"
+        row = s.export_rows()[0]
+        assert row["human_eval"] == "yes" and row["contact_email"] == "new@uni.edu"
+        assert row["scan_count"] == 2 and row["role"] == "player"  # not a scan; rest untouched
     finally:
         s.close()
 

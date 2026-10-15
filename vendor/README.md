@@ -89,7 +89,8 @@ Backend (Python):
   `python -m nanobot.puzzle export` dumps the answers as CSV. The done screen's QR
   (`/puzzle-staff.html#c=<stamp_code>`, a never-reused 4-digit number also shown as text) is for the staff scanner `webui/public/puzzle-staff.html`
   (camera via jsQR, or opened from a phone camera app): `GET /api/puzzle/staff` /
-  `/api/puzzle/staff/lookup?code=` answer only `NANOBOT_PUZZLE_STAFF` accounts, return the survey
+  `/api/puzzle/staff/lookup?code=` / `/api/puzzle/staff/human-eval?code=&email=` (booth sign-up
+  for the human evaluation) answer only `NANOBOT_PUZZLE_STAFF` accounts, return the survey
   and count scans. Shared questions + API client: `public/puzzle-common.js`; QR libraries
   vendored unmodified in `public/vendor/` (qrcode-generator 2.0.4 MIT, jsQR 1.4.0 Apache-2.0).
 - **remote restricted projects** (`nanobot/webui/workspaces.py`, opt-in

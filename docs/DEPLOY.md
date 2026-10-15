@@ -320,6 +320,8 @@ it) where a signed-in user types a puzzle answer. It needs no Cloudflare change:
   page; if the camera won't read it, type the 4 digits into the box below. It shows the player's 身份, 羽球程度, 建議, whether they agreed to the online human
   evaluation (with the e-mail they gave for the invitation) and every rating of 2 or lower, plus a red
   warning when that QR was already scanned (= already stamped). Anyone else gets "staff only".
+  A player who said 不願意 but agrees at the booth: tap **願意參與線上評測** under the result and
+  type their e-mail — it sets `human_eval`/`contact_email` like the survey would (not a scan).
 
 ## 7. Migrating off the old in-session setup
 
