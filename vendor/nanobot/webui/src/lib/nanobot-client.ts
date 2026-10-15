@@ -92,6 +92,7 @@ export type StreamError =
   | { kind: "chat_forbidden"; chatId?: string }
   | { kind: "invite_required"; chatId?: string }
   | { kind: "content_flagged"; chatId?: string; selfHarm?: boolean }
+  | { kind: "off_topic"; chatId?: string }
   | { kind: "command_forbidden"; chatId?: string; command?: string };
 
 type ErrorHandler = (error: StreamError) => void;
@@ -463,6 +464,8 @@ export class NanobotClient {
         this.emitError({ kind: "chat_forbidden", chatId: err.chat_id });
       } else if (err.detail === "invite_required") {
         this.emitError({ kind: "invite_required", chatId: err.chat_id });
+      } else if (err.detail === "off_topic") {
+        this.emitError({ kind: "off_topic", chatId: err.chat_id });
       } else if (err.detail === "content_flagged") {
         this.emitError({ kind: "content_flagged", chatId: err.chat_id, selfHarm: !!err.self_harm });
       } else if (err.detail === "command_forbidden") {

@@ -33,7 +33,7 @@ from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
-from nanobot import accounts, moderation, puzzle
+from nanobot import accounts, moderation, puzzle, topic_gate
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
@@ -1880,15 +1880,30 @@ class WebSocketChannel(BaseChannel):
         chat_id: str,
         content: str,
     ) -> bool:
-        """NANOBOT_MODERATION: refuse a message the moderation endpoint flags. True = rejected.
+        """Refuse a message the moderation endpoint flags (NANOBOT_MODERATION) or that is not
+        about badminton (NANOBOT_TOPIC_GATE). True = rejected.
 
-        [badmintonGPT fork] Slash commands are not checked (they never reach the model as text).
+        [badmintonGPT fork] Both checks run concurrently. Slash commands are not checked (they
+        never reach the model as text).
         """
-        if not moderation.enabled() or content.lstrip().startswith("/"):
+        if content.lstrip().startswith("/") or not (moderation.enabled() or topic_gate.enabled()):
             return False
-        verdict = await moderation.check(content)
+        verdict, scope = await asyncio.gather(
+            moderation.check(content),
+            topic_gate.check(content, self._recent_turns(chat_id)),
+        )
+        if scope.usage and account is not None:
+            self._bill_topic_gate(account, chat_id, scope)
         if not verdict.blocked:
-            return False
+            if scope.in_scope:
+                return False
+            logger.info(
+                "topic gate refused a message from {} in {}",
+                account.email if account is not None else "-",
+                chat_id,
+            )
+            await self._send_event(connection, "error", detail="off_topic", chat_id=chat_id)
+            return True
         logger.warning(
             "moderation blocked a message from {} in {}: {}",
             account.email if account is not None else "-",
@@ -1904,6 +1919,31 @@ class WebSocketChannel(BaseChannel):
             self_harm=verdict.self_harm,
         )
         return True
+
+    def _recent_turns(self, chat_id: str) -> list[tuple[str, str]]:
+        """The conversation so far, for the topic gate to judge follow-ups. [badmintonGPT fork]"""
+        if not topic_gate.enabled() or self._session_manager is None:
+            return []
+        data = self._session_manager.read_session_file(f"websocket:{chat_id}") or {}
+        return topic_gate.context_from_messages(data.get("messages") or [])
+
+    @staticmethod
+    def _bill_topic_gate(
+        account: accounts.Account, chat_id: str, scope: topic_gate.GateResult,
+    ) -> None:
+        """Charge the classifier call to the account like any other model call."""
+        if not accounts.accounts_enabled() or not scope.usage:
+            return
+        try:
+            accounts.ledger().record_llm(
+                email=account.email,
+                session_key=f"websocket:{chat_id}",
+                model=scope.model,
+                usage=scope.usage,
+                cost_usd=accounts.llm_cost_usd(scope.model, scope.usage),
+            )
+        except Exception:
+            logger.exception("failed to record topic gate usage for {}", account.email)
 
     async def _reject_foreign_chat(self, connection: Any, chat_id: str) -> bool:
         if self._authorize_chat(self._conn_account.get(connection), chat_id):

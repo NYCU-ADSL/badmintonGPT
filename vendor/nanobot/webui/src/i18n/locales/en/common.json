@@ -810,6 +810,10 @@
       "selfHarmTitle": "You're not alone",
       "selfHarmBody": "This message was not sent. If you are struggling or thinking about hurting yourself, please contact a local crisis line or emergency services right away."
     },
+    "offTopic": {
+      "title": "Badminton questions only",
+      "body": "BadmintonGPT only handles badminton match data, tactics, highlight reels and rally search, so this message was not sent. Please ask something about badminton."
+    },
     "chatForbidden": {
       "title": "Conversation unavailable",
       "body": "This conversation belongs to another account."

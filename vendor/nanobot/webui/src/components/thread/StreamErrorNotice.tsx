@@ -74,6 +74,8 @@ function resolveCopy(
           quota: (error.quotaUsd ?? 0).toFixed(2),
         }),
       };
+    case "off_topic":
+      return { title: t("errors.offTopic.title"), body: t("errors.offTopic.body") };
     case "content_flagged":
       return error.selfHarm
         ? { title: t("errors.contentFlagged.selfHarmTitle"), body: t("errors.contentFlagged.selfHarmBody") }

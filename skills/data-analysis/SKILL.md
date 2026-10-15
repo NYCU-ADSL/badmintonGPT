@@ -15,11 +15,14 @@ Do not skip the Python calculation step or calculate mentally or guess numbers.
 
 ## Environment (know this first)
 
-- The container has `python3` (3.12). exec runs in a **bwrap sandbox restricted to the workspace**.
-- Available: Python **standard library**—
+- The container has `python3` (3.12). exec runs in a **bwrap sandbox restricted to the workspace**
+  and accepts **only** `python3 -c '...'` — no `cd`, `&&`, pipes, heredocs or script files.
+- The code may import only these standard-library modules:
   `statistics` (mean / median / mode / pstdev / stdev / quantiles / correlation /
-  linear_regression), `collections` (Counter / defaultdict), `math`, `itertools`,
-  `json`, `csv`.
+  linear_regression), `collections` (Counter / defaultdict), `math`, `itertools`, `json`,
+  `functools`, `fractions`, `decimal`, `datetime`, `re`, `random`, `heapq`, `bisect`, `copy`.
+  `os`, `sys`, `open`, `eval`, `exec`, `getattr` and attributes starting with `_` are refused, so
+  there is no file or system access — embed the rows as a Python literal.
 - **Unavailable**: `pandas` / `numpy` / `matplotlib` / `scipy` (not installed). **Do not import them or
   run `pip install`**—installation fails in the sandbox and only wastes turns. The standard library suffices for ordinary badminton statistics.
 - exec **cannot access the database** (sandbox restrictions, and access should go through MCP anyway). Always fetch data through badminton-db MCP first.

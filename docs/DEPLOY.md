@@ -254,6 +254,26 @@ e-mail:
   - *Sandboxed commands have no network* (`NANOBOT_SANDBOX_NO_NETWORK=1` → bwrap
     `--unshare-net`): `exec` cannot reach the gateway, the compose network or the internet. Web
     access stays with `web_fetch` / `web_search` and their SSRF guard.
+  - *Badminton only*, for every account including the whitelist:
+    - **Topic gate** (`NANOBOT_TOPIC_GATE`, `nanobot/topic_gate.py`): `gpt-6-luna` at low effort
+      classifies each message, with the last six turns as context so follow-ups such as
+      "畫成長條圖" or "那第二局呢" pass, and refuses anything else (`off_topic`, *Badminton
+      questions only*). It runs concurrently with moderation (~1.3 s median), costs about
+      $0.00006 per message and is billed to the account. It refuses messages that mix badminton
+      with an off-topic request. On 24 test messages it was right on all 13 in scope and all 11
+      out of scope (CPU load, server specs, scraping code, weather, NBA, the system prompt, ...).
+      It fails open.
+    - **Calculation-only `exec`** (`NANOBOT_EXEC_PYTHON_ONLY`, `agent/tools/python_guard.py`):
+      the command must be exactly `python3 -c '<code>'` (re-quoted, so no shell syntax runs) and
+      the code may import only calculation modules (statistics, math, collections, json, ...); no
+      `os`, `sys`, `open`, `eval`, `getattr` or `_`-attributes. The data-analysis skill's
+      examples still run; `nproc`, `cat /proc/loadavg` and `import os` are refused.
+    - **Strict sandbox** (`NANOBOT_SANDBOX_STRICT`): bwrap also unshares IPC, UTS (hostname
+      `sandbox`) and cgroups, and masks `/proc/{loadavg,cpuinfo,meminfo,stat,uptime,...}`. A PID
+      namespace is not possible in the container, so other processes' command lines stay visible
+      to code that got past the guard.
+    - **Prompt rule**: `nanobot/workspace/SOUL.md` *Scope* tells the agent to decline everything
+      else without calling tools and never to describe the system it runs on.
 - **Identity:** by default the `Cf-Access-Authenticated-User-Email` header is trusted (safe only
   because `8765` is `expose`-only and only cloudflared reaches it). Set `CF_ACCESS_TEAM_DOMAIN` +
   `CF_ACCESS_AUD` to verify the `Cf-Access-Jwt-Assertion` signature instead (recommended).

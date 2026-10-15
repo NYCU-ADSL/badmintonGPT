@@ -35,12 +35,23 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
     # [badmintonGPT fork] NANOBOT_SANDBOX_NO_NETWORK=1: commands get their own empty network
     # namespace, so they cannot reach the gateway's own API on loopback, the compose network or
     # the internet (web access stays with the web_fetch / web_search tools and their SSRF guard).
-    if os.environ.get("NANOBOT_SANDBOX_NO_NETWORK", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if _flag("NANOBOT_SANDBOX_NO_NETWORK"):
         args.append("--unshare-net")
+    # NANOBOT_SANDBOX_STRICT=1 also isolates IPC, the hostname and cgroups, and masks the /proc
+    # files that describe the host (load, CPU, memory, uptime, mounts). A new PID namespace is not
+    # possible inside the container (mounting its /proc is refused), and python needs /proc.
+    strict = _flag("NANOBOT_SANDBOX_STRICT")
+    if strict:
+        args += ["--unshare-ipc", "--unshare-uts", "--hostname", "sandbox", "--unshare-cgroup-try"]
     for p in required: args += ["--ro-bind",     p, p]
     for p in optional: args += ["--ro-bind-try", p, p]
     args += [
         "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+    ]
+    if strict:
+        for name in _HOST_PROC_FILES:
+            args += ["--ro-bind-try", "/dev/null", f"/proc/{name}"]
+    args += [
         "--tmpfs", str(ws.parent),        # mask config dir
         "--dir", str(ws),                 # recreate workspace mount point
         "--bind", str(ws), str(ws),
@@ -51,6 +62,16 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
         "--", "sh", "-c", command,
     ]
     return shlex.join(args)
+
+
+_HOST_PROC_FILES = (
+    "loadavg", "cpuinfo", "meminfo", "stat", "uptime", "vmstat", "diskstats", "partitions",
+    "swaps", "version", "mounts",
+)
+
+
+def _flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _account_masks(ws: Path, media: Path) -> list[str]:

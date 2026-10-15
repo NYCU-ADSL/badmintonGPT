@@ -76,6 +76,13 @@ services:
       # user (it could only come from inside the container); exec commands also get no network,
       # so they cannot call the gateway's own API or anything else (web tools stay available).
       NANOBOT_SANDBOX_NO_NETWORK: "1"
+      # Badminton-only: exec runs nothing but calculation-only `python3 -c` (nanobot/agent/tools/
+      # python_guard.py), the sandbox also masks the host's /proc info, and a small model refuses
+      # messages that are not about badminton before the agent sees them (nanobot/topic_gate.py).
+      NANOBOT_EXEC_PYTHON_ONLY: "1"
+      NANOBOT_SANDBOX_STRICT: "1"
+      NANOBOT_TOPIC_GATE: ${NANOBOT_TOPIC_GATE:-1}
+      NANOBOT_TOPIC_GATE_MODEL: ${NANOBOT_TOPIC_GATE_MODEL:-gpt-6-luna}
       # Screen every chat message with OpenAI's moderation endpoint (fork, nanobot/moderation.py):
       # per-category thresholds tuned so badminton wording ("net kill", 殺球) passes; fail-open.
       NANOBOT_MODERATION: ${NANOBOT_MODERATION:-1}

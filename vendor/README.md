@@ -66,6 +66,15 @@ Backend (Python):
   `--unshare-net` under `NANOBOT_SANDBOX_NO_NETWORK=1`. Tests: `tests/test_moderation.py`,
   `tests/test_accounts.py`, `tests/channels/test_websocket_accounts.py`,
   `tests/tools/test_sandbox.py`, `webui/src/tests/content-flagged-notice.test.tsx`.
+  **Badminton only**: `nanobot/topic_gate.py` (opt-in `NANOBOT_TOPIC_GATE=1`) classifies each
+  message with a small Responses-API model, given the session's last turns, and
+  `_reject_flagged` refuses out-of-scope ones (`error` `off_topic`), running it concurrently
+  with moderation and billing it through the accounts ledger. `agent/tools/python_guard.py` +
+  `shell.py` `_prepare_command` (opt-in `NANOBOT_EXEC_PYTHON_ONLY=1`) accept only a re-quoted
+  `python3 -I -c <code>` whose AST imports only calculation modules and touches no
+  `open`/`eval`/`getattr`/`_`-attribute or module handle. `sandbox.py` `NANOBOT_SANDBOX_STRICT=1`
+  unshares IPC/UTS/cgroup and masks the host's `/proc` files. Tests: `tests/test_topic_gate.py`,
+  `tests/tools/test_python_guard.py`, `tests/tools/test_sandbox.py`.
 - **link-only puzzle page** (`webui/public/puzzle.html`, `nanobot/puzzle.py`, routes in
   `channels/websocket.py` `_handle_puzzle`; tests `tests/test_puzzle.py` +
   `tests/channels/test_websocket_accounts.py`) — a static answer page nothing links to, behind

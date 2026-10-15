@@ -277,6 +277,56 @@ async def test_flagged_messages_are_refused(bus, tmp_path, accounts_env, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_off_topic_messages_are_refused_and_billed(
+    bus, tmp_path, accounts_env, monkeypatch,
+) -> None:
+    from nanobot import topic_gate
+
+    monkeypatch.setenv("NANOBOT_TOPIC_GATE", "1")
+    seen: list[tuple[str, list[tuple[str, str]]]] = []
+
+    async def fake_check(text: str, context: list[tuple[str, str]], **_kw: Any):
+        seen.append((text, context))
+        usage = {"prompt_tokens": 400, "completion_tokens": 20, "cached_tokens": 0}
+        return topic_gate.GateResult(in_scope="CPU" not in text, model="gpt-6-luna", usage=usage)
+
+    monkeypatch.setattr(topic_gate, "check", fake_check)
+    sm = _seed(tmp_path, [])
+    channel = _ch(bus, sm, 29969)
+    task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        async with websockets.connect(
+            "ws://127.0.0.1:29969/?client_id=t", additional_headers=ALICE
+        ) as client:
+            await _recv(client, "ready")
+            await client.send(json.dumps({"type": "new_chat"}))
+            chat_id = (await _recv(client, "attached"))["chat_id"]
+            history = Session(key=f"websocket:{chat_id}")
+            history.add_message("user", "周天成在巴黎奧運的比分？")
+            history.add_message("assistant", "21–12、21–16")
+            sm.save(history)
+
+            await client.send(json.dumps(
+                {"type": "message", "chat_id": chat_id, "content": "目前 CPU 負載率多少"}
+            ))
+            assert (await _recv(client, "error"))["detail"] == "off_topic"
+            assert bus.publish_inbound.await_count == 0
+
+            await client.send(json.dumps(
+                {"type": "message", "chat_id": chat_id, "content": "那第二局呢？"}
+            ))
+            await asyncio.sleep(0.3)
+            assert bus.publish_inbound.await_count == 1
+        assert seen[1][1][-2:] == [("user", "周天成在巴黎奧運的比分？"), ("assistant", "21–12、21–16")]
+        # each classifier call is charged to the account: 2 x (400 x 0.10 + 20 x 0.50) / 1M
+        assert accounts_env.spent_usd("alice@uni.edu") == pytest.approx(0.0001)
+    finally:
+        await channel.stop()
+        await task
+
+
+@pytest.mark.asyncio
 async def test_loopback_is_not_admin_behind_the_proxy(bus, tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("NANOBOT_WEBUI_TRUST_PROXY", "1")
     channel = _ch(bus, _seed(tmp_path, []), 29968)

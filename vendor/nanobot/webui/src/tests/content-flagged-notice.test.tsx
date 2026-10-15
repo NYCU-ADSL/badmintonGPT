@@ -11,6 +11,11 @@ describe("content_flagged notice", () => {
     expect(screen.getByText(/rephrase your badminton question/)).toBeInTheDocument();
   });
 
+  it("explains the badminton-only scope", () => {
+    render(<StreamErrorNotice error={{ kind: "off_topic" }} onDismiss={vi.fn()} />);
+    expect(screen.getByText("Badminton questions only")).toBeInTheDocument();
+  });
+
   it("points to crisis support when self-harm was detected", () => {
     render(<StreamErrorNotice error={{ kind: "content_flagged", selfHarm: true }} onDismiss={vi.fn()} />);
     expect(screen.getByText("You're not alone")).toBeInTheDocument();

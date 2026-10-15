@@ -424,6 +424,12 @@ their own sessions/projects/cron jobs; the ledger is `~/.nanobot/accounts.db` (v
   flags "net kill"/殺球, so don't switch to it), fail-open; `NANOBOT_SANDBOX_NO_NETWORK=1` gives
   `exec` no network; behind `NANOBOT_WEBUI_TRUST_PROXY` a header-less loopback request is NOT the
   whitelisted local user (it used to let an `exec` command call the API as admin).
+  **Badminton only, for every account**: `NANOBOT_TOPIC_GATE=1` (`nanobot/topic_gate.py`, a
+  `gpt-6-luna` classifier with the last turns as context) refuses off-topic messages before the
+  agent; `NANOBOT_EXEC_PYTHON_ONLY=1` (`agent/tools/python_guard.py`) lets `exec` run only
+  `python3 -c` with calculation-module imports (so a skill that needs another module or shell
+  command must change the allowlist); `NANOBOT_SANDBOX_STRICT=1` masks the host's `/proc` info.
+  SOUL.md *Scope* is the prompt-side rule.
 - Pre-accounts sessions have no owner → invisible until `NANOBOT_ACCOUNTS_LEGACY_OWNER` adopts them.
 - Unattributed LLM calls (no session owner: e.g. idle auto-compaction outside a turn) are not
   billed to anyone.

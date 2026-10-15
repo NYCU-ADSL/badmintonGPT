@@ -730,6 +730,7 @@ export function useNanobotStream(
         (ev.detail === "quota_exhausted" ||
           ev.detail === "invite_required" ||
           ev.detail === "content_flagged" ||
+          ev.detail === "off_topic" ||
           ev.detail === "chat_forbidden" ||
           ev.detail === "command_forbidden")
       ) {
