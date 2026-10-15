@@ -13,7 +13,8 @@ A correct answer is followed by a short user survey (``GET /api/puzzle/survey``,
 account, only once solved); the page shows the stamp-collecting "done" screen only after it.
 Export the answers: ``python -m nanobot.puzzle export > survey.csv``.
 
-The "done" screen carries a QR code with the account's random ``stamp_code``. Staff (the
+The "done" screen carries a QR code with the account's ``stamp_code`` (a random 4-digit number,
+never handed out twice, also shown as text so staff can type it in). Staff (the
 ``NANOBOT_PUZZLE_STAFF`` list) scan it on ``/puzzle-staff.html``; ``GET /api/puzzle/staff/lookup``
 returns that player's survey and counts the scans, so a second stamp for one player shows up.
 
@@ -46,7 +47,8 @@ COOLDOWN_PER_WRONG_S = 30.0
 MAX_ANSWER_CHARS = 100
 
 # Survey fields (the page's form names). Ratings are inclusive integer ranges; choices are closed
-# sets. ``other_fit`` is asked (and required) only when ``tried_other`` is "yes".
+# sets. ``other_fit`` is asked (and required) only when ``tried_other`` is "yes", and
+# ``contact_email`` (where to send the human-evaluation invitation) only when ``human_eval`` is.
 SURVEY_RATINGS: dict[str, tuple[int, int]] = {
     "fit": (1, 5),         # 解謎時，回答符合需求
     "other_fit": (1, 5),   # 自己試的其他問題，回答符合需求
@@ -57,11 +59,15 @@ SURVEY_CHOICES: dict[str, tuple[str, ...]] = {
     "tried_other": ("yes", "no"),
     "role": ("player", "coach", "amateur", "fan", "research", "public", "other"),
     "level": ("none", "casual", "regular", "competitive"),
+    "human_eval": ("yes", "no"),  # 願意參與線上評測（human evaluation）
 }
 SURVEY_TEXT_MAX_CHARS = 500  # ``suggestion``; keeps the GET URL under the 8 KiB request-line cap
+SURVEY_EMAIL_MAX_CHARS = 254
 SURVEY_FIELDS = (
-    "fit", "tried_other", "other_fit", "overall", "recommend", "role", "level", "suggestion",
+    "fit", "tried_other", "other_fit", "overall", "recommend", "role", "level",
+    "human_eval", "contact_email", "suggestion",
 )
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS puzzle_attempts (
@@ -78,7 +84,11 @@ CREATE TABLE IF NOT EXISTS puzzle_surveys (
     scan_count       INTEGER NOT NULL DEFAULT 0,
     first_scanned_at REAL
 );
+-- every stamp code ever handed out, kept when a survey row is deleted, so a code is never reused
+-- (an old screenshot must not point at someone else's survey)
+CREATE TABLE IF NOT EXISTS puzzle_stamp_codes (code TEXT PRIMARY KEY);
 """
+STAMP_CODE_RE = re.compile(r"[1-9][0-9]{3,}")  # 4 digits, no leading zero; 5+ only once 4 run out
 
 
 def configured_answer() -> str:
@@ -97,8 +107,9 @@ def is_staff(email: str | None) -> bool:
 
 
 def normalize_stamp_code(value: str) -> str:
-    """Accept a bare code or the whole scanned URL (``.../puzzle-staff.html#c=<code>``)."""
-    value = (value or "").strip()
+    """Accept a typed code (full-width digits and spaces too: 「１２ ３４」) or the whole scanned
+    URL (``.../puzzle-staff.html#c=<code>``)."""
+    value = "".join(unicodedata.normalize("NFKC", value or "").split())
     match = re.search(r"[#?&]c=([A-Za-z0-9_-]+)", value)
     return match.group(1) if match else value
 
@@ -127,6 +138,11 @@ def validate_survey(raw: dict[str, str]) -> tuple[dict[str, Any] | None, str | N
         if not value.isdigit() or not low <= int(value) <= high:
             return None, field
         answers[field] = int(value)
+    if answers["human_eval"] == "yes":
+        contact = (raw.get("contact_email") or "").strip()
+        if len(contact) > SURVEY_EMAIL_MAX_CHARS or not _EMAIL_RE.fullmatch(contact):
+            return None, "contact_email"
+        answers["contact_email"] = contact
     suggestion = (raw.get("suggestion") or "").strip()
     if len(suggestion) > SURVEY_TEXT_MAX_CHARS:
         return None, "suggestion"
@@ -147,23 +163,45 @@ class PuzzleStore:
         self._migrate()
 
     def _migrate(self) -> None:
-        """Bring a ``puzzle_surveys`` table from before the staff QR up to date (the CREATE above
-        skips an existing table): add the scan columns and give every old survey a stamp code."""
+        """Bring an older ``puzzle_surveys`` table up to date (the CREATE above skips an existing
+        table): add the scan columns, and swap any stamp code that is not a short number (the
+        first version used 16-character tokens, too long to type) for a new one."""
         cols = {row[1] for row in self._db.execute("PRAGMA table_info(puzzle_surveys)")}
-        if "stamp_code" in cols:
-            return
-        self._db.execute("ALTER TABLE puzzle_surveys ADD COLUMN stamp_code TEXT")
-        self._db.execute("ALTER TABLE puzzle_surveys ADD COLUMN scan_count INTEGER NOT NULL DEFAULT 0")
-        self._db.execute("ALTER TABLE puzzle_surveys ADD COLUMN first_scanned_at REAL")
-        for (email,) in self._db.execute("SELECT email FROM puzzle_surveys").fetchall():
-            self._db.execute(
-                "UPDATE puzzle_surveys SET stamp_code = ? WHERE email = ?",
-                (secrets.token_urlsafe(12), email),
-            )
+        if "stamp_code" not in cols:
+            self._db.execute("ALTER TABLE puzzle_surveys ADD COLUMN stamp_code TEXT")
+            self._db.execute("ALTER TABLE puzzle_surveys ADD COLUMN scan_count INTEGER NOT NULL DEFAULT 0")
+            self._db.execute("ALTER TABLE puzzle_surveys ADD COLUMN first_scanned_at REAL")
         self._db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS puzzle_surveys_stamp_code ON puzzle_surveys(stamp_code)"
         )
-        logger.info("puzzle store: added stamp codes to the survey table")
+        rows = self._db.execute("SELECT email, stamp_code FROM puzzle_surveys").fetchall()
+        for _, code in rows:
+            if code and STAMP_CODE_RE.fullmatch(code):
+                self._db.execute("INSERT OR IGNORE INTO puzzle_stamp_codes VALUES (?)", (code,))
+        renewed = 0
+        for email, code in rows:
+            if not (code and STAMP_CODE_RE.fullmatch(code)):
+                self._db.execute(
+                    "UPDATE puzzle_surveys SET stamp_code = ? WHERE email = ?",
+                    (self._new_stamp_code(), email),
+                )
+                renewed += 1
+        if renewed:
+            logger.info("puzzle store: gave {} survey(s) a new numeric stamp code", renewed)
+
+    def _new_stamp_code(self) -> str:
+        """A random code never handed out before, recorded as used. 1000-9999 (4 digits; no
+        leading zero to drop when typed); only after all 9000 are gone, 5 digits, and so on."""
+        used = {row[0] for row in self._db.execute("SELECT code FROM puzzle_stamp_codes")}
+        low = 1000
+        while True:
+            free = [n for n in range(low, low * 10) if str(n) not in used]
+            if free:
+                break
+            low *= 10
+        code = str(secrets.choice(free))
+        self._db.execute("INSERT INTO puzzle_stamp_codes VALUES (?)", (code,))
+        return code
 
     def close(self) -> None:
         with self._lock:
@@ -213,11 +251,12 @@ class PuzzleStore:
             if solved_at is None:
                 body = self._payload(email, wrong, locked_until, solved_at, now)
                 return {**body, "ok": False, "reason": "unsolved"}
-            self._db.execute(
-                "INSERT OR IGNORE INTO puzzle_surveys(email, submitted_at, answers, stamp_code) "
-                "VALUES (?, ?, ?, ?)",
-                (email, now, json.dumps(answers, ensure_ascii=False), secrets.token_urlsafe(12)),
-            )
+            if self._survey(email)[0] is None:  # a second submission keeps the first
+                self._db.execute(
+                    "INSERT INTO puzzle_surveys(email, submitted_at, answers, stamp_code) "
+                    "VALUES (?, ?, ?, ?)",
+                    (email, now, json.dumps(answers, ensure_ascii=False), self._new_stamp_code()),
+                )
             return {**self._payload(email, wrong, locked_until, solved_at, now), "ok": True}
 
     def scan(self, stamp_code: str, *, now: float | None = None) -> dict[str, Any] | None:

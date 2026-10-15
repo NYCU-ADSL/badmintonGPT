@@ -84,10 +84,10 @@ Backend (Python):
   account waits n/2 minutes (429 + `Retry-After` until then); per-e-mail state in
   `~/.nanobot/puzzle.db` survives restarts. A correct answer opens a short user survey
   (`GET /api/puzzle/survey?...`, fields validated against `puzzle.SURVEY_RATINGS`/`_CHOICES`,
-  once per account, 403 before solving); the stamp-collecting "done" screen (account, completion
+  once per account, 403 before solving); the stamp-collecting "done" screen (completion
   time, a live clock against screenshots) shows only after the server stored it.
   `python -m nanobot.puzzle export` dumps the answers as CSV. The done screen's QR
-  (`/puzzle-staff.html#c=<stamp_code>`) is for the staff scanner `webui/public/puzzle-staff.html`
+  (`/puzzle-staff.html#c=<stamp_code>`, a never-reused 4-digit number also shown as text) is for the staff scanner `webui/public/puzzle-staff.html`
   (camera via jsQR, or opened from a phone camera app): `GET /api/puzzle/staff` /
   `/api/puzzle/staff/lookup?code=` answer only `NANOBOT_PUZZLE_STAFF` accounts, return the survey
   and count scans. Shared questions + API client: `public/puzzle-common.js`; QR libraries

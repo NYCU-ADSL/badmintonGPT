@@ -1607,8 +1607,14 @@ class WebSocketChannel(BaseChannel):
         if ctype.startswith("text/") or ctype in {"application/javascript", "application/json"}:
             ctype = f"{ctype}; charset=utf-8"
         # Hash-named build assets are cache-friendly; HTML pages (index.html, the public
-        # welcome.html) are not content-hashed and must stay fresh.
-        if candidate.suffix == ".html":
+        # welcome.html) are not content-hashed and must stay fresh. [badmintonGPT fork] So are
+        # scripts/styles copied from ``public/`` unhashed (``puzzle-common.js`` holds the survey
+        # questions: cached as immutable, an edited survey never reached returning visitors);
+        # ``assets/`` (Vite hashes) and ``vendor/`` (version in the file name) stay immutable.
+        top = candidate.relative_to(self._static_dist_path).parts[0]
+        if candidate.suffix == ".html" or (
+            candidate.suffix in {".js", ".css"} and top not in {"assets", "vendor"}
+        ):
             cache = "no-cache"
         else:
             cache = "public, max-age=31536000, immutable"

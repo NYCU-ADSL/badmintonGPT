@@ -421,7 +421,7 @@ async def test_puzzle_answer_is_checked_per_account(bus, tmp_path, monkeypatch) 
         assert (await _get(f"{base}/api/puzzle/answer?answer=", alice)).status_code == 400
 
         survey = (
-            "fit=5&tried_other=no&overall=4&recommend=4&role=fan&level=none"
+            "fit=5&tried_other=no&overall=4&recommend=4&role=fan&level=none&human_eval=no"
             f"&suggestion={quote('想要更多影片')}"
         )
         unsolved = await _get(f"{base}/api/puzzle/survey?{survey}", alice)

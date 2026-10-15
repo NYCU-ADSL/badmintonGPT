@@ -304,16 +304,21 @@ it) where a signed-in user types a puzzle answer. It needs no Cloudflare change:
   `docker compose exec gateway python -c "import sqlite3,os; sqlite3.connect(os.path.expanduser('~/.nanobot/puzzle.db')).execute('DELETE FROM puzzle_attempts WHERE email=?', ('someone@example.org',)).connection.commit()"`.
 - A correct answer is followed by a one-minute user survey (1–5 scales with every point labeled:
   answer fit, whether they tried other questions and how those went, overall satisfaction,
-  likelihood to recommend; then role (選手/教練/業餘愛好者/球迷/研究人員/一般民眾/其他), play level, free-text suggestions). Only after it is submitted does the page show **完成**
-  with the account, completion time and a ticking clock — that screen is what staff stamp (a
+  likelihood to recommend; then role (選手/教練/業餘愛好者/球迷/研究人員/一般民眾/其他), play level, willingness to join
+  an online human evaluation — 願意 then asks for the e-mail to invite (left
+  empty for them to type) — and free-text suggestions; the CSV export has `human_eval` and `contact_email`). Only after it is submitted does the page show **完成**
+  with the completion time and a ticking clock (not the account) — that screen is what staff stamp (a
   frozen clock means a screenshot). One survey per account, stored in the same `puzzle.db`.
   Export: `docker compose exec -T gateway python -m nanobot.puzzle export > survey.csv`
   (UTF-8 with BOM, times in UTC).
-- The done screen shows a QR code (`/puzzle-staff.html#c=<random code>`). Staff listed in
+- The done screen shows a QR code (`/puzzle-staff.html#c=<code>`) and the same 集章代碼 as
+  digits: a random 4-digit number (1000–9999), never handed out twice — not even after its
+  survey row is deleted (`puzzle_stamp_codes` keeps every issued code). Staff listed in
   `NANOBOT_PUZZLE_STAFF` (`.env`, comma separated, `@domain` ok; then `docker compose up -d`)
   open `https://badmintongpt.<your-zone>/puzzle-staff.html` and tap **開始掃描** (camera, needs
   HTTPS — fine behind the tunnel), or just scan with the phone's camera app, which opens the same
-  page. It shows the player's 身份, 羽球程度, 建議 and every rating of 2 or lower, plus a red
+  page; if the camera won't read it, type the 4 digits into the box below. It shows the player's 身份, 羽球程度, 建議, whether they agreed to the online human
+  evaluation (with the e-mail they gave for the invitation) and every rating of 2 or lower, plus a red
   warning when that QR was already scanned (= already stamped). Anyone else gets "staff only".
 
 ## 7. Migrating off the old in-session setup

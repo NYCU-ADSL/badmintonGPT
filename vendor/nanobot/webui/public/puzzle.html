@@ -175,6 +175,7 @@
         border-radius: 12px;
         padding: 10px 12px;
       }
+      .email-input { display: block; width: 100%; font-size: 16px; }
       textarea:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
       .chars { text-align: right; font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
       #survey-submit { width: 100%; padding: 12px 20px; margin-top: 4px; }
@@ -185,6 +186,9 @@
       .qr { width: 260px; max-width: 100%; margin: 16px auto 0; background: #fff; border-radius: 12px; line-height: 0; }
       .qr:empty { display: none; }
       .qr svg { width: 100%; height: auto; }
+      .code { margin: 10px 0 0; font-size: 14px; color: var(--ink-soft); }
+      .code:empty { display: none; }
+      .code b { display: block; font-size: 34px; line-height: 1.2; letter-spacing: 0.18em; padding-left: 0.18em; color: var(--ink); font-variant-numeric: tabular-nums; }
       .facts { margin: 18px auto 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; text-align: left; font-size: 14px; max-width: 320px; }
       .facts dt { color: var(--ink-soft); }
       .facts dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
@@ -221,8 +225,8 @@
         <p>完成！</p>
         <p class="done-note">請出示此畫面給工作人員掃描集章</p>
         <div id="done-qr" class="qr"></div>
+        <p id="done-code" class="code"></p>
         <dl class="facts">
-          <dt>帳號</dt><dd id="done-email">—</dd>
           <dt>完成時間</dt><dd id="done-at">—</dd>
           <dt>現在時間</dt><dd id="done-now">—</dd>
         </dl>
@@ -232,7 +236,8 @@
     </main>
 
     <script src="/vendor/qrcode-generator-2.0.4.js"></script>
-    <script src="/puzzle-common.js"></script>
+    <!-- ?v=: the first copies went out cached as immutable; a new URL skips them -->
+    <script src="/puzzle-common.js?v=2"></script>
     <script>
       (function () {
         var $ = function (id) { return document.getElementById(id); };
@@ -313,6 +318,11 @@
               var opts = el("div", { "class": "opts" });
               q.options.forEach(function (o) { opts.appendChild(pill(q.name, o[0], o[1])); });
               fs.appendChild(opts);
+            } else if (q.type === "email") {
+              fs.appendChild(el("input", {
+                type: "email", name: q.name, maxlength: String(q.max), autocomplete: "email",
+                inputmode: "email", "class": "email-input", "aria-label": q.label,
+              }));
             } else {
               var ta = el("textarea", { name: q.name, maxlength: String(q.max), "aria-label": q.label });
               var count = el("div", { "class": "chars" }, "0 / " + q.max);
@@ -326,13 +336,17 @@
           form.appendChild(el("button", { id: "survey-submit", type: "submit" }, "送出問卷"));
           form.addEventListener("change", function (ev) {
             QUESTIONS.forEach(function (q) {
-              if (q.when) $("q-" + q.name).hidden = value(q.when[0]) !== q.when[1];
+              if (!q.when) return;
+              var shown = value(q.when[0]) === q.when[1];
+              $("q-" + q.name).hidden = !shown;
             });
             var fs = ev.target.closest("fieldset");
             if (fs) fs.classList.remove("missing");
           });
           form.addEventListener("submit", submitSurvey);
         }
+
+        var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;  // same check as nanobot/puzzle.py
 
         function value(name) {
           var f = $("survey-form").elements[name];
@@ -347,14 +361,16 @@
             var fs = $("q-" + q.name);
             if (fs.hidden) return;
             var v = value(q.name);
-            fs.classList.toggle("missing", !v && !q.optional);
-            if (!v && !q.optional && !missing) missing = fs;
+            var bad = (!v && !q.optional) || (q.type === "email" && !EMAIL_RE.test(v));
+            fs.classList.toggle("missing", bad);
+            if (bad && !missing) missing = fs;
             params.push(encodeURIComponent(q.name) + "=" + encodeURIComponent(v));
           });
           var msg = $("survey-msg");
           if (missing) {
             msg.className = "msg bad";
-            msg.textContent = "還有題目沒有填（紅框）。";
+            msg.textContent = missing.id === "q-contact_email" && value("contact_email")
+              ? "電子信箱格式不正確（紅框）。" : "還有題目沒有填（紅框）。";
             missing.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
           }
@@ -386,7 +402,6 @@
           $("survey").hidden = true;
           $("solved").hidden = false;
           document.querySelector("main").classList.remove("wide");
-          $("done-email").textContent = Puzzle.email() || "—";
           if (s.stamp_code) {
             // Level L: fewer, bigger modules than M, so a camera locks on faster (a screen
             // doesn't get dirty or torn, which is what the extra error correction is for).
@@ -394,6 +409,9 @@
             qr.addData(Puzzle.stampUrl(s.stamp_code));
             qr.make();
             $("done-qr").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 16, scalable: true, alt: "集章 QR Code" });
+            // also as digits, for when the staff camera can't read the QR
+            $("done-code").innerHTML = "集章代碼<b></b>";
+            $("done-code").querySelector("b").textContent = s.stamp_code;
           }
           $("done-at").textContent = s.surveyed_at ? stamp(new Date(s.surveyed_at * 1000)) : "—";
           // A ticking clock tells staff this is the live page, not a forwarded screenshot.

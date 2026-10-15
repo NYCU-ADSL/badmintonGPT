@@ -22,6 +22,11 @@
     { name: "level", type: "choice", label: "你的羽球程度",
       options: [["none", "幾乎不打"], ["casual", "偶爾休閒打"], ["regular", "固定打球（社團、系隊）"],
                 ["competitive", "校隊或以上"]] },
+    { name: "human_eval", type: "choice", short: "線上評測",
+      label: "是否願意參與 BadmintonGPT 的線上評測（human evaluation）？我們會再寄信邀請您。",
+      options: [["yes", "願意"], ["no", "不願意"]] },
+    { name: "contact_email", type: "email", when: ["human_eval", "yes"], max: 254,
+      label: "您的電子信箱" },
     { name: "suggestion", type: "text", optional: true, max: 500,
       label: "有什麼建議，或希望 BadmintonGPT 增加什麼功能？" },
   ];

@@ -52,7 +52,8 @@ def test_attempts_survive_reopening_the_store(tmp_path) -> None:
 
 GOOD_SURVEY = {
     "fit": "5", "tried_other": "yes", "other_fit": "3", "overall": "4",
-    "recommend": "4", "role": "player", "level": "casual", "suggestion": "  想看雙打數據 ",
+    "recommend": "4", "role": "player", "level": "casual", "human_eval": "yes",
+    "contact_email": " me@uni.edu ", "suggestion": "  想看雙打數據 ",
 }
 
 
@@ -60,7 +61,8 @@ def test_survey_validation() -> None:
     answers, bad = puzzle.validate_survey(GOOD_SURVEY)
     assert bad is None and answers == {
         "tried_other": "yes", "role": "player", "level": "casual", "fit": 5,
-        "other_fit": 3, "overall": 4, "recommend": 4, "suggestion": "想看雙打數據",
+        "other_fit": 3, "overall": 4, "recommend": 4, "human_eval": "yes",
+        "contact_email": "me@uni.edu", "suggestion": "想看雙打數據",
     }
     # other_fit is only asked (and kept) after "yes"
     answers, bad = puzzle.validate_survey({**GOOD_SURVEY, "tried_other": "no", "other_fit": ""})
@@ -71,6 +73,12 @@ def test_survey_validation() -> None:
     assert puzzle.validate_survey({**GOOD_SURVEY, "recommend": "-1"}) == (None, "recommend")
     assert "speed" not in puzzle.validate_survey({**GOOD_SURVEY, "speed": "3"})[0]
     assert puzzle.validate_survey({**GOOD_SURVEY, "role": "boss"}) == (None, "role")
+    assert puzzle.validate_survey({**GOOD_SURVEY, "human_eval": ""}) == (None, "human_eval")
+    for bad_email in ("", "me", "me@uni", "a b@uni.edu", "x" * 250 + "@u.edu"):
+        assert puzzle.validate_survey({**GOOD_SURVEY, "contact_email": bad_email}) == (
+            None, "contact_email")
+    answers, bad = puzzle.validate_survey({**GOOD_SURVEY, "human_eval": "no", "contact_email": "x"})
+    assert bad is None and "contact_email" not in answers
     assert puzzle.validate_survey({**GOOD_SURVEY, "suggestion": ""})[1] is None
     too_long = "字" * (puzzle.SURVEY_TEXT_MAX_CHARS + 1)
     assert puzzle.validate_survey({**GOOD_SURVEY, "suggestion": too_long}) == (None, "suggestion")
@@ -105,6 +113,7 @@ def test_staff_list_and_stamp_code_parsing(monkeypatch) -> None:
     assert not puzzle.is_staff("staff@x.org")
     assert puzzle.normalize_stamp_code("https://h/puzzle-staff.html#c=Ab-_9") == "Ab-_9"
     assert puzzle.normalize_stamp_code(" Ab-_9 ") == "Ab-_9"
+    assert puzzle.normalize_stamp_code("１２ ３４") == "1234"
 
 
 def test_scan_counts_and_returns_the_survey(tmp_path) -> None:
@@ -113,7 +122,8 @@ def test_scan_counts_and_returns_the_survey(tmp_path) -> None:
         s.attempt("a@x", "謎底", "謎底", now=1.0)
         answers, _ = puzzle.validate_survey(GOOD_SURVEY)
         code = s.submit_survey("a@x", answers, now=2.0)["stamp_code"]
-        assert code and s.status("a@x")["stamp_code"] == code
+        assert puzzle.STAMP_CODE_RE.fullmatch(code) and len(code) == 4
+        assert s.status("a@x")["stamp_code"] == code
         assert s.scan("nope") is None
 
         first = s.scan(code, now=10.0)
@@ -148,3 +158,48 @@ def test_survey_table_from_before_the_staff_qr_is_migrated(tmp_path) -> None:
     finally:
         s.close()
     puzzle.PuzzleStore(tmp_path / "p.db").close()  # second open: already migrated, no error
+
+
+def test_stamp_codes_are_never_handed_out_twice(tmp_path, monkeypatch) -> None:
+    s = puzzle.PuzzleStore(tmp_path / "p.db")
+    try:
+        answers, _ = puzzle.validate_survey(GOOD_SURVEY)
+        s.attempt("a@x", "謎底", "謎底", now=1.0)
+        first = s.submit_survey("a@x", answers, now=2.0)["stamp_code"]
+        assert s.submit_survey("a@x", answers, now=3.0)["stamp_code"] == first  # resubmit keeps it
+        s._db.execute("DELETE FROM puzzle_surveys")  # what deleting the responses does
+        # leave only the deleted code and one other free: the new survey must get the other one
+        s._db.executemany(
+            "INSERT INTO puzzle_stamp_codes VALUES (?)",
+            [(str(n),) for n in range(1000, 10000) if str(n) not in (first, "4321")],
+        )
+        assert s.submit_survey("a@x", answers, now=4.0)["stamp_code"] == "4321" != first
+        s.attempt("b@x", "謎底", "謎底", now=5.0)
+        assert len(s.submit_survey("b@x", answers, now=6.0)["stamp_code"]) == 5  # 4 digits used up
+    finally:
+        s.close()
+
+
+def test_long_stamp_codes_from_the_first_version_become_numbers(tmp_path) -> None:
+    import sqlite3
+
+    db = sqlite3.connect(tmp_path / "p.db")
+    db.executescript(
+        "CREATE TABLE puzzle_attempts (email TEXT PRIMARY KEY, wrong_count INTEGER NOT NULL DEFAULT 0,"
+        " locked_until REAL NOT NULL DEFAULT 0, solved_at REAL);"
+        "CREATE TABLE puzzle_surveys (email TEXT PRIMARY KEY, submitted_at REAL NOT NULL,"
+        " answers TEXT NOT NULL, stamp_code TEXT NOT NULL UNIQUE,"
+        " scan_count INTEGER NOT NULL DEFAULT 0, first_scanned_at REAL);"
+        "INSERT INTO puzzle_surveys VALUES ('a@x', 2.0, '{}', 'Xk3_9fQa-Lm2PzR7', 1, 9.0);"
+        "INSERT INTO puzzle_surveys VALUES ('b@x', 3.0, '{}', '5678', 0, NULL);"
+    )
+    db.commit()
+    db.close()
+    s = puzzle.PuzzleStore(tmp_path / "p.db")
+    try:
+        code = s.status("a@x")["stamp_code"]
+        assert len(code) == 4 and code != "5678"
+        assert s.scan(code)["scan_count"] == 2  # the scan history moves with it
+        assert s.status("b@x")["stamp_code"] == "5678"
+    finally:
+        s.close()

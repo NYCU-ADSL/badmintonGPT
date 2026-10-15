@@ -165,7 +165,7 @@
         </div>
         <button id="toggle" class="wide" type="button">開始掃描</button>
         <form id="manual" autocomplete="off">
-          <input id="code" placeholder="或貼上代碼／網址" aria-label="代碼或網址" />
+          <input id="code" inputmode="numeric" placeholder="或輸入集章代碼" aria-label="集章代碼" />
           <button type="submit">查詢</button>
         </form>
         <p id="msg" class="msg" role="status" aria-live="polite"></p>
@@ -178,6 +178,7 @@
           <dt>身份</dt><dd id="r-role"></dd>
           <dt>羽球程度</dt><dd id="r-level"></dd>
           <dt>2 分以下</dt><dd id="r-low"></dd>
+          <dt>線上評測</dt><dd id="r-eval"></dd>
           <dt>建議</dt><dd id="r-suggestion"></dd>
         </dl>
         <button id="next" class="wide next" type="button">掃下一位</button>
@@ -187,7 +188,8 @@
     </main>
 
     <script src="/vendor/jsQR-1.4.0.js"></script>
-    <script src="/puzzle-common.js"></script>
+    <!-- ?v=: the first copies went out cached as immutable; a new URL skips them -->
+    <script src="/puzzle-common.js?v=2"></script>
     <script>
       (function () {
         var $ = function (id) { return document.getElementById(id); };
@@ -256,6 +258,10 @@
           } else {
             lowEl.textContent = "沒有";
           }
+          var ev = $("r-eval");
+          ev.textContent = a.human_eval === "yes" ? "願意（" + a.contact_email + "）"
+            : a.human_eval ? choiceText("human_eval", a.human_eval) : "（未填）";
+          ev.className = a.human_eval ? "" : "none";
           $("r-suggestion").textContent = a.suggestion || "（未填）";
           $("r-suggestion").className = a.suggestion ? "" : "none";
 

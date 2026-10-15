@@ -589,6 +589,9 @@ async def test_static_serves_index_when_dist_present(
     (dist / "index.html").write_text("<!doctype html><title>nbweb</title>")
     (dist / "favicon.svg").write_text("<svg/>")
     (dist / "welcome.html").write_text("<!doctype html><title>welcome</title>")
+    (dist / "puzzle-common.js").write_text("var q = 1;")
+    (dist / "assets").mkdir()
+    (dist / "assets" / "index-abc123.js").write_text("var a = 1;")
     sm = _seed_session(tmp_path / "ws_state")
     channel = _ch(bus, session_manager=sm, static_dist_path=dist, port=29905)
     server_task = asyncio.create_task(channel.start())
@@ -609,6 +612,11 @@ async def test_static_serves_index_when_dist_present(
         assert welcome.status_code == 200
         assert "welcome" in welcome.text
         assert welcome.headers.get("cache-control") == "no-cache"
+        # Unhashed public/ scripts must stay fresh too; hashed build output may be immutable.
+        common = await _http_get("http://127.0.0.1:29905/puzzle-common.js")
+        assert common.headers.get("cache-control") == "no-cache"
+        hashed = await _http_get("http://127.0.0.1:29905/assets/index-abc123.js")
+        assert "immutable" in hashed.headers.get("cache-control", "")
         # Unknown SPA route falls back to index.html.
         spa = await _http_get("http://127.0.0.1:29905/sessions/abc")
         assert spa.status_code == 200
